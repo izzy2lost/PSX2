@@ -2344,6 +2344,18 @@ GSDevice::PresentResult GSDeviceVK::BeginPresent(bool frame_skip)
 		else if (res == VK_ERROR_SURFACE_LOST_KHR)
 		{
 			Console.Warning("VK: Surface lost, attempting to recreate");
+#ifdef __ANDROID__
+			if (m_window_info.type == WindowInfo::Type::Android)
+			{
+				if (!UpdateWindow())
+				{
+					Console.Error("VK: Failed to reacquire Android surface after loss");
+					ExecuteCommandBuffer(false);
+					return PresentResult::FrameSkipped;
+				}
+			}
+			else
+#endif
 			if (!m_swap_chain->RecreateSurface(m_window_info))
 			{
 				Console.Error("VK: Failed to recreate surface after loss");
@@ -2351,7 +2363,7 @@ GSDevice::PresentResult GSDeviceVK::BeginPresent(bool frame_skip)
 				return PresentResult::FrameSkipped;
 			}
 
-			res = m_swap_chain->AcquireNextImage();
+			res = m_swap_chain ? m_swap_chain->AcquireNextImage() : VK_ERROR_SURFACE_LOST_KHR;
 		}
 
 		// This can happen when multiple resize events happen in quick succession.

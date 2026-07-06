@@ -1287,7 +1287,16 @@ void VMManager::PrecacheCDVDFile()
 bool VMManager::Initialize(VMBootParameters boot_params)
 {
 	const Common::Timer init_timer;
-	pxAssertRel(s_state.load(std::memory_order_acquire) == VMState::Shutdown, "VM is shutdown");
+	const VMState current_state = s_state.load(std::memory_order_acquire);
+#ifdef __ANDROID__
+	if (current_state != VMState::Shutdown)
+	{
+		Console.Warning("VMManager::Initialize() ignored duplicate start while VM state is %d", static_cast<int>(current_state));
+		return false;
+	}
+#else
+	pxAssertRel(current_state == VMState::Shutdown, "VM is shutdown");
+#endif
 
 	// cancel any game list scanning, we need to use CDVD!
 	// TODO: we can get rid of this once, we make CDVD not use globals...
@@ -3726,4 +3735,3 @@ void VMManager::PollDiscordPresence()
 
 	Discord_RunCallbacks();
 }
-

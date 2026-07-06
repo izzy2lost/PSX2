@@ -1,6 +1,7 @@
 package com.izzy2lost.psx2;
 
 import android.app.Dialog;
+import android.content.Context;
 import android.os.Bundle;
 import android.view.LayoutInflater;
 import android.view.View;
@@ -36,8 +37,9 @@ public class AchievementsListDialogFragment extends DialogFragment {
     }
 
     private View createView() {
-        ScrollView scrollView = new ScrollView(requireContext());
-        LinearLayout layout = new LinearLayout(requireContext());
+        Context context = requireContext();
+        ScrollView scrollView = new ScrollView(context);
+        LinearLayout layout = new LinearLayout(context);
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(24, 24, 24, 24);
 
@@ -46,9 +48,9 @@ public class AchievementsListDialogFragment extends DialogFragment {
             try {
                 Achievement[] achievements = NativeApp.achievementsGetAchievementList();
                 
-                requireActivity().runOnUiThread(() -> {
+                UiUtils.postIfFragmentAttached(this, () -> {
                     if (achievements == null || achievements.length == 0) {
-                        TextView emptyText = new TextView(requireContext());
+                        TextView emptyText = new TextView(context);
                         emptyText.setText("No achievements found for this game.");
                         emptyText.setPadding(0, 16, 0, 16);
                         layout.addView(emptyText);
@@ -66,7 +68,7 @@ public class AchievementsListDialogFragment extends DialogFragment {
                         }
 
                         // Summary
-                        TextView summary = new TextView(requireContext());
+                        TextView summary = new TextView(context);
                         summary.setText(String.format("Unlocked: %d / %d (%d / %d points)",
                             unlockedCount, achievements.length, earnedPoints, totalPoints));
                         summary.setTextSize(16);
@@ -75,13 +77,14 @@ public class AchievementsListDialogFragment extends DialogFragment {
 
                         // Add each achievement
                         for (Achievement achievement : achievements) {
-                            layout.addView(createAchievementView(achievement));
+                            layout.addView(createAchievementView(context, achievement));
                         }
                     }
                 });
             } catch (Exception e) {
-                requireActivity().runOnUiThread(() -> {
-                    Toast.makeText(requireContext(), "Error loading achievements: " + e.getMessage(),
+                final String errorMessage = e.getMessage();
+                UiUtils.postIfFragmentAttached(this, () -> {
+                    Toast.makeText(context, "Error loading achievements: " + errorMessage,
                         Toast.LENGTH_SHORT).show();
                 });
             }
@@ -91,44 +94,44 @@ public class AchievementsListDialogFragment extends DialogFragment {
         return scrollView;
     }
 
-    private View createAchievementView(Achievement achievement) {
-        LinearLayout itemLayout = new LinearLayout(requireContext());
+    private View createAchievementView(Context context, Achievement achievement) {
+        LinearLayout itemLayout = new LinearLayout(context);
         itemLayout.setOrientation(LinearLayout.HORIZONTAL);
         itemLayout.setPadding(0, 8, 0, 8);
 
         // Icon placeholder (we'll add image loading later)
-        TextView icon = new TextView(requireContext());
+        TextView icon = new TextView(context);
         icon.setText(achievement.unlocked ? "🏆" : "🔒");
         icon.setTextSize(32);
         icon.setPadding(0, 0, 16, 0);
         itemLayout.addView(icon);
 
         // Text content
-        LinearLayout textLayout = new LinearLayout(requireContext());
+        LinearLayout textLayout = new LinearLayout(context);
         textLayout.setOrientation(LinearLayout.VERTICAL);
         textLayout.setLayoutParams(new LinearLayout.LayoutParams(
             0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.0f));
 
-        TextView title = new TextView(requireContext());
+        TextView title = new TextView(context);
         title.setText(achievement.title + " (" + achievement.points + " pts)");
         title.setTextSize(14);
         title.setTypeface(null, android.graphics.Typeface.BOLD);
         textLayout.addView(title);
 
-        TextView description = new TextView(requireContext());
+        TextView description = new TextView(context);
         description.setText(achievement.description);
         description.setTextSize(12);
         description.setAlpha(0.7f);
         textLayout.addView(description);
 
         if (achievement.unlocked) {
-            TextView unlockTime = new TextView(requireContext());
+            TextView unlockTime = new TextView(context);
             unlockTime.setText("Unlocked: " + achievement.getUnlockTimeFormatted());
             unlockTime.setTextSize(10);
             unlockTime.setAlpha(0.5f);
             textLayout.addView(unlockTime);
         } else if (achievement.measuredPercent > 0) {
-            TextView progress = new TextView(requireContext());
+            TextView progress = new TextView(context);
             progress.setText(String.format("Progress: %.1f%%", achievement.measuredPercent));
             progress.setTextSize(10);
             progress.setAlpha(0.5f);

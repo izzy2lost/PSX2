@@ -28,8 +28,10 @@
 #include "SIO/Pad/PadDualshock2.h"
 #include "MTGS.h"
 #include "SDL3/SDL.h"
+#include <atomic>
 #include <algorithm>
 #include <future>
+#include <mutex>
 #ifdef __ANDROID__
 #include "SDL3/SDL.h"
 #endif
@@ -40,6 +42,10 @@ int s_window_width = 0;
 int s_window_height = 0;
 ANativeWindow* s_window = nullptr;
 
+static std::mutex s_window_mutex;
+static std::mutex s_vm_start_mutex;
+static ANativeWindow* s_render_window = nullptr;
+static std::atomic_bool s_shutdown_requested{false};
 static MemorySettingsInterface s_settings_interface;
 static int s_pending_renderer = -1; // -1 = none; else 12=OpenGL,13=SW,14=Vulkan
 
@@ -891,30 +897,43 @@ extern "C"
 JNIEXPORT void JNICALL
 Java_com_izzy2lost_psx2_NativeApp_onNativeSurfaceChanged(JNIEnv *env, jclass clazz,
                                                             jobject p_surface, jint p_width, jint p_height) {
-    if(s_window) {
-        ANativeWindow_release(s_window);
-        s_window = nullptr;
-    }
-
+    ANativeWindow* new_window = nullptr;
     if(p_surface != nullptr) {
-        s_window = ANativeWindow_fromSurface(env, p_surface);
+        new_window = ANativeWindow_fromSurface(env, p_surface);
     }
 
-    if(p_width > 0 && p_height > 0) {
-        s_window_width = p_width;
-        s_window_height = p_height;
-        if(MTGS::IsOpen()) {
-            MTGS::UpdateDisplayWindow();
-        }
+    ANativeWindow* old_window = nullptr;
+    {
+        std::lock_guard lock(s_window_mutex);
+        old_window = s_window;
+        s_window = new_window;
+        s_window_width = (new_window && p_width > 0) ? p_width : 0;
+        s_window_height = (new_window && p_height > 0) ? p_height : 0;
+    }
+
+    if(old_window) {
+        ANativeWindow_release(old_window);
+    }
+
+    if(MTGS::IsOpen()) {
+        MTGS::UpdateDisplayWindow();
     }
 }
 
 extern "C"
 JNIEXPORT void JNICALL
 Java_com_izzy2lost_psx2_NativeApp_onNativeSurfaceDestroyed(JNIEnv *env, jclass clazz) {
-    if(s_window) {
-        ANativeWindow_release(s_window);
+    ANativeWindow* old_window = nullptr;
+    {
+        std::lock_guard lock(s_window_mutex);
+        old_window = s_window;
         s_window = nullptr;
+        s_window_width = 0;
+        s_window_height = 0;
+    }
+
+    if(old_window) {
+        ANativeWindow_release(old_window);
     }
 }
 
@@ -929,11 +948,43 @@ Java_com_izzy2lost_psx2_NativeApp_getCurrentRenderer(JNIEnv*, jclass)
 
 std::optional<WindowInfo> Host::AcquireRenderWindow(bool recreate_window)
 {
+    ANativeWindow* window = nullptr;
+    ANativeWindow* previous_render_window = nullptr;
+    int window_width = 0;
+    int window_height = 0;
+
+    {
+        std::lock_guard lock(s_window_mutex);
+        if(!s_window || s_window_width <= 0 || s_window_height <= 0) {
+            previous_render_window = s_render_window;
+            s_render_window = nullptr;
+        } else {
+            window = s_window;
+            ANativeWindow_acquire(window);
+            previous_render_window = s_render_window;
+            s_render_window = window;
+            window_width = s_window_width;
+            window_height = s_window_height;
+        }
+    }
+
+    if(previous_render_window) {
+        ANativeWindow_release(previous_render_window);
+    }
+
+    if(!window) {
+        WindowInfo _windowInfo;
+        memset(&_windowInfo, 0, sizeof(_windowInfo));
+        _windowInfo.type = WindowInfo::Type::Surfaceless;
+        _windowInfo.surface_scale = 1.0f;
+        return _windowInfo;
+    }
+
     float _fScale = 1.0;
-    if (s_window_width > 0 && s_window_height > 0) {
-        int _nSize = s_window_width;
-        if (s_window_width <= s_window_height) {
-            _nSize = s_window_height;
+    if (window_width > 0 && window_height > 0) {
+        int _nSize = window_width;
+        if (window_width <= window_height) {
+            _nSize = window_height;
         }
         _fScale = (float)_nSize / 800.0f;
     }
@@ -941,15 +992,26 @@ std::optional<WindowInfo> Host::AcquireRenderWindow(bool recreate_window)
     WindowInfo _windowInfo;
     memset(&_windowInfo, 0, sizeof(_windowInfo));
     _windowInfo.type = WindowInfo::Type::Android;
-    _windowInfo.surface_width = s_window_width;
-    _windowInfo.surface_height = s_window_height;
+    _windowInfo.surface_width = window_width;
+    _windowInfo.surface_height = window_height;
     _windowInfo.surface_scale = _fScale;
-    _windowInfo.window_handle = s_window;
+    _windowInfo.window_handle = window;
 
     return _windowInfo;
 }
 
-void Host::ReleaseRenderWindow() {
+void Host::ReleaseRenderWindow()
+{
+    ANativeWindow* window = nullptr;
+    {
+        std::lock_guard lock(s_window_mutex);
+        window = s_render_window;
+        s_render_window = nullptr;
+    }
+
+    if(window) {
+        ANativeWindow_release(window);
+    }
 
 }
 
@@ -1163,10 +1225,27 @@ std::string ResolveSafChildUriJNI(const char* subdir, const char* filename, bool
 
 
 extern "C"
+JNIEXPORT void JNICALL
+Java_com_izzy2lost_psx2_NativeApp_prepareVMStart(JNIEnv *env, jclass clazz) {
+    s_shutdown_requested.store(false, std::memory_order_release);
+}
+
+extern "C"
 JNIEXPORT jboolean JNICALL
 Java_com_izzy2lost_psx2_NativeApp_runVMThread(JNIEnv *env, jclass clazz,
                                                  jstring p_szpath) {
     std::string _szPath = GetJavaString(env, p_szpath);
+    std::unique_lock vm_start_lock(s_vm_start_mutex);
+
+    VMState current_state = VMManager::GetState();
+    if (current_state != VMState::Shutdown) {
+        Console.Warning("runVMThread ignored duplicate start while VM state is %d", static_cast<int>(current_state));
+        return false;
+    }
+    if (s_shutdown_requested.load(std::memory_order_acquire)) {
+        Console.Warning("runVMThread ignored start because shutdown was requested before initialization");
+        return false;
+    }
 
     /////////////////////////////
 
@@ -1194,10 +1273,15 @@ Java_com_izzy2lost_psx2_NativeApp_runVMThread(JNIEnv *env, jclass clazz,
     // Apply per-game settings (if any) before applying core settings
     ApplyPerGameSettingsForPath(_szPath);
 
-    // Ensure VM is properly shut down before initializing
-    if (VMManager::HasValidVM()) {
-        Console.Warning("VM still running from previous session, shutting down...");
-        VMManager::Shutdown(false);
+    if (s_shutdown_requested.load(std::memory_order_acquire)) {
+        Console.Warning("runVMThread cancelled before VM initialize because shutdown was requested");
+        return false;
+    }
+
+    current_state = VMManager::GetState();
+    if (current_state != VMState::Shutdown) {
+        Console.Warning("runVMThread aborted before VM initialize because VM state changed to %d", static_cast<int>(current_state));
+        return false;
     }
 
     if (!VMManager::Internal::CPUThreadInitialize()) {
@@ -1209,8 +1293,31 @@ Java_com_izzy2lost_psx2_NativeApp_runVMThread(JNIEnv *env, jclass clazz,
     VMManager::ApplySettings();
     GSDumpReplayer::SetIsDumpRunner(false);
 
-    if (VMManager::Initialize(boot_params))
+    if (s_shutdown_requested.load(std::memory_order_acquire)) {
+        Console.Warning("runVMThread cancelled after applying settings because shutdown was requested");
+        VMManager::Internal::CPUThreadShutdown();
+        return false;
+    }
+
+    current_state = VMManager::GetState();
+    if (current_state != VMState::Shutdown) {
+        Console.Warning("runVMThread aborted after applying settings because VM state changed to %d", static_cast<int>(current_state));
+        VMManager::Internal::CPUThreadShutdown();
+        return false;
+    }
+
+    const bool initialized = VMManager::Initialize(boot_params);
+    vm_start_lock.unlock();
+
+    if (initialized)
     {
+        if (s_shutdown_requested.load(std::memory_order_acquire)) {
+            Console.Warning("runVMThread shutting down immediately because shutdown was requested during startup");
+            VMManager::Shutdown(false);
+            VMManager::Internal::CPUThreadShutdown();
+            return false;
+        }
+
         // If a per-game renderer was requested, apply it now that VM is up.
         if (s_pending_renderer >= 0)
         {
@@ -1240,7 +1347,7 @@ Java_com_izzy2lost_psx2_NativeApp_runVMThread(JNIEnv *env, jclass clazz,
     ////
     VMManager::Internal::CPUThreadShutdown();
 
-    return true;
+    return initialized;
 }
 
 extern "C"
@@ -1266,10 +1373,22 @@ Java_com_izzy2lost_psx2_NativeApp_isPaused(JNIEnv *env, jclass clazz) {
 }
 
 extern "C"
+JNIEXPORT jboolean JNICALL
+Java_com_izzy2lost_psx2_NativeApp_isVMActive(JNIEnv *env, jclass clazz) {
+    return VMManager::GetState() != VMState::Shutdown;
+}
+
+extern "C"
 JNIEXPORT void JNICALL
 Java_com_izzy2lost_psx2_NativeApp_shutdown(JNIEnv *env, jclass clazz) {
+    s_shutdown_requested.store(true, std::memory_order_release);
     std::thread([] {
-        VMManager::SetState(VMState::Stopping);
+        const VMState state = VMManager::GetState();
+        if (state == VMState::Running || state == VMState::Paused || state == VMState::Resetting) {
+            VMManager::SetState(VMState::Stopping);
+        } else if (state != VMState::Shutdown && state != VMState::Stopping) {
+            Console.Warning("shutdown ignored while VM state is %d", static_cast<int>(state));
+        }
     }).detach();
 }
 

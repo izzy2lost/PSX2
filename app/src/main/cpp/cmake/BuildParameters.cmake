@@ -119,7 +119,13 @@ elseif("${CMAKE_HOST_SYSTEM_PROCESSOR}" STREQUAL "arm64" OR "${CMAKE_HOST_SYSTEM
 #	add_compile_options("-march=armv8.4-a" "-mcpu=apple-m1")
 
 	set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-	add_definitions("-march=armv8-a+crc")
+	if(ANDROID)
+		# CRC32 is optional on ARMv8.0 Android devices. Enabling it globally can
+		# make Play-installed builds crash with SIGILL on devices without CRC.
+		add_compile_options("-march=armv8-a")
+	else()
+		add_compile_options("-march=armv8-a+crc")
+	endif()
 
 	# If we're running on Linux, we need to detect the page/cache line size.
 	# It could be a virtual machine with 4K pages, or 16K with Asahi.

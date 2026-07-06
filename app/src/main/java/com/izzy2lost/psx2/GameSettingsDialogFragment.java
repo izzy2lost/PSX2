@@ -440,10 +440,14 @@ public class GameSettingsDialogFragment extends DialogFragment {
                        else renderer = 13;
 
                        float scale = Math.max(1, Math.min(8, resIdx + 1));
-                       NativeApp.setAspectRatio(aspectIdx);
-                       NativeApp.setLoadTextures(loadTex);
-                       NativeApp.setAsyncTextureLoading(asyncTex);
-                       NativeApp.applyPerGameSettingsBatch(renderer, scale, blendLevel, wide, noInt, enablePatches, enableCheats);
+                       final int rendererToApply = renderer;
+                       final float scaleToApply = scale;
+                       NativeApp.runNativeSettingAsync("applyPerGameSettings", () -> {
+                           NativeApp.setAspectRatio(aspectIdx);
+                           NativeApp.setLoadTextures(loadTex);
+                           NativeApp.setAsyncTextureLoading(asyncTex);
+                           NativeApp.applyPerGameSettingsBatch(rendererToApply, scaleToApply, blendLevel, wide, noInt, enablePatches, enableCheats);
+                       });
                    } catch (Throwable t) {
                        android.util.Log.e("GameSettings", "Per-game batch apply failed: " + t.getMessage());
                    }

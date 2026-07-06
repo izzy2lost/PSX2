@@ -127,11 +127,15 @@ VkSurfaceKHR VKSwapChain::CreateVulkanSurface(VkInstance instance, VkPhysicalDev
 #if defined(VK_USE_PLATFORM_ANDROID_KHR)
     if (wi->type == WindowInfo::Type::Android)
     {
+        ANativeWindow* window = reinterpret_cast<ANativeWindow*>(wi->window_handle);
+        if (!window)
+            return VK_NULL_HANDLE;
+
         VkAndroidSurfaceCreateInfoKHR surface_create_info = {
                 VK_STRUCTURE_TYPE_ANDROID_SURFACE_CREATE_INFO_KHR, // VkStructureType                sType
                 nullptr, // const void*                    pNext
                 0, // VkAndroidSurfaceCreateFlagsKHR flags
-                reinterpret_cast<ANativeWindow*>(wi->window_handle) // ANativeWindow* window
+                window // ANativeWindow* window
         };
 
         VkSurfaceKHR surface;

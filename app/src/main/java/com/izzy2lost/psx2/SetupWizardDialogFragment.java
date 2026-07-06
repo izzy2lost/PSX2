@@ -94,7 +94,8 @@ public class SetupWizardDialogFragment extends DialogFragment {
     @Override
     public void onResume() {
         super.onResume();
-        try { ((MainActivity) requireActivity()).setSetupWizardActive(true); } catch (Throwable ignored) {}
+        MainActivity activity = UiUtils.getMainActivity(this);
+        if (activity != null) activity.setSetupWizardActive(true);
         hideSystemUI();
         refreshAll();
         startPeriodicCheck();
@@ -110,7 +111,8 @@ public class SetupWizardDialogFragment extends DialogFragment {
     @Override
     public void onDismiss(@NonNull android.content.DialogInterface dialog) {
         super.onDismiss(dialog);
-        try { ((MainActivity) requireActivity()).setSetupWizardActive(false); } catch (Throwable ignored) {}
+        MainActivity activity = UiUtils.getMainActivity(this);
+        if (activity != null) activity.setSetupWizardActive(false);
     }
 
     private void bindViews(View root) {
@@ -165,7 +167,8 @@ public class SetupWizardDialogFragment extends DialogFragment {
     }
 
     private void triggerAction(StepType type) {
-        MainActivity a = (MainActivity) requireActivity();
+        MainActivity a = UiUtils.getMainActivity(this);
+        if (a == null) return;
         switch (type) {
             case DATA -> a.pickDataRootFolder();
             case GAMES -> a.pickGamesFolder();
@@ -240,10 +243,13 @@ public class SetupWizardDialogFragment extends DialogFragment {
 
     private void completeAndDismiss() {
         try {
-            requireContext().getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
-                    .edit().putBoolean("first_run_done", true).apply();
-            MainActivity a = (MainActivity) requireActivity();
-            a.setSetupWizardActive(false);
+            Context context = getContext();
+            if (context != null) {
+                context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+                        .edit().putBoolean("first_run_done", true).apply();
+            }
+            MainActivity a = UiUtils.getMainActivity(this);
+            if (a != null) a.setSetupWizardActive(false);
         } catch (Throwable ignored) {}
         dismissAllowingStateLoss();
     }

@@ -70,8 +70,9 @@ public class QuickActionsDialogFragment extends DialogFragment {
             } catch (Throwable ignored) {}
             btnPausePlay.setOnClickListener(v -> {
                 try {
-                    if (requireActivity() instanceof MainActivity) {
-                        ((MainActivity) requireActivity()).togglePauseState();
+                    MainActivity mainActivity = UiUtils.getMainActivity(this);
+                    if (mainActivity != null) {
+                        mainActivity.togglePauseState();
                     } else {
                         boolean paused = NativeApp.isPaused();
                         if (paused) NativeApp.resume(); else NativeApp.pause();
@@ -90,8 +91,9 @@ public class QuickActionsDialogFragment extends DialogFragment {
                     .setMessage("Restart the current game?")
                     .setNegativeButton("Cancel", null)
                     .setPositiveButton("Reboot", (d, w) -> {
-                        if (requireActivity() instanceof MainActivity) {
-                            ((MainActivity) requireActivity()).rebootEmu();
+                        MainActivity mainActivity = UiUtils.getMainActivity(this);
+                        if (mainActivity != null) {
+                            mainActivity.rebootEmu();
                         } else { NativeApp.shutdown(); }
                         dismissAllowingStateLoss();
                     })
@@ -115,9 +117,12 @@ public class QuickActionsDialogFragment extends DialogFragment {
                 else if (checkedId == (tbSw != null ? tbSw.getId() : -2)) r = 13;
                 else r = -1;
                 try {
+                    int currentRenderer = requireContext().getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
+                            .getInt("renderer", -1);
+                    if (currentRenderer == r) return;
                     requireContext().getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
                             .edit().putInt("renderer", r).apply();
-                    NativeApp.renderGpu(r);
+                    NativeApp.renderGpuAsync(r);
                 } catch (Throwable ignored) {}
             });
         }
@@ -134,9 +139,12 @@ public class QuickActionsDialogFragment extends DialogFragment {
             spAspect.setSelection(savedAspect);
             spAspect.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
                 @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view1, int position, long id) {
+                    int current = requireContext().getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
+                            .getInt("aspect_ratio", 1);
+                    if (current == position) return;
                     requireContext().getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
                             .edit().putInt("aspect_ratio", position).apply();
-                    try { NativeApp.setAspectRatio(position); } catch (Throwable ignored) {}
+                    NativeApp.setAspectRatioAsync(position);
                 }
                 @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
             });
@@ -155,9 +163,12 @@ public class QuickActionsDialogFragment extends DialogFragment {
             spResolution.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
                 @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view1, int position, long id) {
                     float scale = Math.max(1, Math.min(8, position + 1));
+                    float current = requireContext().getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
+                            .getFloat("upscale_multiplier", 1.0f);
+                    if (Math.abs(current - scale) < 0.001f) return;
                     requireContext().getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
                             .edit().putFloat("upscale_multiplier", scale).apply();
-                    try { NativeApp.renderUpscalemultiplier(scale); } catch (Throwable ignored) {}
+                    NativeApp.renderUpscalemultiplierAsync(scale);
                 }
                 @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
             });
@@ -175,9 +186,12 @@ public class QuickActionsDialogFragment extends DialogFragment {
             spBlending.setSelection(savedBlend);
             spBlending.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
                 @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view12, int position, long id) {
+                    int current = requireContext().getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
+                            .getInt("blending_accuracy", 1);
+                    if (current == position) return;
                     requireContext().getSharedPreferences("app_prefs", android.content.Context.MODE_PRIVATE)
                             .edit().putInt("blending_accuracy", position).apply();
-                    try { NativeApp.setBlendingAccuracy(position); } catch (Throwable ignored) {}
+                    NativeApp.setBlendingAccuracyAsync(position);
                 }
                 @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
             });
@@ -188,44 +202,49 @@ public class QuickActionsDialogFragment extends DialogFragment {
         if (swWide != null) {
             swWide.setChecked(prefs.getBoolean("widescreen_patches", true));
             swWide.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                if (isChecked == prefs.getBoolean("widescreen_patches", true)) return;
                 prefs.edit().putBoolean("widescreen_patches", isChecked).apply();
-                try { NativeApp.setWidescreenPatches(isChecked); } catch (Throwable ignored) {}
+                NativeApp.setWidescreenPatchesAsync(isChecked);
             });
         }
         if (swNoInt != null) {
             swNoInt.setChecked(prefs.getBoolean("no_interlacing_patches", true));
             swNoInt.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                if (isChecked == prefs.getBoolean("no_interlacing_patches", true)) return;
                 prefs.edit().putBoolean("no_interlacing_patches", isChecked).apply();
-                try { NativeApp.setNoInterlacingPatches(isChecked); } catch (Throwable ignored) {}
+                NativeApp.setNoInterlacingPatchesAsync(isChecked);
             });
         }
         if (swLoadTex != null) {
             swLoadTex.setChecked(prefs.getBoolean("load_textures", false));
             swLoadTex.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                if (isChecked == prefs.getBoolean("load_textures", false)) return;
                 prefs.edit().putBoolean("load_textures", isChecked).apply();
-                try { NativeApp.setLoadTextures(isChecked); } catch (Throwable ignored) {}
+                NativeApp.setLoadTexturesAsync(isChecked);
             });
         }
         if (swAsyncTex != null) {
             swAsyncTex.setChecked(prefs.getBoolean("async_texture_loading", true));
             swAsyncTex.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                if (isChecked == prefs.getBoolean("async_texture_loading", true)) return;
                 prefs.edit().putBoolean("async_texture_loading", isChecked).apply();
-                try { NativeApp.setAsyncTextureLoading(isChecked); } catch (Throwable ignored) {}
+                NativeApp.setAsyncTextureLoadingAsync(isChecked);
             });
         }
         if (swPrecache != null) {
             swPrecache.setChecked(prefs.getBoolean("precache_textures", false));
             swPrecache.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                if (isChecked == prefs.getBoolean("precache_textures", false)) return;
                 prefs.edit().putBoolean("precache_textures", isChecked).apply();
-                try { NativeApp.setPrecacheTextureReplacements(isChecked); } catch (Throwable ignored) {}
+                NativeApp.setPrecacheTextureReplacementsAsync(isChecked);
             });
         }
 
         // Games: open covers dialog
         if (btnGames != null) {
             btnGames.setOnClickListener(v -> {
-                if (requireActivity() instanceof MainActivity) {
-                    MainActivity mainActivity = (MainActivity) requireActivity();
+                MainActivity mainActivity = UiUtils.getMainActivity(this);
+                if (mainActivity != null) {
                     mainActivity.openGamesDialog();
                 }
                 dismissAllowingStateLoss();
@@ -321,5 +340,3 @@ public class QuickActionsDialogFragment extends DialogFragment {
         System.exit(0);
     }
 }
-
-

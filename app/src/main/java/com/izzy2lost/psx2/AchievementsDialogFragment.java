@@ -322,15 +322,16 @@ public class AchievementsDialogFragment extends DialogFragment {
                 e.printStackTrace();
             }
             
-            // Update UI on main thread
-            requireActivity().runOnUiThread(() -> {
+            UiUtils.postIfFragmentAttached(this, () -> {
+                Context context = getContext();
+                if (context == null) return;
                 boolean isActive = NativeApp.achievementsIsActive();
                 android.util.Log.d("Achievements", "After login - isActive: " + isActive);
                 
                 if (isActive) {
-                    Toast.makeText(requireContext(), "Signed into RetroAchievements.", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(context, "Signed into RetroAchievements.", Toast.LENGTH_SHORT).show();
                 } else {
-                    Toast.makeText(requireContext(), "Login may have failed - check logs", Toast.LENGTH_LONG).show();
+                    Toast.makeText(context, "Login may have failed - check logs", Toast.LENGTH_LONG).show();
                 }
                 
                 updateStatus();

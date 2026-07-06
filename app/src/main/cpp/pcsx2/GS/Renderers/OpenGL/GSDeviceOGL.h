@@ -304,6 +304,7 @@ public:
 	void DrawPrimitive();
 	void DrawIndexedPrimitive();
 	void DrawIndexedPrimitive(int offset, int count);
+	bool ValidateHWDraw(const GSHWDrawConfig& config, u32 index_offset, u32 index_count) const;
 
 	std::unique_ptr<GSDownloadTexture> CreateDownloadTexture(u32 width, u32 height, GSTexture::Format format) override;
 

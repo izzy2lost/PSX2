@@ -151,8 +151,9 @@ public class SettingsDialogFragment extends DialogFragment {
                         .setMessage("Restart the current game?")
                         .setNegativeButton("Cancel", null)
                         .setPositiveButton("Reboot", (d1, w1) -> {
-                            if (requireActivity() instanceof MainActivity) {
-                                ((MainActivity) requireActivity()).rebootEmu();
+                            MainActivity mainActivity = UiUtils.getMainActivity(this);
+                            if (mainActivity != null) {
+                                mainActivity.rebootEmu();
                             } else {
                                 NativeApp.shutdown();
                             }
@@ -281,10 +282,23 @@ public class SettingsDialogFragment extends DialogFragment {
 
              // Apply in one batch to avoid repeated ApplySettings calls
             try {
-                NativeApp.applyGlobalSettingsBatch(renderer, scale, aspectRatio, blendingLevel,
-                        widescreenPatches, noInterlacingPatches, loadTextures, asyncTextureLoading, hudVisible);
-                // Apply precache separately (not part of the batch JNI)
-                NativeApp.setPrecacheTextureReplacements(precacheTextureReplacements);
+                final int rendererToApply = renderer;
+                final float scaleToApply = scale;
+                final int aspectRatioToApply = aspectRatio;
+                final int blendingLevelToApply = blendingLevel;
+                final boolean widescreenPatchesToApply = widescreenPatches;
+                final boolean noInterlacingPatchesToApply = noInterlacingPatches;
+                final boolean loadTexturesToApply = loadTextures;
+                final boolean asyncTextureLoadingToApply = asyncTextureLoading;
+                final boolean hudVisibleToApply = hudVisible;
+                final boolean precacheTextureReplacementsToApply = precacheTextureReplacements;
+                NativeApp.runNativeSettingAsync("applyGlobalSettings", () -> {
+                    NativeApp.applyGlobalSettingsBatch(rendererToApply, scaleToApply, aspectRatioToApply, blendingLevelToApply,
+                            widescreenPatchesToApply, noInterlacingPatchesToApply, loadTexturesToApply,
+                            asyncTextureLoadingToApply, hudVisibleToApply);
+                    // Apply precache separately (not part of the batch JNI)
+                    NativeApp.setPrecacheTextureReplacements(precacheTextureReplacementsToApply);
+                });
             } catch (Throwable t) {
                 android.util.Log.e("SettingsDialog", "Apply failed: " + t.getMessage());
             }

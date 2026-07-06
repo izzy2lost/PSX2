@@ -638,29 +638,32 @@ bool GSDeviceOGL::CheckFeatures(bool& buggy_pbo)
 
 	const char* vendor = (const char*)glGetString(GL_VENDOR);
 	const char* renderer = (const char*)glGetString(GL_RENDERER);
-	
-	if (std::strstr(vendor, "Advanced Micro Devices") || std::strstr(vendor, "ATI Technologies Inc.") ||
-		std::strstr(vendor, "ATI"))
+	const char* vendor_name = vendor ? vendor : "";
+	const char* renderer_name = renderer ? renderer : "";
+	const bool is_android_gles = m_is_gles && m_window_info.type == WindowInfo::Type::Android;
+
+	if (std::strstr(vendor_name, "Advanced Micro Devices") || std::strstr(vendor_name, "ATI Technologies Inc.") ||
+		std::strstr(vendor_name, "ATI"))
 	{
 		Console.WriteLn(Color_StrongRed, "GL: AMD GPU detected.");
 		//vendor_id_amd = true;
 	}
-	else if (std::strstr(vendor, "NVIDIA Corporation"))
+	else if (std::strstr(vendor_name, "NVIDIA Corporation"))
 	{
 		Console.WriteLn(Color_StrongGreen, "GL: NVIDIA GPU detected.");
 		vendor_id_nvidia = true;
 	}
-	else if (std::strstr(vendor, "Intel"))
+	else if (std::strstr(vendor_name, "Intel"))
 	{
 		Console.WriteLn(Color_StrongBlue, "GL: Intel GPU detected.");
 		//vendor_id_intel = true;
 	}
-	else if (std::strstr(vendor, "ARM") || std::strstr(renderer, "Mali"))
+	else if (std::strstr(vendor_name, "ARM") || std::strstr(renderer_name, "Mali"))
 	{
 		Console.WriteLn(Color_Yellow, "GL: ARM Mali GPU detected.");
 		vendor_id_mali = true;
 	}
-	else if (std::strstr(vendor, "Qualcomm") || std::strstr(renderer, "Adreno"))
+	else if (std::strstr(vendor_name, "Qualcomm") || std::strstr(renderer_name, "Adreno"))
 	{
 		Console.WriteLn(Color_Cyan, "GL: Qualcomm Adreno GPU detected.");
 		vendor_id_adreno = true;
@@ -726,7 +729,8 @@ bool GSDeviceOGL::CheckFeatures(bool& buggy_pbo)
 		Console.Warning("GL_ARB_viewport_array is not supported! Function pointer will be replaced.");
 	}
 
-	if (!GLAD_GL_ARB_texture_barrier)
+	const bool has_real_texture_barrier = GLAD_GL_VERSION_4_5 || GLAD_GL_ARB_texture_barrier;
+	if (!has_real_texture_barrier)
 	{
 		glTextureBarrier = ReplaceGL::TextureBarrier;
 		// Suppressed: frequent warning on mobile drivers where fallback paths are already handled.
@@ -771,7 +775,7 @@ bool GSDeviceOGL::CheckFeatures(bool& buggy_pbo)
 	else if (GSConfig.OverrideTextureBarriers == 1)
 		m_features.texture_barrier = true; // Force Enabled
 	else
-		m_features.texture_barrier = m_features.framebuffer_fetch || GLAD_GL_ARB_texture_barrier;
+		m_features.texture_barrier = m_features.framebuffer_fetch || has_real_texture_barrier;
 	if (!m_features.texture_barrier)
 	{
 		// Suppressed: frequent warning on mobile drivers where fallback paths are already handled.
@@ -820,6 +824,15 @@ bool GSDeviceOGL::CheckFeatures(bool& buggy_pbo)
 		}
 		// Reduce unnecessary state changes for Adreno's command processor
 		Console.WriteLn("GL: Adreno optimization - minimizing state changes for improved performance.");
+
+		if (is_android_gles)
+		{
+			if (m_features.framebuffer_fetch || m_features.texture_barrier)
+				Console.Warning("GL: Disabling Adreno GLES framebuffer feedback paths for driver stability.");
+
+			m_features.framebuffer_fetch = false;
+			m_features.texture_barrier = false;
+		}
 	}
 
 	if (GLAD_GL_ARB_shader_storage_buffer_object)
@@ -830,8 +843,15 @@ bool GSDeviceOGL::CheckFeatures(bool& buggy_pbo)
 		m_features.vs_expand = (!GSConfig.DisableVertexShaderExpand && !buggy_vs_expand && max_vertex_ssbos > 0 &&
 								GLAD_GL_ARB_gpu_shader5);
 	}
+	if (is_android_gles && vendor_id_adreno && m_features.vs_expand)
+	{
+		Console.Warning("GL: Disabling Adreno GLES vertex shader expansion for driver stability.");
+		m_features.vs_expand = false;
+	}
 	if (!m_features.vs_expand)
 		Console.Warning("GL: Vertex expansion is not supported. This will reduce performance.");
+
+	m_features.test_and_sample_depth = m_features.texture_barrier;
 
 	GLint point_range[2] = {};
 	glGetIntegerv(GL_ALIASED_POINT_SIZE_RANGE, point_range);
@@ -1144,6 +1164,31 @@ void GSDeviceOGL::DrawIndexedPrimitive(int offset, int count)
 		static_cast<GLint>(m_vertex.start));
 }
 
+bool GSDeviceOGL::ValidateHWDraw(const GSHWDrawConfig& config, u32 index_offset, u32 index_count) const
+{
+	if (index_count == 0)
+		return false;
+
+	const bool valid = config.verts && config.nverts > 0 && config.nindices > 0 &&
+		index_offset <= config.nindices && index_count <= (config.nindices - index_offset) &&
+		config.indices_per_prim > 0 && (config.vs.UseExpandIndexBuffer() || config.indices);
+
+	if (valid)
+		return true;
+
+	static bool warned_once = false;
+	if (!warned_once)
+	{
+		warned_once = true;
+		Console.Warning("GL: Skipping invalid hardware draw. verts=%p nverts=%u indices=%p nindices=%u offset=%u count=%u prim=%u topology=0x%x expand=%u",
+			static_cast<const void*>(config.verts), config.nverts, static_cast<const void*>(config.indices),
+			config.nindices, index_offset, index_count,
+			config.indices_per_prim, m_draw_topology, static_cast<u32>(config.vs.expand));
+	}
+
+	return false;
+}
+
 void GSDeviceOGL::CommitClear(GSTexture* t, bool use_write_fbo)
 {
 	GSTextureOGL* T = static_cast<GSTextureOGL*>(t);
@@ -1415,10 +1460,14 @@ std::string GSDeviceOGL::GenGlslHeader(const std::string_view entry, GLenum type
 	else
 		header += "#define HAS_FRAMEBUFFER_FETCH 0\n";
 
-    if (GLAD_GL_ARB_clip_control)
-        header += "#define HAS_CLIP_CONTROL 1\n";
-    else
-        header += "#define HAS_CLIP_CONTROL 0\n";
+	if (GLAD_GL_ARB_clip_control)
+	{
+		header += "#define HAS_CLIP_CONTROL 1\n";
+	}
+	else
+	{
+		header += "#define HAS_CLIP_CONTROL 0\n";
+	}
 
 	// Allow to puts several shader in 1 files
 	switch (type)
@@ -2898,6 +2947,10 @@ void GSDeviceOGL::SendHWDraw(const GSHWDrawConfig& config, bool needs_barrier)
 		for (u32 n = 0, p = 0; n < draw_list_size; n++)
 		{
 			const u32 count = (*config.drawlist)[n] * indices_per_prim;
+			if (count == 0)
+				continue;
+			if (!ValidateHWDraw(config, p, count))
+				break;
 			glTextureBarrier();
 			DrawIndexedPrimitive(p, count);
 			p += count;
@@ -2917,6 +2970,8 @@ void GSDeviceOGL::SendHWDraw(const GSHWDrawConfig& config, bool needs_barrier)
 
 			for (u32 p = 0; p < config.nindices; p += indices_per_prim)
 			{
+				if (!ValidateHWDraw(config, p, indices_per_prim))
+					break;
 				glTextureBarrier();
 				DrawIndexedPrimitive(p, indices_per_prim);
 			}
@@ -2930,6 +2985,9 @@ void GSDeviceOGL::SendHWDraw(const GSHWDrawConfig& config, bool needs_barrier)
 			glTextureBarrier();
 		}
 	}
+
+	if (!ValidateHWDraw(config, 0, config.nindices))
+		return;
 
 	DrawIndexedPrimitive();
 }

@@ -339,9 +339,8 @@ public class GamesCoverDialogFragment extends DialogFragment {
                 // Only update UI if fragment is still attached
                 if (changed && isAdded()) {
                     try {
-                        requireActivity().runOnUiThread(() -> {
+                        UiUtils.postIfFragmentAttached(this, () -> {
                             try {
-                                if (!isAdded()) return;
                                 if (sortMode != SORT_ALPHA || (query != null && !query.isEmpty())) {
                                     applyFilterAndSort();
                                 } else {
@@ -498,8 +497,11 @@ public class GamesCoverDialogFragment extends DialogFragment {
                             else if (checkedId == (tbSw != null ? tbSw.getId() : -2)) r = 13;
                             else r = -1;
                             try {
+                                int currentRenderer = requireContext().getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+                                        .getInt("renderer", -1);
+                                if (currentRenderer == r) return;
                                 requireContext().getSharedPreferences("app_prefs", Context.MODE_PRIVATE).edit().putInt("renderer", r).apply();
-                                NativeApp.renderGpu(r);
+                                NativeApp.renderGpuAsync(r);
                             } catch (Throwable ignored) {}
                         });
                     }
@@ -665,74 +667,80 @@ public class GamesCoverDialogFragment extends DialogFragment {
         // Aspect Ratio spinner
         android.widget.Spinner spAspect = header.findViewById(R.id.drawer_sp_aspect_ratio);
         if (spAspect != null) {
+            spAspect.setOnItemSelectedListener(null);
             if (spAspect.getAdapter() == null) {
                 android.widget.ArrayAdapter<CharSequence> aspectAdapter = android.widget.ArrayAdapter.createFromResource(requireContext(),
                         R.array.aspect_ratio_entries, android.R.layout.simple_spinner_item);
                 aspectAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
                 spAspect.setAdapter(aspectAdapter);
-                spAspect.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
-                    @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
-                        prefs.edit().putInt("aspect_ratio", position).apply();
-                        try { NativeApp.setAspectRatio(position); } catch (Throwable ignored) {}
-                    }
-                    @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
-                });
             }
             android.widget.ArrayAdapter<?> adapter = (android.widget.ArrayAdapter<?>) spAspect.getAdapter();
             if (adapter != null) {
                 int savedAspect = prefs.getInt("aspect_ratio", 1);
                 if (savedAspect < 0 || savedAspect >= adapter.getCount()) savedAspect = 1;
-                spAspect.setSelection(savedAspect);
+                spAspect.setSelection(savedAspect, false);
             }
+            spAspect.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+                @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
+                    if (position == prefs.getInt("aspect_ratio", 1)) return;
+                    prefs.edit().putInt("aspect_ratio", position).apply();
+                    NativeApp.setAspectRatioAsync(position);
+                }
+                @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
+            });
         }
 
         // Blending Accuracy spinner
         android.widget.Spinner spBlending = header.findViewById(R.id.drawer_sp_blending_accuracy);
         if (spBlending != null) {
+            spBlending.setOnItemSelectedListener(null);
             if (spBlending.getAdapter() == null) {
                 android.widget.ArrayAdapter<CharSequence> blendAdapter = android.widget.ArrayAdapter.createFromResource(requireContext(),
                         R.array.blending_accuracy_entries, android.R.layout.simple_spinner_item);
                 blendAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
                 spBlending.setAdapter(blendAdapter);
-                spBlending.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
-                    @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
-                        prefs.edit().putInt("blending_accuracy", position).apply();
-                        try { NativeApp.setBlendingAccuracy(position); } catch (Throwable ignored) {}
-                    }
-                    @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
-                });
             }
             android.widget.ArrayAdapter<?> adapter = (android.widget.ArrayAdapter<?>) spBlending.getAdapter();
             if (adapter != null) {
                 int savedBlend = prefs.getInt("blending_accuracy", 1);
                 if (savedBlend < 0 || savedBlend >= adapter.getCount()) savedBlend = 1;
-                spBlending.setSelection(savedBlend);
+                spBlending.setSelection(savedBlend, false);
             }
+            spBlending.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+                @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
+                    if (position == prefs.getInt("blending_accuracy", 1)) return;
+                    prefs.edit().putInt("blending_accuracy", position).apply();
+                    NativeApp.setBlendingAccuracyAsync(position);
+                }
+                @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
+            });
         }
 
         // Resolution Scale spinner
         android.widget.Spinner spScale = header.findViewById(R.id.drawer_sp_scale);
         if (spScale != null) {
+            spScale.setOnItemSelectedListener(null);
             if (spScale.getAdapter() == null) {
                 android.widget.ArrayAdapter<CharSequence> scaleAdapter = android.widget.ArrayAdapter.createFromResource(requireContext(),
                         R.array.scale_entries, android.R.layout.simple_spinner_item);
                 scaleAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
                 spScale.setAdapter(scaleAdapter);
-                spScale.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
-                    @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
-                        float scale = Math.max(1, Math.min(8, position + 1));
-                        prefs.edit().putFloat("upscale_multiplier", scale).apply();
-                        try { NativeApp.renderUpscalemultiplier(scale); } catch (Throwable ignored) {}
-                    }
-                    @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
-                });
             }
             android.widget.ArrayAdapter<?> adapter = (android.widget.ArrayAdapter<?>) spScale.getAdapter();
             if (adapter != null) {
                 float savedScale = prefs.getFloat("upscale_multiplier", 1.0f);
                 int scaleIndex = Math.max(0, Math.min(adapter.getCount() - 1, Math.round(savedScale) - 1));
-                spScale.setSelection(scaleIndex);
+                spScale.setSelection(scaleIndex, false);
             }
+            spScale.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+                @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
+                    float scale = Math.max(1, Math.min(8, position + 1));
+                    if (Math.abs(prefs.getFloat("upscale_multiplier", 1.0f) - scale) < 0.001f) return;
+                    prefs.edit().putFloat("upscale_multiplier", scale).apply();
+                    NativeApp.renderUpscalemultiplierAsync(scale);
+                }
+                @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
+            });
         }
 
         // Setup switch listeners only once
@@ -743,8 +751,9 @@ public class GamesCoverDialogFragment extends DialogFragment {
         if (swWide != null && swWide.getTag() == null) {
             swWide.setTag("setup"); // Mark as setup to avoid duplicate listeners
             swWide.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                if (isChecked == prefs.getBoolean("widescreen_patches", true)) return;
                 prefs.edit().putBoolean("widescreen_patches", isChecked).apply();
-                try { NativeApp.setWidescreenPatches(isChecked); } catch (Throwable ignored) {}
+                NativeApp.setWidescreenPatchesAsync(isChecked);
             });
         }
 
@@ -753,8 +762,9 @@ public class GamesCoverDialogFragment extends DialogFragment {
         if (swNoInt != null && swNoInt.getTag() == null) {
             swNoInt.setTag("setup");
             swNoInt.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                if (isChecked == prefs.getBoolean("no_interlacing_patches", true)) return;
                 prefs.edit().putBoolean("no_interlacing_patches", isChecked).apply();
-                try { NativeApp.setNoInterlacingPatches(isChecked); } catch (Throwable ignored) {}
+                NativeApp.setNoInterlacingPatchesAsync(isChecked);
             });
         }
 
@@ -763,8 +773,9 @@ public class GamesCoverDialogFragment extends DialogFragment {
         if (swLoadTex != null && swLoadTex.getTag() == null) {
             swLoadTex.setTag("setup");
             swLoadTex.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                if (isChecked == prefs.getBoolean("load_textures", false)) return;
                 prefs.edit().putBoolean("load_textures", isChecked).apply();
-                try { NativeApp.setLoadTextures(isChecked); } catch (Throwable ignored) {}
+                NativeApp.setLoadTexturesAsync(isChecked);
             });
         }
 
@@ -773,8 +784,9 @@ public class GamesCoverDialogFragment extends DialogFragment {
         if (swAsyncTex != null && swAsyncTex.getTag() == null) {
             swAsyncTex.setTag("setup");
             swAsyncTex.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                if (isChecked == prefs.getBoolean("async_texture_loading", true)) return;
                 prefs.edit().putBoolean("async_texture_loading", isChecked).apply();
-                try { NativeApp.setAsyncTextureLoading(isChecked); } catch (Throwable ignored) {}
+                NativeApp.setAsyncTextureLoadingAsync(isChecked);
             });
         }
 
@@ -783,8 +795,9 @@ public class GamesCoverDialogFragment extends DialogFragment {
         if (swPrecache != null && swPrecache.getTag() == null) {
             swPrecache.setTag("setup");
             swPrecache.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                if (isChecked == prefs.getBoolean("precache_textures", false)) return;
                 prefs.edit().putBoolean("precache_textures", isChecked).apply();
-                try { NativeApp.setPrecacheTextureReplacements(isChecked); } catch (Throwable ignored) {}
+                NativeApp.setPrecacheTextureReplacementsAsync(isChecked);
             });
         }
     }
@@ -1137,7 +1150,7 @@ public class GamesCoverDialogFragment extends DialogFragment {
             
             final int downloaded = ok;
             final int skippedCount = skipped;
-            if (isAdded()) requireActivity().runOnUiThread(() -> {
+            UiUtils.postIfFragmentAttached(this, () -> {
                 String msg = "Covers ready: " + downloaded + "/" + total;
                 if (skippedCount > 0) {
                     msg += " (" + skippedCount + " custom skipped)";
@@ -1189,7 +1202,7 @@ public class GamesCoverDialogFragment extends DialogFragment {
             editor.apply();
             
             final int deleted = deletedCount;
-            if (isAdded()) requireActivity().runOnUiThread(() -> {
+            UiUtils.postIfFragmentAttached(this, () -> {
                 Toast.makeText(requireContext(), "Deleted " + deleted + " custom cover(s)", Toast.LENGTH_SHORT).show();
                 if (adapter != null) adapter.notifyDataSetChanged();
             });
@@ -1383,5 +1396,3 @@ public class GamesCoverDialogFragment extends DialogFragment {
     }
 
 }
-
-

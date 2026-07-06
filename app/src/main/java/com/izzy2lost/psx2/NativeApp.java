@@ -7,6 +7,9 @@ import android.os.ParcelFileDescriptor;
 import android.view.Surface;
 import java.io.File;
 import java.lang.ref.WeakReference;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class NativeApp {
 	static {
@@ -20,6 +23,27 @@ public class NativeApp {
 
 	public static boolean hasNoNativeBinary;
 
+    private static final ExecutorService NATIVE_SETTINGS_EXECUTOR =
+            Executors.newSingleThreadExecutor(r -> {
+                Thread thread = new Thread(r, "NativeSettings");
+                thread.setDaemon(true);
+                return thread;
+            });
+    private static final AtomicInteger ASPECT_RATIO_REQUEST = new AtomicInteger();
+
+    public static void runNativeSettingAsync(String name, Runnable task) {
+        if (hasNoNativeBinary) {
+            return;
+        }
+
+        NATIVE_SETTINGS_EXECUTOR.execute(() -> {
+            try {
+                task.run();
+            } catch (Throwable t) {
+                android.util.Log.e("NativeApp", name + " failed", t);
+            }
+        });
+    }
 
 	protected static WeakReference<Context> mContext;
 	public static Context getContext() {
@@ -49,34 +73,81 @@ public class NativeApp {
 	public static native void resetKeyStatus();
 
 	public static native void setAspectRatio(int type);
+    public static void setAspectRatioAsync(int type) {
+        final int request = ASPECT_RATIO_REQUEST.incrementAndGet();
+        runNativeSettingAsync("setAspectRatio", () -> {
+            if (request == ASPECT_RATIO_REQUEST.get()) {
+                setAspectRatio(type);
+            }
+        });
+    }
 	public static native void speedhackLimitermode(int value);
 	public static native void speedhackEecyclerate(int value);
 	public static native void speedhackEecycleskip(int value);
 
 	public static native void renderUpscalemultiplier(float value);
+    public static void renderUpscalemultiplierAsync(float value) {
+        runNativeSettingAsync("renderUpscalemultiplier", () -> renderUpscalemultiplier(value));
+    }
 	public static native void renderMipmap(int value);
 	public static native void renderHalfpixeloffset(int value);
 	public static native void renderGpu(int value);
+    public static void renderGpuAsync(int value) {
+        runNativeSettingAsync("renderGpu", () -> renderGpu(value));
+    }
 	public static native void renderPreloading(int value);
 
 	// HUD/OSD visibility toggle
 	public static native void setHudVisible(boolean visible);
+    public static void setHudVisibleAsync(boolean visible) {
+        runNativeSettingAsync("setHudVisible", () -> setHudVisible(visible));
+    }
 	
 	// Widescreen and interlacing patches
 	    public static native void setWidescreenPatches(boolean enabled);
+    public static void setWidescreenPatchesAsync(boolean enabled) {
+        runNativeSettingAsync("setWidescreenPatches", () -> setWidescreenPatches(enabled));
+    }
     public static native void setNoInterlacingPatches(boolean enabled);
+    public static void setNoInterlacingPatchesAsync(boolean enabled) {
+        runNativeSettingAsync("setNoInterlacingPatches", () -> setNoInterlacingPatches(enabled));
+    }
     
     // Texture loading options for texture packs
     public static native void setLoadTextures(boolean enabled);
+    public static void setLoadTexturesAsync(boolean enabled) {
+        runNativeSettingAsync("setLoadTextures", () -> setLoadTextures(enabled));
+    }
     public static native void setAsyncTextureLoading(boolean enabled);
+    public static void setAsyncTextureLoadingAsync(boolean enabled) {
+        runNativeSettingAsync("setAsyncTextureLoading", () -> setAsyncTextureLoading(enabled));
+    }
     public static native void setPrecacheTextureReplacements(boolean enabled);
+    public static void setPrecacheTextureReplacementsAsync(boolean enabled) {
+        runNativeSettingAsync("setPrecacheTextureReplacements", () -> setPrecacheTextureReplacements(enabled));
+    }
     public static native void setBlendingAccuracy(int level);
+    public static void setBlendingAccuracyAsync(int level) {
+        runNativeSettingAsync("setBlendingAccuracy", () -> setBlendingAccuracy(level));
+    }
     
     // Shade Boost (brightness/contrast/saturation)
     public static native void setShadeBoost(boolean enabled);
+    public static void setShadeBoostAsync(boolean enabled) {
+        runNativeSettingAsync("setShadeBoost", () -> setShadeBoost(enabled));
+    }
     public static native void setShadeBoostBrightness(int brightness);
+    public static void setShadeBoostBrightnessAsync(int brightness) {
+        runNativeSettingAsync("setShadeBoostBrightness", () -> setShadeBoostBrightness(brightness));
+    }
     public static native void setShadeBoostContrast(int contrast);
+    public static void setShadeBoostContrastAsync(int contrast) {
+        runNativeSettingAsync("setShadeBoostContrast", () -> setShadeBoostContrast(contrast));
+    }
     public static native void setShadeBoostSaturation(int saturation);
+    public static void setShadeBoostSaturationAsync(int saturation) {
+        runNativeSettingAsync("setShadeBoostSaturation", () -> setShadeBoostSaturation(saturation));
+    }
 
     // Apply multiple settings in one atomic batch (safer live updates)
     public static native void applyGlobalSettingsBatch(int renderer,
@@ -88,6 +159,19 @@ public class NativeApp {
                                                        boolean loadTextures,
                                                        boolean asyncTextureLoading,
                                                        boolean hudVisible);
+    public static void applyGlobalSettingsBatchAsync(int renderer,
+                                                     float upscaleMultiplier,
+                                                     int aspectRatio,
+                                                     int blendingAccuracy,
+                                                     boolean widescreenPatches,
+                                                     boolean noInterlacingPatches,
+                                                     boolean loadTextures,
+                                                     boolean asyncTextureLoading,
+                                                     boolean hudVisible) {
+        runNativeSettingAsync("applyGlobalSettingsBatch", () ->
+                applyGlobalSettingsBatch(renderer, upscaleMultiplier, aspectRatio, blendingAccuracy,
+                        widescreenPatches, noInterlacingPatches, loadTextures, asyncTextureLoading, hudVisible));
+    }
     
     // Apply per-game settings (subset) in one batch
     public static native void applyPerGameSettingsBatch(int renderer,
@@ -97,6 +181,17 @@ public class NativeApp {
                                                         boolean noInterlacingPatches,
                                                         boolean enablePatches,
                                                         boolean enableCheats);
+    public static void applyPerGameSettingsBatchAsync(int renderer,
+                                                      float upscaleMultiplier,
+                                                      int blendingAccuracy,
+                                                      boolean widescreenPatches,
+                                                      boolean noInterlacingPatches,
+                                                      boolean enablePatches,
+                                                      boolean enableCheats) {
+        runNativeSettingAsync("applyPerGameSettingsBatch", () ->
+                applyPerGameSettingsBatch(renderer, upscaleMultiplier, blendingAccuracy,
+                        widescreenPatches, noInterlacingPatches, enablePatches, enableCheats));
+    }
 
     // Query current runtime renderer from the core (reflects global/per-game)
     public static native int getCurrentRenderer();
@@ -238,6 +333,8 @@ public class NativeApp {
 	public static native void onNativeSurfaceDestroyed();
 
     public static native boolean runVMThread(String path);
+    public static native void prepareVMStart();
+    public static native boolean isVMActive();
 
 	public static native void pause();
 	public static native void resume();
