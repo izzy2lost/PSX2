@@ -10,6 +10,7 @@ import android.widget.ArrayAdapter;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
 import android.widget.Spinner;
+import android.widget.TextView;
 import com.google.android.material.materialswitch.MaterialSwitch;
 import android.content.res.ColorStateList;
 
@@ -97,6 +98,8 @@ public class SettingsDialogFragment extends DialogFragment {
         View btnPower = view.findViewById(R.id.btn_power);
         View btnReboot = view.findViewById(R.id.btn_reboot);
         View btnTestController = view.findViewById(R.id.btn_test_controller);
+        TextView tvBiosStatus = view.findViewById(R.id.tv_bios_status);
+        View btnBios = view.findViewById(R.id.btn_bios);
 
         // Brand tints for checked/activated states to replace aqua
         int brand = ContextCompat.getColor(ctx, R.color.brand_primary);
@@ -167,6 +170,18 @@ public class SettingsDialogFragment extends DialogFragment {
             btnTestController.setOnClickListener(v -> {
                 ControllerTestDialogFragment controllerDialog = new ControllerTestDialogFragment();
                 controllerDialog.show(getParentFragmentManager(), "controller_test");
+            });
+        }
+
+        if (tvBiosStatus != null) {
+            tvBiosStatus.setText(BiosVerifier.describeVerifiedRegions(ctx));
+        }
+        if (btnBios != null) {
+            btnBios.setOnClickListener(v -> {
+                android.app.Activity activity = getActivity();
+                if (activity instanceof MainActivity) {
+                    ((MainActivity) activity).showBiosPrompt();
+                }
             });
         }
         

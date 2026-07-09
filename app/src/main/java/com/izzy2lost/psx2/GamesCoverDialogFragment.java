@@ -529,6 +529,7 @@ public class GamesCoverDialogFragment extends DialogFragment {
                             try { new MemoryCardManagerDialogFragment().show(getParentFragmentManager(), "memcard_manager_dialog"); } catch (Throwable ignored) {}
                         });
                     }
+                    setupDialogDrawerBiosControls(header);
                     View btnAbout = header.findViewById(R.id.drawer_btn_about);
                     if (btnAbout != null) {
                         btnAbout.setOnClickListener(v -> {
@@ -639,6 +640,7 @@ public class GamesCoverDialogFragment extends DialogFragment {
     private void setupDialogDrawerSettings(View header) {
         if (header == null) return;
         android.content.SharedPreferences prefs = requireContext().getSharedPreferences("app_prefs", Context.MODE_PRIVATE);
+        setupDialogDrawerBiosControls(header);
 
         MaterialButtonToggleGroup tgOrientation = header.findViewById(R.id.drawer_tg_orientation);
         View tbOrientAuto = header.findViewById(R.id.drawer_tb_orientation_auto);
@@ -1358,7 +1360,38 @@ public class GamesCoverDialogFragment extends DialogFragment {
             if (swPrecache != null) {
                 swPrecache.setChecked(prefs.getBoolean("precache_textures", false));
             }
+            refreshDialogDrawerBiosStatus(header);
         } catch (Throwable ignored) {}
+    }
+
+    private void setupDialogDrawerBiosControls(View header) {
+        if (header == null) return;
+        refreshDialogDrawerBiosStatus(header);
+
+        View btnBios = header.findViewById(R.id.drawer_btn_bios);
+        if (btnBios != null) {
+            btnBios.setOnClickListener(v -> {
+                try {
+                    View root = getView();
+                    if (root != null) {
+                        androidx.drawerlayout.widget.DrawerLayout drawer = root.findViewById(R.id.dlg_drawer_layout);
+                        if (drawer != null) drawer.closeDrawer(androidx.core.view.GravityCompat.START);
+                    }
+                    if (getActivity() instanceof MainActivity) {
+                        MainActivity mainActivity = (MainActivity) getActivity();
+                        v.post(mainActivity::showBiosPrompt);
+                    }
+                } catch (Throwable ignored) {}
+            });
+        }
+    }
+
+    private void refreshDialogDrawerBiosStatus(View header) {
+        if (header == null || getContext() == null) return;
+        TextView tvBiosStatus = header.findViewById(R.id.drawer_tv_bios_status);
+        if (tvBiosStatus != null) {
+            tvBiosStatus.setText(BiosVerifier.describeVerifiedRegions(requireContext()));
+        }
     }
 
     private void showAboutDialog() {

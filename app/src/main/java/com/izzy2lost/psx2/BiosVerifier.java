@@ -174,7 +174,8 @@ public final class BiosVerifier {
             BiosInfo info = verifyFile(context, biosDir, file);
             if (info != null) {
                 result.all.add(info);
-                if (!result.byRegion.containsKey(info.region)) {
+                BiosInfo current = result.byRegion.get(info.region);
+                if (current == null || info.file.lastModified() > current.file.lastModified()) {
                     result.byRegion.put(info.region, info);
                 }
             }

@@ -216,6 +216,41 @@
             app:iconSize="20dp"
             android:layout_marginTop="4dp" />
 
+        <!-- BIOS shortcut -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="BIOS Files"
+            android:textStyle="bold"
+            android:textColor="@color/brand_primary"
+            android:paddingTop="12dp"
+            android:paddingBottom="4dp" />
+
+        <TextView
+            android:id="@+id/drawer_tv_bios_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Need verified BIOS"
+            android:textColor="@color/md_theme_tertiary"
+            android:textSize="13sp"
+            android:paddingBottom="4dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/drawer_btn_bios"
+            style="@style/Widget.Material3Expressive.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Import / Manage BIOS"
+            android:textColor="@android:color/white"
+            android:textAllCaps="false"
+            app:icon="@drawable/memory_24px"
+            app:iconTint="@color/brand_primary"
+            app:iconGravity="textStart"
+            app:iconPadding="8dp"
+            app:iconSize="20dp"
+            android:layout_marginTop="4dp"
+            android:layout_marginBottom="8dp" />
+
         <!-- Aspect Ratio -->
         <TextView
             android:layout_width="match_parent"

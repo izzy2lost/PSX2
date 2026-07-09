@@ -49,6 +49,38 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:text="BIOS Files"
+            android:textStyle="bold"
+            android:textColor="@color/brand_primary"
+            android:paddingBottom="4dp"/>
+
+        <TextView
+            android:id="@+id/tv_bios_status"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Need verified BIOS"
+            android:textSize="14sp"
+            android:textColor="@color/md_theme_tertiary"
+            android:paddingBottom="8dp"/>
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_bios"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Import / Manage BIOS"
+            android:textAllCaps="false"
+            app:icon="@drawable/memory_24px"
+            app:iconGravity="textStart"
+            app:iconPadding="8dp"/>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="16dp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
             android:text="Renderer"
             android:textStyle="bold"
             android:textColor="@color/brand_primary"

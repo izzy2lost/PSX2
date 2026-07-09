@@ -31,6 +31,7 @@ import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.view.WindowManager;
 import android.util.TypedValue;
+import android.widget.TextView;
 import android.widget.Toast;
 import android.app.PictureInPictureParams;
 import android.util.Rational;
@@ -759,6 +760,7 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
                             } catch (Throwable ignored) {}
                         });
                     }
+                    setupDrawerBiosControls(header);
                     View btnAchievements = header.findViewById(R.id.drawer_btn_achievements);
                     if (btnAchievements != null) {
                         btnAchievements.setOnClickListener(v -> {
@@ -1222,10 +1224,14 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
 
     public void showBiosPrompt() {
         if (mBiosPromptDialog != null && mBiosPromptDialog.isShowing()) return;
+        boolean hasVerifiedBios = BiosVerifier.hasAnyVerifiedBios(this);
+        String title = hasVerifiedBios ? "BIOS Files" : "BIOS Required";
+        String message = (hasVerifiedBios ? BiosVerifier.describeVerifiedRegions(this) + ".\n\n" : "") +
+                "Import a USA, Europe, or Japan PS2 BIOS that matches the bundled Redump DAT hash. One verified BIOS is enough; importing all three lets PSX2 match game regions automatically.\n\nHint: Press Select+Start for Quick Actions.";
         mBiosPromptDialog = new com.google.android.material.dialog.MaterialAlertDialogBuilder(this,
                 com.google.android.material.R.style.ThemeOverlay_Material3_MaterialAlertDialog)
-                .setCustomTitle(UiUtils.centeredDialogTitle(this, "BIOS Required"))
-                .setMessage("Import a USA, Europe, or Japan PS2 BIOS that matches the bundled Redump DAT hash. One verified BIOS is enough; importing all three lets PSX2 match game regions automatically.\n\nHint: Press Select+Start for Quick Actions.")
+                .setCustomTitle(UiUtils.centeredDialogTitle(this, title))
+                .setMessage(message)
                 .setNegativeButton("Later", (d, w) -> { /* leave dialog dismiss */ })
                 .setPositiveButton("Pick Files", (d, w) -> {
                     Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
@@ -1598,6 +1604,7 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
             String message = stats.verified == 1 ? "Verified BIOS imported" : stats.verified + " verified BIOS files imported";
             if (stats.rejected > 0) message += "; " + stats.rejected + " rejected";
             Toast.makeText(this, message + ". " + BiosVerifier.describeVerifiedRegions(this), Toast.LENGTH_LONG).show();
+            refreshDrawerSettings();
         } else if (stats.rejected > 0) {
             Toast.makeText(this, "No selected BIOS matched the Redump DAT hash.", Toast.LENGTH_LONG).show();
         }
@@ -2230,6 +2237,7 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
         if (header == null) return;
 
         SharedPreferences prefs = getSharedPreferences("app_prefs", MODE_PRIVATE);
+        setupDrawerBiosControls(header);
 
         MaterialButtonToggleGroup tgOrientation = header.findViewById(R.id.drawer_tg_orientation);
         View tbOrientAuto = header.findViewById(R.id.drawer_tb_orientation_auto);
@@ -2464,6 +2472,8 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
                 return;
             }
 
+            refreshDrawerBiosStatus(header);
+
             try {
                 MaterialButtonToggleGroup tgOrientation = header.findViewById(R.id.drawer_tg_orientation);
                 View tbOrientAuto = header.findViewById(R.id.drawer_tb_orientation_auto);
@@ -2588,6 +2598,30 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
             
         } catch (Throwable t) {
             android.util.Log.e("MainActivity", "Unexpected error in refreshDrawerSettings: " + t.getMessage());
+        }
+    }
+
+    private void setupDrawerBiosControls(View header) {
+        if (header == null) return;
+        refreshDrawerBiosStatus(header);
+
+        View btnBios = header.findViewById(R.id.drawer_btn_bios);
+        if (btnBios != null) {
+            btnBios.setOnClickListener(v -> {
+                try {
+                    DrawerLayout drawer = findViewById(R.id.drawer_layout);
+                    if (drawer != null) drawer.closeDrawer(GravityCompat.START);
+                } catch (Throwable ignored) {}
+                v.post(this::showBiosPrompt);
+            });
+        }
+    }
+
+    private void refreshDrawerBiosStatus(View header) {
+        if (header == null) return;
+        TextView tvBiosStatus = header.findViewById(R.id.drawer_tv_bios_status);
+        if (tvBiosStatus != null) {
+            tvBiosStatus.setText(BiosVerifier.describeVerifiedRegions(this));
         }
     }
 
