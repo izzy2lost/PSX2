@@ -30,6 +30,7 @@
 #include "SDL3/SDL.h"
 #include <atomic>
 #include <algorithm>
+#include <cctype>
 #include <future>
 #include <mutex>
 #ifdef __ANDROID__
@@ -48,6 +49,9 @@ static ANativeWindow* s_render_window = nullptr;
 static std::atomic_bool s_shutdown_requested{false};
 static MemorySettingsInterface s_settings_interface;
 static int s_pending_renderer = -1; // -1 = none; else 12=OpenGL,13=SW,14=Vulkan
+static std::string s_verified_bios_usa;
+static std::string s_verified_bios_europe;
+static std::string s_verified_bios_japan;
 
 // Fallback JNI access for content:// when SDL's Android env is not yet ready
 // (no JNI fallback)
@@ -63,8 +67,11 @@ std::string GetJavaString(JNIEnv *env, jstring jstr) {
     return cpp_string;
 }
 
-static void ApplyPerGameSettingsForPath(const std::string& game_path)
+static std::string GetGameSerialForPath(const std::string& game_path)
 {
+    if (game_path.empty())
+        return {};
+
     // Determine serial via CDVD using the same path the core will open
     Error error;
     std::string serial;
@@ -77,7 +84,11 @@ static void ApplyPerGameSettingsForPath(const std::string& game_path)
         DoCDVDclose();
     }
     CDVD = prev;
+    return serial;
+}
 
+static void ApplyPerGameSettingsForSerial(const std::string& serial)
+{
     if (serial.empty())
         return;
 
@@ -131,6 +142,98 @@ static void ApplyPerGameSettingsForPath(const std::string& game_path)
         s_settings_interface.SetBoolValue("EmuCore", "EnablePatches", bval);
     if (per_game.GetBoolValue("EmuCore", "EnableCheats", &bval))
         s_settings_interface.SetBoolValue("EmuCore", "EnableCheats", bval);
+}
+
+enum class VerifiedBiosRegion
+{
+    Unknown,
+    USA,
+    Europe,
+    Japan,
+};
+
+static std::string NormalizeSerialPrefix(const std::string& serial)
+{
+    std::string out;
+    out.reserve(serial.size());
+    for (unsigned char ch : serial)
+    {
+        if (std::isalnum(ch))
+            out.push_back(static_cast<char>(std::toupper(ch)));
+    }
+    return out;
+}
+
+static VerifiedBiosRegion GetBiosRegionForSerial(const std::string& serial)
+{
+    const std::string normalized = NormalizeSerialPrefix(serial);
+    if (normalized.empty())
+        return VerifiedBiosRegion::Unknown;
+
+    if (StringUtil::StartsWithNoCase(normalized, "SCUS") ||
+        StringUtil::StartsWithNoCase(normalized, "SLUS"))
+    {
+        return VerifiedBiosRegion::USA;
+    }
+
+    if (StringUtil::StartsWithNoCase(normalized, "SCES") ||
+        StringUtil::StartsWithNoCase(normalized, "SCED") ||
+        StringUtil::StartsWithNoCase(normalized, "SLES") ||
+        StringUtil::StartsWithNoCase(normalized, "SLED"))
+    {
+        return VerifiedBiosRegion::Europe;
+    }
+
+    if (StringUtil::StartsWithNoCase(normalized, "SCPS") ||
+        StringUtil::StartsWithNoCase(normalized, "SLPS") ||
+        StringUtil::StartsWithNoCase(normalized, "SLPM"))
+    {
+        return VerifiedBiosRegion::Japan;
+    }
+
+    return VerifiedBiosRegion::Unknown;
+}
+
+static const std::string& FirstVerifiedBios()
+{
+    if (!s_verified_bios_usa.empty())
+        return s_verified_bios_usa;
+    if (!s_verified_bios_europe.empty())
+        return s_verified_bios_europe;
+    return s_verified_bios_japan;
+}
+
+static void SelectVerifiedBiosForSerial(const std::string& serial)
+{
+    const VerifiedBiosRegion region = GetBiosRegionForSerial(serial);
+    const std::string* selected = nullptr;
+
+    switch (region)
+    {
+        case VerifiedBiosRegion::USA:
+            selected = !s_verified_bios_usa.empty() ? &s_verified_bios_usa : nullptr;
+            break;
+        case VerifiedBiosRegion::Europe:
+            selected = !s_verified_bios_europe.empty() ? &s_verified_bios_europe : nullptr;
+            break;
+        case VerifiedBiosRegion::Japan:
+            selected = !s_verified_bios_japan.empty() ? &s_verified_bios_japan : nullptr;
+            break;
+        case VerifiedBiosRegion::Unknown:
+        default:
+            break;
+    }
+
+    const std::string& fallback = FirstVerifiedBios();
+    if (!selected && !fallback.empty())
+        selected = &fallback;
+
+    if (!selected || selected->empty())
+        return;
+
+    s_settings_interface.SetStringValue("Filenames", "BIOS", selected->c_str());
+    EmuConfig.BaseFilenames.Bios = *selected;
+    Console.WriteLn("Selected verified BIOS '%s' for game serial '%s'", selected->c_str(), serial.c_str());
 }
 
 // (renderGpu JNI defined later; keep only one definition)
@@ -1231,6 +1334,17 @@ Java_com_izzy2lost_psx2_NativeApp_prepareVMStart(JNIEnv *env, jclass clazz) {
 }
 
 extern "C"
+JNIEXPORT void JNICALL
+Java_com_izzy2lost_psx2_NativeApp_setVerifiedBiosFiles(JNIEnv *env, jclass clazz,
+                                                       jstring p_usa_bios,
+                                                       jstring p_europe_bios,
+                                                       jstring p_japan_bios) {
+    s_verified_bios_usa = GetJavaString(env, p_usa_bios);
+    s_verified_bios_europe = GetJavaString(env, p_europe_bios);
+    s_verified_bios_japan = GetJavaString(env, p_japan_bios);
+}
+
+extern "C"
 JNIEXPORT jboolean JNICALL
 Java_com_izzy2lost_psx2_NativeApp_runVMThread(JNIEnv *env, jclass clazz,
                                                  jstring p_szpath) {
@@ -1270,8 +1384,12 @@ Java_com_izzy2lost_psx2_NativeApp_runVMThread(JNIEnv *env, jclass clazz,
         Console.WriteLn("Game boot: path=%s, fast_boot will use default behavior", _szPath.c_str());
     }
 
+    // Detect the disc serial before VM startup so settings and BIOS region can follow the game.
+    const std::string game_serial = GetGameSerialForPath(_szPath);
+    SelectVerifiedBiosForSerial(game_serial);
+
     // Apply per-game settings (if any) before applying core settings
-    ApplyPerGameSettingsForPath(_szPath);
+    ApplyPerGameSettingsForSerial(game_serial);
 
     if (s_shutdown_requested.load(std::memory_order_acquire)) {
         Console.Warning("runVMThread cancelled before VM initialize because shutdown was requested");

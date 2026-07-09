@@ -334,6 +334,7 @@ public class NativeApp {
 
     public static native boolean runVMThread(String path);
     public static native void prepareVMStart();
+    public static native void setVerifiedBiosFiles(String usaBios, String europeBios, String japanBios);
     public static native boolean isVMActive();
 
 	public static native void pause();

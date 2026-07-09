@@ -1201,51 +1201,23 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
 
     // --- BIOS presence check and prompt ---
     private boolean hasAnyBiosFiles(File dir) {
-        if (dir == null || !dir.exists()) return false;
-        File[] files = dir.listFiles();
-        if (files == null) return false;
-        for (File f : files) {
-            if (f == null) continue;
-            if (f.isDirectory()) {
-                if (hasAnyBiosFiles(f)) return true;
-            } else {
-                String name = f.getName();
-                if (name != null) {
-                    String lower = name.toLowerCase(Locale.ROOT);
-                    
-                    // Check for component ROM files (these have specific names)
-                    boolean isComponentSuffix = lower.endsWith(".rom0") || lower.endsWith(".rom1") || 
-                                               lower.endsWith(".rom2") || lower.endsWith(".erom");
-                    boolean isBareComponent = lower.equals("rom0") || lower.equals("rom1") || 
-                                             lower.equals("rom2") || lower.equals("erom");
-                    
-                    if (isComponentSuffix || isBareComponent) {
-                        if (f.length() >= 64 * 1024) return true; // component ROMs can be smaller
-                    }
-                    
-                    // Accept any .bin or .rom file that's at least 256KB (likely a BIOS)
-                    // This covers all regional variants and renamed files
-                    if ((lower.endsWith(".bin") || lower.endsWith(".rom")) && f.length() >= 256 * 1024) {
-                        return true;
-                    }
-                }
-            }
-        }
-        return false;
+        return BiosVerifier.hasAnyVerifiedBios(this);
     }
 
     private void maybePromptForBios() {
         // Temporarily disable automatic BIOS prompt
         if (!getSharedPreferences("app_prefs", MODE_PRIVATE).getBoolean("bios_auto_prompt_enabled", false))
             return;
-        File biosDir = new File(getApplicationContext().getExternalFilesDir(null), "bios");
+        File biosDir = BiosVerifier.getBiosDirectory(this);
         if (hasAnyBiosFiles(biosDir)) return;
         showBiosPrompt();
     }
 
     private boolean ensureBiosOrPrompt() {
-        // Temporarily disable automatic BIOS prompting; wizard handles manual import
-        return true;
+        if (configureVerifiedBiosFiles()) return true;
+        showBiosPrompt();
+        Toast.makeText(this, "Import a PS2 BIOS with a matching Redump hash to continue.", Toast.LENGTH_LONG).show();
+        return false;
     }
 
     public void showBiosPrompt() {
@@ -1253,7 +1225,7 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
         mBiosPromptDialog = new com.google.android.material.dialog.MaterialAlertDialogBuilder(this,
                 com.google.android.material.R.style.ThemeOverlay_Material3_MaterialAlertDialog)
                 .setCustomTitle(UiUtils.centeredDialogTitle(this, "BIOS Required"))
-                .setMessage("No PS2 BIOS detected. Import your BIOS files to run games.\n\nHint: Press Select+Start for Quick Actions.")
+                .setMessage("Import a USA, Europe, or Japan PS2 BIOS that matches the bundled Redump DAT hash. One verified BIOS is enough; importing all three lets PSX2 match game regions automatically.\n\nHint: Press Select+Start for Quick Actions.")
                 .setNegativeButton("Later", (d, w) -> { /* leave dialog dismiss */ })
                 .setPositiveButton("Pick Files", (d, w) -> {
                     Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
@@ -1275,12 +1247,34 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
     }
 
     private void dismissBiosPromptIfResolved() {
-        File biosDir = new File(getApplicationContext().getExternalFilesDir(null), "bios");
+        File biosDir = BiosVerifier.getBiosDirectory(this);
         if (hasAnyBiosFiles(biosDir)) {
             if (mBiosPromptDialog != null && mBiosPromptDialog.isShowing()) {
                 try { mBiosPromptDialog.dismiss(); } catch (Exception ignored) {}
             }
         }
+    }
+
+    private boolean configureVerifiedBiosFiles() {
+        BiosVerifier.ScanResult scan = BiosVerifier.scanVerifiedBioses(this);
+        if (!scan.hasAny()) return false;
+
+        String usa = "";
+        String europe = "";
+        String japan = "";
+        BiosVerifier.BiosInfo usaInfo = scan.byRegion.get(BiosVerifier.Region.USA);
+        BiosVerifier.BiosInfo europeInfo = scan.byRegion.get(BiosVerifier.Region.EUROPE);
+        BiosVerifier.BiosInfo japanInfo = scan.byRegion.get(BiosVerifier.Region.JAPAN);
+        if (usaInfo != null) usa = usaInfo.relativePath;
+        if (europeInfo != null) europe = europeInfo.relativePath;
+        if (japanInfo != null) japan = japanInfo.relativePath;
+
+        try {
+            NativeApp.setVerifiedBiosFiles(usa, europe, japan);
+        } catch (Throwable t) {
+            android.util.Log.w("MainActivity", "Unable to pass verified BIOS list to native core", t);
+        }
+        return true;
     }
 
     private ColorStateList pressedColorStateList(int base) {
@@ -1381,22 +1375,23 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
                     try {
                         Intent data = result.getData();
                         if (data != null) {
-                            File biosDir = new File(getApplicationContext().getExternalFilesDir(null), "bios");
+                            File biosDir = BiosVerifier.getBiosDirectory(this);
                             if (!biosDir.exists()) biosDir.mkdirs();
 
+                            BiosImportStats stats = new BiosImportStats();
                             ClipData clipData = data.getClipData();
                             if (clipData != null && clipData.getItemCount() > 0) {
                                 for (int i = 0; i < clipData.getItemCount(); i++) {
                                     Uri uri = clipData.getItemAt(i).getUri();
-                                    importSingleBiosUri(uri, biosDir);
+                                    stats.add(importSingleBiosUri(uri, biosDir));
                                 }
                             } else {
                                 Uri uri = data.getData();
                                 if (uri != null) {
-                                    importSingleBiosUri(uri, biosDir);
+                                    stats.add(importSingleBiosUri(uri, biosDir));
                                 }
                             }
-                            // If BIOS now present, dismiss the prompt
+                            showBiosImportSummary(stats);
                             dismissBiosPromptIfResolved();
                         }
                     } catch (Exception ignored) {}
@@ -1423,10 +1418,10 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
 
                                 DocumentFile pickedDir = DocumentFile.fromTreeUri(this, treeUri);
                                 if (pickedDir != null && pickedDir.isDirectory()) {
-                                    File biosDir = new File(getApplicationContext().getExternalFilesDir(null), "bios");
+                                    File biosDir = BiosVerifier.getBiosDirectory(this);
                                     if (!biosDir.exists()) biosDir.mkdirs();
-                                    copyDocumentTreeToDirectory(pickedDir, biosDir);
-                                    // If BIOS now present, dismiss the prompt
+                                    BiosImportStats stats = copyDocumentTreeToDirectory(pickedDir, biosDir);
+                                    showBiosImportSummary(stats);
                                     dismissBiosPromptIfResolved();
                                 }
                             }
@@ -1502,25 +1497,35 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
         } catch (Throwable ignored) {}
     }
 
-    private void importSingleBiosUri(Uri uri, File biosDir) {
-        if (uri == null) return;
+    private static class BiosImportStats {
+        int verified;
+        int rejected;
+
+        void add(BiosVerifier.BiosInfo info) {
+            if (info != null) verified++;
+            else rejected++;
+        }
+
+        void add(BiosImportStats other) {
+            if (other == null) return;
+            verified += other.verified;
+            rejected += other.rejected;
+        }
+    }
+
+    private BiosVerifier.BiosInfo importSingleBiosUri(Uri uri, File biosDir) {
+        if (uri == null) return null;
         
         try {
             String displayName = getDisplayNameFromUri(this, uri);
             if (TextUtils.isEmpty(displayName)) displayName = "bios.bin";
-            File outFile = new File(biosDir, displayName);
-            
-            // Check if file already exists and is valid
-            if (outFile.exists() && outFile.length() > 0) {
-                android.util.Log.d("MainActivity", "BIOS file already exists: " + displayName);
-                return;
-            }
+            File outFile = uniqueBiosFile(biosDir, displayName);
             
             // Ensure bios directory exists
             if (!biosDir.exists()) {
                 if (!biosDir.mkdirs()) {
                     android.util.Log.e("MainActivity", "Failed to create BIOS directory: " + biosDir.getAbsolutePath());
-                    return;
+                    return null;
                 }
             }
             
@@ -1528,19 +1533,27 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
             boolean success = copyUriToFile(this, uri, outFile);
             if (!success) {
                 android.util.Log.e("MainActivity", "Failed to copy BIOS file: " + displayName);
-                return;
+                try { if (outFile.exists()) outFile.delete(); } catch (Exception ignored) {}
+                return null;
+            }
+
+            BiosVerifier.BiosInfo verifiedBios = BiosVerifier.verifyFile(this, biosDir, outFile);
+            if (verifiedBios == null) {
+                android.util.Log.w("MainActivity", "Rejected BIOS file without matching DAT hash: " + displayName);
+                try { if (outFile.exists()) outFile.delete(); } catch (Exception ignored) {}
+                return null;
             }
             
             // Also mirror to SAF data root if set (with error handling)
             android.net.Uri dataRoot = SafManager.getDataRootUri(this);
             if (dataRoot != null) {
                 try {
-                    androidx.documentfile.provider.DocumentFile target = SafManager.createChild(this, new String[]{"bios"}, displayName, "application/octet-stream");
+                    androidx.documentfile.provider.DocumentFile target = SafManager.createChild(this, new String[]{"bios"}, outFile.getName(), "application/octet-stream");
                     if (target != null) {
-                        try (java.io.InputStream in = getContentResolver().openInputStream(uri)) {
+                        try (java.io.InputStream in = new java.io.FileInputStream(outFile)) {
                             if (in != null) {
                                 SafManager.copyFromStream(this, in, target.getUri());
-                                android.util.Log.d("MainActivity", "BIOS file mirrored to SAF: " + displayName);
+                                android.util.Log.d("MainActivity", "BIOS file mirrored to SAF: " + outFile.getName());
                             }
                         } catch (Exception e) {
                             android.util.Log.w("MainActivity", "Failed to mirror BIOS to SAF: " + e.getMessage());
@@ -1553,30 +1566,67 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
                 }
             }
             
-            android.util.Log.d("MainActivity", "BIOS import completed successfully: " + displayName);
+            android.util.Log.d("MainActivity", "BIOS import verified successfully: " + outFile.getName());
+            configureVerifiedBiosFiles();
+            return verifiedBios;
             
         } catch (Exception e) {
             android.util.Log.e("MainActivity", "Error during BIOS import: " + e.getMessage());
         }
+        return null;
     }
 
-    private void copyDocumentTreeToDirectory(DocumentFile dir, File outDir) {
-        if (dir == null || !dir.isDirectory()) return;
+    private BiosImportStats copyDocumentTreeToDirectory(DocumentFile dir, File outDir) {
+        BiosImportStats stats = new BiosImportStats();
+        if (dir == null || !dir.isDirectory()) return stats;
         DocumentFile[] children = dir.listFiles();
-        if (children == null) return;
+        if (children == null) return stats;
         for (DocumentFile child : children) {
             if (child == null) continue;
             if (child.isDirectory()) {
-                File sub = new File(outDir, child.getName() != null ? child.getName() : "folder");
-                if (!sub.exists()) sub.mkdirs();
-                copyDocumentTreeToDirectory(child, sub);
+                stats.add(copyDocumentTreeToDirectory(child, outDir));
             } else if (child.isFile()) {
-                String name = child.getName();
-                if (TextUtils.isEmpty(name)) name = "bios.bin";
-                File dest = new File(outDir, name);
-                copyUriToFile(this, child.getUri(), dest);
+                stats.add(importSingleBiosUri(child.getUri(), outDir));
             }
         }
+        return stats;
+    }
+
+    private void showBiosImportSummary(BiosImportStats stats) {
+        if (stats == null) return;
+        if (stats.verified > 0) {
+            String message = stats.verified == 1 ? "Verified BIOS imported" : stats.verified + " verified BIOS files imported";
+            if (stats.rejected > 0) message += "; " + stats.rejected + " rejected";
+            Toast.makeText(this, message + ". " + BiosVerifier.describeVerifiedRegions(this), Toast.LENGTH_LONG).show();
+        } else if (stats.rejected > 0) {
+            Toast.makeText(this, "No selected BIOS matched the Redump DAT hash.", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private static File uniqueBiosFile(File biosDir, String displayName) {
+        String safeName = sanitizeBiosFileName(displayName);
+        File candidate = new File(biosDir, safeName);
+        if (!candidate.exists()) return candidate;
+
+        String base = safeName;
+        String ext = "";
+        int dot = safeName.lastIndexOf('.');
+        if (dot > 0) {
+            base = safeName.substring(0, dot);
+            ext = safeName.substring(dot);
+        }
+
+        for (int i = 2; i < 1000; i++) {
+            candidate = new File(biosDir, base + "-" + i + ext);
+            if (!candidate.exists()) return candidate;
+        }
+        return new File(biosDir, base + "-" + System.currentTimeMillis() + ext);
+    }
+
+    private static String sanitizeBiosFileName(String name) {
+        if (TextUtils.isEmpty(name)) return "bios.bin";
+        String safe = name.replaceAll("[\\\\/:*?\"<>|]", "_").trim();
+        return TextUtils.isEmpty(safe) ? "bios.bin" : safe;
     }
 
     private static String getDisplayNameFromUri(Context context, Uri uri) {
@@ -1618,7 +1668,7 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
                 // Check file size limit to prevent memory issues on lower-end devices
                 if (totalBytes > maxFileSize) {
                     android.util.Log.w("MainActivity", "BIOS file too large: " + totalBytes + " bytes");
-                    return false;
+                    throw new IOException("BIOS file too large: " + totalBytes + " bytes");
                 }
                 
                 os.write(buffer, 0, read);

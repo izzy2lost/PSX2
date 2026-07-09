@@ -19,7 +19,6 @@ import androidx.viewpager2.widget.ViewPager2;
 
 import com.google.android.material.button.MaterialButton;
 
-import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -36,9 +35,9 @@ public class SetupWizardDialogFragment extends DialogFragment {
     private Runnable periodicCheck;
 
     private final List<SetupStep> steps = Arrays.asList(
+            new SetupStep(StepType.BIOS, R.drawable.memory_24px, "BIOS files", "Import a verified USA, Europe, or Japan BIOS. One is enough; adding all three lets PSX2 match game regions automatically.", "Import BIOS"),
             new SetupStep(StepType.DATA, R.drawable.data_table_24px, "Data folder", "Pick a writable PSX2 data folder for saves, states, and config.", "Choose data"),
-            new SetupStep(StepType.GAMES, R.drawable.stadia_controller_24px, "Games library", "Point PSX2 to your games folder so covers and sorting work.", "Choose games"),
-            new SetupStep(StepType.BIOS, R.drawable.memory_24px, "BIOS files", "Import your console BIOS so games can boot.", "Import BIOS")
+            new SetupStep(StepType.GAMES, R.drawable.stadia_controller_24px, "Games library", "Point PSX2 to your games folder so covers and sorting work.", "Choose games")
     );
 
     private SetupPagerAdapter adapter;
@@ -130,6 +129,11 @@ public class SetupWizardDialogFragment extends DialogFragment {
             @Override
             public boolean isComplete(StepType type) {
                 return isStepComplete(type);
+            }
+
+            @Override
+            public String getStatusText(StepType type) {
+                return getStepStatusText(type);
             }
 
             @Override
@@ -318,36 +322,20 @@ public class SetupWizardDialogFragment extends DialogFragment {
     }
 
     private boolean isBiosPresent() {
-        File biosDir = new File(requireContext().getExternalFilesDir(null), "bios");
-        if (biosDir != null && biosDir.isDirectory()) {
-            File[] fs = biosDir.listFiles();
-            if (fs != null) {
-                for (File f : fs) {
-                    if (f != null && f.isFile()) {
-                        String lower = f.getName().toLowerCase(Locale.ROOT);
+        return BiosVerifier.hasAnyVerifiedBios(requireContext());
+    }
 
-                        boolean isComponentSuffix = lower.endsWith(".rom0") || lower.endsWith(".rom1") ||
-                                lower.endsWith(".rom2") || lower.endsWith(".erom");
-                        boolean isBareComponent = lower.equals("rom0") || lower.equals("rom1") ||
-                                lower.equals("rom2") || lower.equals("erom");
-
-                        if (isComponentSuffix || isBareComponent) {
-                            return true;
-                        }
-
-                        if ((lower.endsWith(".bin") || lower.endsWith(".rom")) && f.length() >= 256 * 1024) {
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
-        return false;
+    private String getStepStatusText(StepType type) {
+        return switch (type) {
+            case BIOS -> BiosVerifier.describeVerifiedRegions(requireContext());
+            default -> isStepComplete(type) ? "Complete" : "Pending";
+        };
     }
 
     private static class SetupPagerAdapter extends RecyclerView.Adapter<SetupPagerAdapter.VH> {
         interface StepListener {
             boolean isComplete(StepType type);
+            String getStatusText(StepType type);
             void onAction(StepType type);
         }
 
@@ -383,7 +371,7 @@ public class SetupWizardDialogFragment extends DialogFragment {
             int completeFg = ContextCompat.getColor(ctx, R.color.md_theme_onPrimary);
             int pendingFg = ContextCompat.getColor(ctx, R.color.md_theme_onSurface);
 
-            holder.status.setText(complete ? "Complete" : "Pending");
+            holder.status.setText(listener.getStatusText(step.type));
             holder.status.setBackgroundTintList(android.content.res.ColorStateList.valueOf(complete ? completeBg : pendingBg));
             holder.status.setTextColor(complete ? completeFg : pendingFg);
             holder.action.setIcon(ContextCompat.getDrawable(ctx, complete ? R.drawable.check_circle_24px : step.iconRes));
