@@ -264,6 +264,13 @@ public class GamesCoverDialogFragment extends DialogFragment {
         if (btnSearch != null) {
             btnSearch.setOnClickListener(v -> showSearchDialog());
         }
+        View btnAddFolder = root.findViewById(R.id.btn_add_folder);
+        if (btnAddFolder != null) {
+            btnAddFolder.setOnClickListener(v -> {
+                MainActivity activity = UiUtils.getMainActivity(this);
+                if (activity != null) activity.addGamesFolder();
+            });
+        }
         // apply initial sort/filter if needed
         if (sortMode != SORT_ALPHA || (query != null && !query.isEmpty())) {
             applyFilterAndSort();

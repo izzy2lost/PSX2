@@ -47,7 +47,9 @@ public class CoversAdapter extends RecyclerView.Adapter<CoversAdapter.VH> {
         this.itemLayoutResId = itemLayoutResId;
         this.onItemClick = click;
         this.onItemLongClick = longClick;
-        setHasStableIds(true);
+        // This adapter repeats items for infinite scrolling. Stable IDs would collide,
+        // especially when modded games resolve to the same title.
+        setHasStableIds(false);
     }
 
     public void setItemWidthPx(int widthPx) {
@@ -191,14 +193,6 @@ public class CoversAdapter extends RecyclerView.Adapter<CoversAdapter.VH> {
     @Override
     public int getItemCount() {
         return titles.length == 0 ? 0 : Integer.MAX_VALUE;
-    }
-
-    @Override
-    public long getItemId(int position) {
-        if (titles.length == 0) return RecyclerView.NO_ID;
-        int real = position % titles.length;
-        String t = titles[real];
-        return t != null ? t.hashCode() : real;
     }
 
     static class VH extends RecyclerView.ViewHolder {

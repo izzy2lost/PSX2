@@ -1,4 +1,5 @@
 <resources>
     <string name="app_name">PSX2</string>
     <string name="covers_hint_long_press">Long press on cover for per game settings &amp; custom cover</string>
+    <string name="add_game_folder">Add game folder</string>
 </resources>

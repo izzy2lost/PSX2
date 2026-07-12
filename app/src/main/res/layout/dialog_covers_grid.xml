@@ -43,6 +43,17 @@
             app:tint="@color/brand_primary"
             android:visibility="gone" />
 
+        <ImageButton
+            android:id="@+id/btn_add_folder"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="8dp"
+            android:background="@android:color/transparent"
+            android:contentDescription="@string/add_game_folder"
+            android:padding="6dp"
+            android:src="@drawable/create_new_folder_24px"
+            app:tint="@color/brand_primary" />
+
         <View
             android:layout_width="0dp"
             android:layout_height="0dp"

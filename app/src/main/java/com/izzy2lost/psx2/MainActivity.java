@@ -78,9 +78,12 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
     public static final int ORIENTATION_PORTRAIT = 2;
 
     private static final String PREF_TOUCH_RIGHT_STICK = "touch_right_stick";
+    private static final String PREF_GAMES_FOLDER_URI = "games_folder_uri";
+    private static final String PREF_GAMES_FOLDER_URIS = "games_folder_uris_json";
 
     private String m_szGamefile = "";
     private boolean mRaLoginPromptScheduled = false;
+    private boolean mAddingGamesFolder = false;
 
     private HIDDeviceManager mHIDDeviceManager;
     private ControllerInputHandler mControllerInputHandler;
@@ -378,6 +381,15 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
     }
 
     public void pickGamesFolder() {
+        launchGamesFolderPicker(false);
+    }
+
+    public void addGamesFolder() {
+        launchGamesFolderPicker(true);
+    }
+
+    private void launchGamesFolderPicker(boolean addToLibrary) {
+        mAddingGamesFolder = addToLibrary;
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
                 | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
@@ -390,12 +402,12 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
         startActivityResultDataRootPick.launch(SafManager.buildOpenTreeIntent());
     }
 
-    private void showGamesListOrReselect(Uri treeUri) {
+    private void showGamesListOrReselect() {
         // Re-scan quickly each time to keep list fresh
         String[] names;
         String[] uris;
         try {
-            GameList list = scanGamesFromTreeUri(treeUri);
+            GameList list = scanConfiguredGameFolders();
             names = list.names;
             uris = list.uris;
         } catch (Exception e) {
@@ -410,9 +422,9 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
             new MaterialAlertDialogBuilder(this,
                     com.google.android.material.R.style.ThemeOverlay_Material3_MaterialAlertDialog)
                     .setCustomTitle(UiUtils.centeredDialogTitle(this, "GAMES"))
-                    .setMessage("No games found. Pick a folder?")
+                    .setMessage("No games found. Add another game folder?")
                     .setNegativeButton("Cancel", null)
-                    .setPositiveButton("Pick Folder", (d,w) -> pickGamesFolder())
+                    .setPositiveButton("Add Folder", (d,w) -> addGamesFolder())
                     .show();
             return;
         }
@@ -455,15 +467,21 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
         GameList(String[] n, String[] u) { names = n; uris = u; }
     }
 
-    private GameList scanGamesFromTreeUri(Uri treeUri) {
-        DocumentFile dir = DocumentFile.fromTreeUri(this, treeUri);
-        if (dir == null || !dir.isDirectory()) return new GameList(new String[0], new String[0]);
+    private GameList scanConfiguredGameFolders() {
         java.util.ArrayList<String> nameList = new java.util.ArrayList<>();
         java.util.ArrayList<String> uriList = new java.util.ArrayList<>();
-        scanGamesRecursive(dir, nameList, uriList);
-
-        // Persist folder and latest list
+        java.util.HashSet<String> seenUris = new java.util.HashSet<>();
         SharedPreferences prefs = getSharedPreferences("app_prefs", MODE_PRIVATE);
+        for (String folderUri : getGameFolderUris(prefs)) {
+            try {
+                DocumentFile dir = DocumentFile.fromTreeUri(this, Uri.parse(folderUri));
+                if (dir != null && dir.isDirectory()) {
+                    scanGamesRecursive(dir, nameList, uriList, seenUris);
+                }
+            } catch (Throwable ignored) {}
+        }
+
+        // Persist the latest merged list for components which need a cached snapshot.
         JSONArray arr = new JSONArray();
         for (int i = 0; i < nameList.size(); i++) {
             JSONArray pair = new JSONArray();
@@ -473,26 +491,52 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
             } catch (Exception ignored) {}
             arr.put(pair);
         }
-        prefs.edit()
-                .putString("games_folder_uri", treeUri.toString())
-                .putString("games_list_json", arr.toString())
-                .apply();
+        prefs.edit().putString("games_list_json", arr.toString()).apply();
 
         return new GameList(nameList.toArray(new String[0]), uriList.toArray(new String[0]));
     }
 
-    private void scanGamesRecursive(DocumentFile dir, java.util.List<String> names, java.util.List<String> uris) {
+    private java.util.ArrayList<String> getGameFolderUris(SharedPreferences prefs) {
+        java.util.LinkedHashSet<String> folders = new java.util.LinkedHashSet<>();
+        String json = prefs.getString(PREF_GAMES_FOLDER_URIS, null);
+        if (!TextUtils.isEmpty(json)) {
+            try {
+                JSONArray arr = new JSONArray(json);
+                for (int i = 0; i < arr.length(); i++) {
+                    String uri = arr.optString(i, "");
+                    if (!TextUtils.isEmpty(uri)) folders.add(uri);
+                }
+            } catch (JSONException ignored) {}
+        }
+
+        // Migrate installations which stored only one game folder.
+        String legacyFolder = prefs.getString(PREF_GAMES_FOLDER_URI, null);
+        if (!TextUtils.isEmpty(legacyFolder)) folders.add(legacyFolder);
+        return new java.util.ArrayList<>(folders);
+    }
+
+    private void saveGameFolderUris(SharedPreferences prefs, java.util.List<String> folders) {
+        JSONArray arr = new JSONArray();
+        for (String folder : folders) arr.put(folder);
+        SharedPreferences.Editor editor = prefs.edit().putString(PREF_GAMES_FOLDER_URIS, arr.toString());
+        if (!folders.isEmpty()) editor.putString(PREF_GAMES_FOLDER_URI, folders.get(0));
+        editor.apply();
+    }
+
+    private void scanGamesRecursive(DocumentFile dir, java.util.List<String> names,
+                                    java.util.List<String> uris, java.util.Set<String> seenUris) {
         DocumentFile[] children = dir.listFiles();
         if (children == null) return;
         for (DocumentFile child : children) {
             if (child == null) continue;
             if (child.isDirectory()) {
-                scanGamesRecursive(child, names, uris);
+                scanGamesRecursive(child, names, uris, seenUris);
             } else if (child.isFile()) {
                 String name = child.getName();
-                if (hasGameExt(name)) {
+                String uri = child.getUri().toString();
+                if (hasGameExt(name) && seenUris.add(uri)) {
                     names.add(name);
-                    uris.add(child.getUri().toString());
+                    uris.add(uri);
                 }
             }
         }
@@ -628,11 +672,10 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
             prefs.edit().putBoolean("has_opened_games_after_setup", true).apply();
         }
         
-        String folderUri = prefs.getString("games_folder_uri", null);
-        if (TextUtils.isEmpty(folderUri)) {
+        if (getGameFolderUris(prefs).isEmpty()) {
             pickGamesFolder();
         } else {
-            showGamesListOrReselect(Uri.parse(folderUri));
+            showGamesListOrReselect();
         }
     }
 
@@ -1451,13 +1494,18 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
                                         getContentResolver().takePersistableUriPermission(treeUri, takeFlags);
                                     } catch (SecurityException ignored) {}
                                 }
-                                // Save folder and optionally show games
-                                getSharedPreferences("app_prefs", MODE_PRIVATE)
-                                        .edit()
-                                        .putString("games_folder_uri", treeUri.toString())
-                                        .apply();
+                                SharedPreferences prefs = getSharedPreferences("app_prefs", MODE_PRIVATE);
+                                java.util.ArrayList<String> folders = mAddingGamesFolder
+                                        ? getGameFolderUris(prefs) : new java.util.ArrayList<>();
+                                if (!folders.contains(treeUri.toString())) folders.add(treeUri.toString());
+                                saveGameFolderUris(prefs, folders);
                                 if (!mSetupWizardActive) {
-                                    showGamesListOrReselect(treeUri);
+                                    androidx.fragment.app.Fragment current = getSupportFragmentManager()
+                                            .findFragmentByTag("covers_dialog");
+                                    if (current instanceof androidx.fragment.app.DialogFragment) {
+                                        ((androidx.fragment.app.DialogFragment) current).dismissAllowingStateLoss();
+                                    }
+                                    showGamesListOrReselect();
                                 } else {
                                     Toast.makeText(this, "Games folder set", Toast.LENGTH_SHORT).show();
                                 }
@@ -1465,6 +1513,7 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
                         }
                     } catch (Exception ignored) {}
                 }
+                mAddingGamesFolder = false;
             });
 
     // SAF data-root picker result
