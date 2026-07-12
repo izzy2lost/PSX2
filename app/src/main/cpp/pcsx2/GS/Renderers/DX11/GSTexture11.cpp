@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "GSDevice11.h"
@@ -28,23 +28,24 @@ DXGI_FORMAT GSTexture11::GetDXGIFormat(Format format)
 	// clang-format off
 	switch (format)
 	{
-	case GSTexture::Format::Color:        return DXGI_FORMAT_R8G8B8A8_UNORM;
-	case GSTexture::Format::ColorHQ:      return DXGI_FORMAT_R10G10B10A2_UNORM;
-	case GSTexture::Format::ColorHDR:     return DXGI_FORMAT_R16G16B16A16_FLOAT;
-	case GSTexture::Format::ColorClip:    return DXGI_FORMAT_R16G16B16A16_UNORM;
-	case GSTexture::Format::DepthStencil: return DXGI_FORMAT_R32G8X24_TYPELESS;
-	case GSTexture::Format::UNorm8:       return DXGI_FORMAT_A8_UNORM;
-	case GSTexture::Format::UInt16:       return DXGI_FORMAT_R16_UINT;
-	case GSTexture::Format::UInt32:       return DXGI_FORMAT_R32_UINT;
-	case GSTexture::Format::PrimID:       return DXGI_FORMAT_R32_FLOAT;
-	case GSTexture::Format::BC1:          return DXGI_FORMAT_BC1_UNORM;
-	case GSTexture::Format::BC2:          return DXGI_FORMAT_BC2_UNORM;
-	case GSTexture::Format::BC3:          return DXGI_FORMAT_BC3_UNORM;
-	case GSTexture::Format::BC7:          return DXGI_FORMAT_BC7_UNORM;
-	case GSTexture::Format::Invalid:
-	default:
-		pxAssert(0);
-		return DXGI_FORMAT_UNKNOWN;
+		case GSTexture::Format::Color:        return DXGI_FORMAT_R8G8B8A8_UNORM;
+		case GSTexture::Format::ColorHQ:      return DXGI_FORMAT_R10G10B10A2_UNORM;
+		case GSTexture::Format::ColorHDR:     return DXGI_FORMAT_R16G16B16A16_FLOAT;
+		case GSTexture::Format::ColorClip:    return DXGI_FORMAT_R16G16B16A16_UNORM;
+		case GSTexture::Format::DepthStencil: return DXGI_FORMAT_R32G8X24_TYPELESS;
+		case GSTexture::Format::DepthColor:   return DXGI_FORMAT_R32_FLOAT;
+		case GSTexture::Format::UNorm8:       return DXGI_FORMAT_A8_UNORM;
+		case GSTexture::Format::UInt16:       return DXGI_FORMAT_R16_UINT;
+		case GSTexture::Format::UInt32:       return DXGI_FORMAT_R32_UINT;
+		case GSTexture::Format::PrimID:       return DXGI_FORMAT_R32_FLOAT;
+		case GSTexture::Format::BC1:          return DXGI_FORMAT_BC1_UNORM;
+		case GSTexture::Format::BC2:          return DXGI_FORMAT_BC2_UNORM;
+		case GSTexture::Format::BC3:          return DXGI_FORMAT_BC3_UNORM;
+		case GSTexture::Format::BC7:          return DXGI_FORMAT_BC7_UNORM;
+		case GSTexture::Format::Invalid:
+		default:
+			pxAssert(0);
+			return DXGI_FORMAT_UNKNOWN;
 	}
 	// clang-format on
 }
@@ -63,7 +64,7 @@ bool GSTexture11::Update(const GSVector4i& r, const void* data, int pitch, int l
 	g_perfmon.Put(GSPerfMon::TextureUploads, 1);
 
 	const u32 bs = GetCompressedBlockSize();
-	
+
 	const D3D11_BOX box = {Common::AlignDownPow2((u32)r.left, bs), Common::AlignDownPow2((u32)r.top, bs), 0U,
 		Common::AlignUpPow2((u32)r.right, bs), Common::AlignUpPow2((u32)r.bottom, bs), 1U};
 	const UINT subresource = layer; // MipSlice + (ArraySlice * MipLevels).
@@ -101,6 +102,8 @@ void GSTexture11::SetDebugName(std::string_view name)
 		GSDevice11::SetD3DDebugObjectName(m_srv.get(), fmt::format("{} SRV", name));
 	if (m_rtv)
 		GSDevice11::SetD3DDebugObjectName(m_rtv.get(), fmt::format("{} RTV", name));
+
+	m_debug_name = name;
 }
 
 #endif
@@ -173,6 +176,24 @@ GSTexture11::operator ID3D11UnorderedAccessView*()
 	return m_uav.get();
 }
 
+ID3D11DepthStencilView* GSTexture11::ReadOnlyDepthStencilView()
+{
+	if (!m_read_only_dsv)
+	{
+		if (m_desc.Format == DXGI_FORMAT_R32G8X24_TYPELESS || m_desc.Format == DXGI_FORMAT_D32_FLOAT_S8X24_UINT)
+		{
+			D3D11_DEPTH_STENCIL_VIEW_DESC desc = {};
+			desc.Format = DXGI_FORMAT_D32_FLOAT_S8X24_UINT;
+			desc.ViewDimension = D3D11_DSV_DIMENSION_TEXTURE2D;
+			desc.Flags = D3D11_DSV_READ_ONLY_DEPTH;
+
+			GSDevice11::GetInstance()->GetD3DDevice()->CreateDepthStencilView(m_texture.get(), &desc, m_read_only_dsv.put());
+		}
+	}
+
+	return m_read_only_dsv.get();
+}
+
 GSDownloadTexture11::GSDownloadTexture11(wil::com_ptr_nothrow<ID3D11Texture2D> tex, u32 width, u32 height, GSTexture::Format format)
 	: GSDownloadTexture(width, height, format)
 	, m_texture(std::move(tex))
@@ -225,11 +246,13 @@ void GSDownloadTexture11::CopyFromTexture(
 	if (IsMapped())
 		Unmap();
 
-	// depth textures need to copy the whole thing..
+	// DX11 doesn't support partial depth copy so we need to
+	// either pass a nullptr D3D11_BOX for a full depth copy or use CopyResource instead.
+	// Optimization: Use CopyResource for depth copies, it's faster than CopySubresourceRegion.
 	if (m_format == GSTexture::Format::DepthStencil)
 	{
-		GSDevice11::GetInstance()->GetD3DContext()->CopySubresourceRegion(
-			m_texture.get(), 0, 0, 0, 0, *static_cast<GSTexture11*>(stex), src_level, nullptr);
+		GSDevice11::GetInstance()->GetD3DContext()->CopyResource(
+			m_texture.get(), *static_cast<GSTexture11*>(stex));
 	}
 	else
 	{

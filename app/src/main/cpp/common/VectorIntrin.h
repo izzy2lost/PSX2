@@ -1,11 +1,13 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 // Includes appropriate intrinsic header based on platform.
 
 #pragma once
 
-#if defined(_M_X86)
+#include "common/Pcsx2Defs.h"
+
+#if defined(ARCH_X86)
 
 #ifdef _MSC_VER
 #include <intrin.h>
@@ -35,7 +37,7 @@
 #include <smmintrin.h>
 #include <immintrin.h>
 
-#elif defined(_M_ARM64)
+#elif defined(ARCH_ARM64)
 #include <arm_neon.h>
 #endif
 

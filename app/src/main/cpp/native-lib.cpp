@@ -45,6 +45,10 @@ ANativeWindow* s_window = nullptr;
 
 static std::mutex s_window_mutex;
 static std::mutex s_vm_start_mutex;
+// Held for the entire lifetime of a VM thread. VMManager::Shutdown() flips the
+// state to Shutdown before CPUThreadShutdown() has finished tearing down MTGS/
+// SysMemory, so a state check alone lets the next boot race the old teardown.
+static std::mutex s_vm_lifecycle_mutex;
 static ANativeWindow* s_render_window = nullptr;
 static std::atomic_bool s_shutdown_requested{false};
 static MemorySettingsInterface s_settings_interface;
@@ -52,6 +56,14 @@ static int s_pending_renderer = -1; // -1 = none; else 12=OpenGL,13=SW,14=Vulkan
 static std::string s_verified_bios_usa;
 static std::string s_verified_bios_europe;
 static std::string s_verified_bios_japan;
+
+// The imported YAPS2 renderer is Vulkan-only on Android for now. Normalize
+// legacy OpenGL preferences so existing installs continue to boot instead of
+// selecting a backend which is not linked into this build.
+static int NormalizeAndroidRenderer(int renderer)
+{
+    return (renderer == 12) ? 14 : renderer;
+}
 
 // Fallback JNI access for content:// when SDL's Android env is not yet ready
 // (no JNI fallback)
@@ -106,6 +118,8 @@ static void ApplyPerGameSettingsForSerial(const std::string& serial)
 
     if (per_game.GetStringValue("EmuCore/GS", "Renderer", &s))
     {
+		if (StringUtil::Strcasecmp(s.c_str(), "OpenGL") == 0)
+			s = "Vulkan";
         s_settings_interface.SetStringValue("EmuCore/GS", "Renderer", s.c_str());
         // Defer actual renderer switch until VM is initialized
         int rend = -1;
@@ -880,7 +894,10 @@ Java_com_izzy2lost_psx2_NativeApp_renderGpu(JNIEnv *env, jclass clazz,
                                                jint p_value) {
     // Accept -1(Auto), 12(OpenGL), 13(Software), 14(Vulkan)
     if (p_value != -1 && p_value != 12 && p_value != 13 && p_value != 14)
+    {
         return;
+    }
+    p_value = NormalizeAndroidRenderer(p_value);
 
     // Persist to base settings and apply immediately if possible
     s_settings_interface.SetIntValue("EmuCore/GS", "Renderer", (int)p_value);
@@ -903,6 +920,7 @@ Java_com_izzy2lost_psx2_NativeApp_applyGlobalSettingsBatch(JNIEnv* env, jclass,
                                                             jboolean asyncTextureLoading,
                                                             jboolean hudVisible)
 {
+	renderer = NormalizeAndroidRenderer(renderer);
     // Clamp/normalize
     if (upscaleMultiplier < 1.0f) upscaleMultiplier = 1.0f;
     if (upscaleMultiplier > 12.0f) upscaleMultiplier = 12.0f;
@@ -967,6 +985,7 @@ Java_com_izzy2lost_psx2_NativeApp_applyPerGameSettingsBatch(JNIEnv* env, jclass,
                                                              jboolean enablePatches,
                                                              jboolean enableCheats)
 {
+	renderer = NormalizeAndroidRenderer(renderer);
     if (upscaleMultiplier < 1.0f) upscaleMultiplier = 1.0f;
     if (upscaleMultiplier > 12.0f) upscaleMultiplier = 12.0f;
     if (blendingAccuracy < 0) blendingAccuracy = 0; if (blendingAccuracy > 5) blendingAccuracy = 5;
@@ -1349,6 +1368,23 @@ JNIEXPORT jboolean JNICALL
 Java_com_izzy2lost_psx2_NativeApp_runVMThread(JNIEnv *env, jclass clazz,
                                                  jstring p_szpath) {
     std::string _szPath = GetJavaString(env, p_szpath);
+
+    // Serialize with any previous VM thread that is still unwinding. If a VM is
+    // actively running, refuse the duplicate start instead of blocking; if the
+    // previous thread is merely finishing its teardown, wait for it to exit so
+    // we never initialize globals (MTGS, SysMemory, GS device) concurrently
+    // with their shutdown.
+    std::unique_lock lifecycle_lock(s_vm_lifecycle_mutex, std::defer_lock);
+    if (!lifecycle_lock.try_lock()) {
+        const VMState st = VMManager::GetState();
+        if (st != VMState::Shutdown && st != VMState::Stopping) {
+            Console.Warning("runVMThread ignored duplicate start while VM state is %d", static_cast<int>(st));
+            return false;
+        }
+        Console.WriteLn("runVMThread waiting for previous VM thread to finish shutting down...");
+        lifecycle_lock.lock();
+    }
+
     std::unique_lock vm_start_lock(s_vm_start_mutex);
 
     VMState current_state = VMManager::GetState();
@@ -1424,7 +1460,8 @@ Java_com_izzy2lost_psx2_NativeApp_runVMThread(JNIEnv *env, jclass clazz,
         return false;
     }
 
-    const bool initialized = VMManager::Initialize(boot_params);
+    const bool initialized =
+        (VMManager::Initialize(boot_params) == VMBootResult::StartupSuccess);
     vm_start_lock.unlock();
 
     if (initialized)
@@ -1528,10 +1565,11 @@ Java_com_izzy2lost_psx2_NativeApp_saveStateToSlot(JNIEnv *env, jclass clazz, jin
            // wait 5 sec
            for (int i = 0; i < 5; ++i) {
                if (s_execute_exit) {
-                   if(VMManager::SaveStateToSlot(p_slot, false)) {
-                       return true;
-                   }
-                   break;
+                   VMManager::SaveStateToSlot(p_slot, false, [](const std::string& error) {
+                       if (!error.empty())
+                           ERROR_LOG("Failed to save state: {}", error);
+                   });
+                   return true;
                }
                sleep(1);
            }
@@ -1744,19 +1782,33 @@ void Host::ReportErrorAsync(const std::string_view title, const std::string_view
         ERROR_LOG("ReportErrorAsync: {}", message);
 }
 
-bool Host::ConfirmMessage(const std::string_view title, const std::string_view message)
-{
-    if (!title.empty() && !message.empty())
-        ERROR_LOG("ConfirmMessage: {}: {}", title, message);
-    else if (!message.empty())
-        ERROR_LOG("ConfirmMessage: {}", message);
-
-    return true;
-}
-
 void Host::OpenURL(const std::string_view url)
 {
     // noop
+}
+
+std::string Host::GetTextFromClipboard()
+{
+    return {};
+}
+
+int Host::LocaleSensitiveCompare(std::string_view lhs, std::string_view rhs)
+{
+    const size_t length = std::min(lhs.size(), rhs.size());
+    const int result = std::char_traits<char>::compare(lhs.data(), rhs.data(), length);
+    if (result != 0)
+        return result;
+    return (lhs.size() > rhs.size()) - (lhs.size() < rhs.size());
+}
+
+bool Common::InhibitScreensaver(bool inhibit)
+{
+    return true;
+}
+
+bool Common::PlaySoundAsync(const char* path)
+{
+    return false;
 }
 
 bool Host::CopyTextToClipboard(const std::string_view text)

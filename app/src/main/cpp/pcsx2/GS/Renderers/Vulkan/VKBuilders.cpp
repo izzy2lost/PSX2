@@ -1,7 +1,8 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "GS/Renderers/Vulkan/VKBuilders.h"
+#include "GS/GSShaderCompileIndicator.h"
 
 #include "common/Assertions.h"
 #include "common/Console.h"
@@ -279,6 +280,8 @@ void Vulkan::GraphicsPipelineBuilder::Clear()
 VkPipeline Vulkan::GraphicsPipelineBuilder::Create(
 	VkDevice device, VkPipelineCache pipeline_cache, bool clear /* = true */)
 {
+	const GSShaderCompileIndicator::CompileTimer compile_timer;
+
 	VkPipeline pipeline;
 	VkResult res = vkCreateGraphicsPipelines(device, pipeline_cache, 1, &m_ci, nullptr, &pipeline);
 	if (res != VK_SUCCESS)
@@ -490,6 +493,11 @@ void Vulkan::GraphicsPipelineBuilder::AddBlendFlags(u32 flags)
 	m_blend_state.flags |= flags;
 }
 
+void Vulkan::GraphicsPipelineBuilder::SetBlendFlags(u32 flags)
+{
+	m_blend_state.flags = flags;
+}
+
 void Vulkan::GraphicsPipelineBuilder::ClearBlendAttachments()
 {
 	m_blend_attachments = {};
@@ -588,6 +596,8 @@ void Vulkan::ComputePipelineBuilder::Clear()
 VkPipeline Vulkan::ComputePipelineBuilder::Create(
 	VkDevice device, VkPipelineCache pipeline_cache /*= VK_NULL_HANDLE*/, bool clear /*= true*/)
 {
+	const GSShaderCompileIndicator::CompileTimer compile_timer;
+
 	VkPipeline pipeline;
 	VkResult res = vkCreateComputePipelines(device, pipeline_cache, 1, &m_ci, nullptr, &pipeline);
 	if (res != VK_SUCCESS)
@@ -716,19 +726,6 @@ void Vulkan::DescriptorSetUpdateBuilder::Update(VkDevice device, bool clear /*= 
 		Clear();
 }
 
-void Vulkan::DescriptorSetUpdateBuilder::UpdateToDescriptorSet(VkDevice device, VkDescriptorSet dst_set, bool clear /*= true*/)
-{
-    pxAssert(m_num_writes > 0);
-
-    for (u32 i = 0; i < m_num_writes; ++i)
-        m_writes[i].dstSet = dst_set;
-
-    vkUpdateDescriptorSets(device, m_num_writes, (m_num_writes > 0) ? m_writes.data() : nullptr, 0, nullptr);
-
-    if (clear)
-        Clear();
-}
-
 void Vulkan::DescriptorSetUpdateBuilder::PushUpdate(
 	VkCommandBuffer cmdbuf, VkPipelineBindPoint bind_point, VkPipelineLayout layout, u32 set, bool clear /*= true*/)
 {
@@ -741,7 +738,7 @@ void Vulkan::DescriptorSetUpdateBuilder::PushUpdate(
 }
 
 void Vulkan::DescriptorSetUpdateBuilder::AddImageDescriptorWrite(VkDescriptorSet set, u32 binding, VkImageView view,
-	VkImageLayout layout /*= VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL*/)
+	VkImageLayout layout /*= VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL*/, bool storage_image /*= false*/)
 {
 	pxAssert(m_num_writes < MAX_WRITES && m_num_image_infos < MAX_IMAGE_INFOS);
 
@@ -755,7 +752,7 @@ void Vulkan::DescriptorSetUpdateBuilder::AddImageDescriptorWrite(VkDescriptorSet
 	dw.dstSet = set;
 	dw.dstBinding = binding;
 	dw.descriptorCount = 1;
-	dw.descriptorType = VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
+	dw.descriptorType = storage_image ? VK_DESCRIPTOR_TYPE_STORAGE_IMAGE : VK_DESCRIPTOR_TYPE_SAMPLED_IMAGE;
 	dw.pImageInfo = &ii;
 }
 

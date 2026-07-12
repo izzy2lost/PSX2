@@ -1,8 +1,9 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
 #include <deque>
+#include <vector>
 #include "Gif.h"
 #include "Vif.h"
 #include "GS.h"
@@ -105,7 +106,7 @@ struct Gif_Tag
 
 	__ri void analyzeTag()
 	{
-#ifdef _M_X86
+#ifdef ARCH_X86
 		// zero out bits for registers which shouldn't be tested
 		__m128i vregs = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(tag.REGS));
 		vregs = _mm_and_si128(vregs, _mm_srli_epi64(_mm_set1_epi32(0xFFFFFFFFu), (64 - nRegs * 4)));
@@ -118,12 +119,12 @@ struct Gif_Tag
 
 		// write out unpacked registers
 		_mm_storeu_si128(reinterpret_cast<__m128i*>(regs), vregs);
-#elif defined(_M_ARM64)
+#elif defined(ARCH_ARM64)
 		// zero out bits for registers which shouldn't be tested
 		u64 REGS64;
 		std::memcpy(&REGS64, tag.REGS, sizeof(u64));
 		REGS64 &= (0xFFFFFFFFFFFFFFFFULL >> (64 - nRegs * 4));
-		uint8x16_t vregs = vsetq_lane_u64(REGS64, vdupq_n_u64(0), 0);
+		uint8x16_t vregs = vreinterpretq_u8_u64(vsetq_lane_u64(REGS64, vdupq_n_u64(0), 0));
 
 		// get upper nibbles, interleave with lower nibbles, clear upper bits from low nibbles
 		vregs = vandq_u8(vzip1q_u8(vregs, vshrq_n_u8(vregs, 4)), vdupq_n_u8(0x0F));
@@ -521,9 +522,24 @@ struct Gif_Path
 	// GS Packets that MTGS hasn't yet processed
 	u32 GetPendingGSPackets()
 	{
-		return mtvu.gsPackQueue.size();
+		return (u32)mtvu.gsPackQueue.size();
 	}
 };
+
+#ifdef PCSX2_RECOMPILER_TESTS
+namespace gif_test_hooks
+{
+	// When non-null, Gif_Unit::TransferGSPacketData(GIF_TRANS_XGKICK, ...)
+	// appends the packet bytes to *g_path1_sink and returns size — bypassing
+	// the path-1 ring buffer + MTGS::WaitGS() that asserts when no GS thread
+	// is running. VuTestHarness installs/clears this pointer.
+	extern std::vector<u8>* g_path1_sink;
+
+	// When true, Gif_Unit::checkPaths(p1=true, ...) reports path 1 as busy.
+	// Used by EeVu1Vif's Mscalf-stall test to force the GIF-busy code path.
+	extern bool g_force_path1_busy;
+}
+#endif
 
 struct Gif_Unit
 {
@@ -603,7 +619,7 @@ struct Gif_Unit
 			}
 			if (curSize >= size)
 				return size;
-			if(((flush && gifTag.tag.EOP) || !flush) && (CHECK_XGKICKHACK || !EmuConfig.Cpu.Recompiler.EnableVU1))
+			if(((flush && gifTag.tag.EOP) || !flush) && (CHECK_XGKICKHACK || !REC_VU1))
 			{
 				return curSize | ((u32)gifTag.tag.EOP << 31);
 			}
@@ -619,6 +635,26 @@ struct Gif_Unit
 	// If transfer cannot take place at this moment the return value is 0
 	u32 TransferGSPacketData(GIF_TRANSFER_TYPE tranType, u8* pMem, u32 size, bool aligned = false)
 	{
+#ifdef PCSX2_RECOMPILER_TESTS
+		if (gif_test_hooks::g_path1_sink && tranType == GIF_TRANS_XGKICK)
+		{
+			// Hard cap: GIF Path 1 ring is 16 KB (one VU memory). Anything
+			// larger means the JIT/helper miscalculated `size` (e.g. the
+			// EOP-bit at bit 31 leaked through to the byte count). Don't
+			// allocate the bogus span; record the anomaly + bail so the
+			// test fails loudly instead of OOM-ing the host.
+			if (size > 0x4000u)
+			{
+				Console.Error(
+					"[gif_test_hooks] PATH1 SINK ANOMALY: tranType=0x%x size=0x%x — capping at 0",
+					static_cast<u32>(tranType), size);
+				return 0; // Drop the transfer entirely; caller should treat as no-op.
+			}
+			gif_test_hooks::g_path1_sink->insert(
+				gif_test_hooks::g_path1_sink->end(), pMem, pMem + size);
+			return size;
+		}
+#endif
 
 		if (THREAD_VU1)
 		{
@@ -700,6 +736,10 @@ struct Gif_Unit
 	// path is not finished (needs more data/processing for an EOP)
 	__fi int checkPaths(bool p1, bool p2, bool p3, bool checkQ = false)
 	{
+#ifdef PCSX2_RECOMPILER_TESTS
+		if (gif_test_hooks::g_force_path1_busy && p1)
+			return 1;
+#endif
 		int ret = 0;
 		ret |= (p1 && !gifPath[GIF_PATH_1].isDone()) << 0;
 		ret |= (p2 && !gifPath[GIF_PATH_2].isDone()) << 1;

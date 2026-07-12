@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "SIO/Pad/PadNegcon.h"
@@ -41,8 +41,8 @@ static const SettingInfo s_settings[] = {
 		"1.0", "0.01", "2.00", "0.01", "%.0f%%", nullptr, nullptr, 100.0f},
 };
 
-const Pad::ControllerInfo PadNegcon::ControllerInfo = {Pad::ControllerType::Negcon, "Negcon",
-	TRANSLATE_NOOP("Pad", "Negcon"), ICON_PF_GAMEPAD_ALT, s_bindings, s_settings, Pad::VibrationCapabilities::LargeSmallMotors};
+const Pad::ControllerInfo PadNegcon::ControllerInfo = {Pad::ControllerType::Negcon, "NeGcon",
+	TRANSLATE_NOOP("Pad", "NeGcon"), ICON_PF_NEGCON, s_bindings, s_settings, Pad::VibrationCapabilities::LargeSmallMotors};
 
 void PadNegcon::ConfigLog()
 {
@@ -50,7 +50,7 @@ void PadNegcon::ConfigLog()
 
 	// AL: Analog Light (is it turned on right now)
 	// AB: Analog Button (is it useable or is it locked in its current state)
-	Console.WriteLn(fmt::format("Pad: Negcon Config Finished - P{0}/S{1} - AL: {2} - AB: {3}",
+	Console.WriteLn(fmt::format("Pad: NeGcon Config Finished - P{0}/S{1} - AL: {2} - AB: {3}",
 		port + 1,
 		slot + 1,
 		(this->analogLight ? "On" : "Off"),
@@ -189,16 +189,6 @@ u8 PadNegcon::ModeSwitch(u8 commandByte)
 	{
 		case 3:
 			this->analogLight = commandByte;
-
-			if (this->analogLight)
-			{
-				this->currentMode = Pad::Mode::ANALOG;
-			}
-			else
-			{
-				this->currentMode = Pad::Mode::DIGITAL;
-			}
-
 			break;
 		case 4:
 			this->analogLocked = (commandByte == 0x03);
@@ -219,7 +209,7 @@ u8 PadNegcon::StatusInfo(u8 commandByte)
 		case 4:
 			return 0x02;
 		case 5:
-			return this->analogLight;
+			return 0x01;
 		case 6:
 			return 0x02;
 		case 7:
@@ -468,6 +458,16 @@ u8 PadNegcon::GetPressure(u32 index) const
 	return 0;
 }
 
+bool PadNegcon::IsAnalogLightEnabled() const
+{
+	return this->analogLight;
+}
+
+bool PadNegcon::IsAnalogLocked() const
+{
+	return this->analogLocked;
+}
+
 bool PadNegcon::Freeze(StateWrapper& sw)
 {
 	if (!PadBase::Freeze(sw) || !sw.DoMarker("PadNegcon"))
@@ -500,7 +500,7 @@ u8 PadNegcon::SendCommandByte(u8 commandByte)
 				Console.Warning("%s(%02X) Config-only command was sent to a pad outside of config mode!", __FUNCTION__, commandByte);
 			}
 
-			ret = this->isInConfig ? static_cast<u8>(Pad::Mode::CONFIG) : static_cast<u8>(this->currentMode);
+			ret = this->isInConfig ? static_cast<u8>(Pad::Mode::CONFIG) : static_cast<u8>(Pad::Mode::NEGCON);
 			break;
 		case 2:
 			ret = 0x5a;

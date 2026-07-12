@@ -1,49 +1,45 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "GSVertexTrace.h"
 #include "GS/GSState.h"
+#include "GS/GSUtil.h"
 #include <cfloat>
 
 class CURRENT_ISA::GSVertexTraceFMM
 {
 	static constexpr GSVector4 s_minmax = GSVector4::cxpr(FLT_MAX, -FLT_MAX, 0.f, 0.f);
 
-	template <GS_PRIM_CLASS primclass, u32 iip, u32 tme, u32 fst, u32 color, bool flat_swapped>
+	template <GS_PRIM_CLASS primclass, u32 iip, u32 tme, u32 fst, u32 color>
 	static void FindMinMax(GSVertexTrace& vt, const void* vertex, const u16* index, int count);
 
 	template <GS_PRIM_CLASS primclass, u32 iip, u32 tme, u32 fst, u32 color>
-	static constexpr GSVertexTrace::FindMinMaxPtr GetFMM(bool provoking_vertex_first);
+	static constexpr GSVertexTrace::FindMinMaxPtr GetFMM();
 
 public:
-	static void Populate(GSVertexTrace& vt, bool provoking_vertex_first);
+	static void Populate(GSVertexTrace& vt);
 };
 
 MULTI_ISA_UNSHARED_IMPL;
 
-void CURRENT_ISA::GSVertexTracePopulateFunctions(GSVertexTrace& vt, bool provoking_vertex_first)
+void CURRENT_ISA::GSVertexTracePopulateFunctions(GSVertexTrace& vt)
 {
-	GSVertexTraceFMM::Populate(vt, provoking_vertex_first);
+	GSVertexTraceFMM::Populate(vt);
 }
 
 template <GS_PRIM_CLASS primclass, u32 iip, u32 tme, u32 fst, u32 color>
-constexpr GSVertexTrace::FindMinMaxPtr GSVertexTraceFMM::GetFMM(bool provoking_vertex_first)
+constexpr GSVertexTrace::FindMinMaxPtr GSVertexTraceFMM::GetFMM()
 {
 	constexpr bool real_iip = primclass == GS_SPRITE_CLASS ? false : iip;
 	constexpr bool real_fst = tme ? fst : false;
-	constexpr bool provoking_vertex_first_class = primclass == GS_LINE_CLASS || primclass == GS_TRIANGLE_CLASS;
-	const bool swap = provoking_vertex_first_class && !iip && provoking_vertex_first;
 
-	if (swap)
-		return FindMinMax<primclass, real_iip, tme, real_fst, color, true>;
-	else
-		return FindMinMax<primclass, real_iip, tme, real_fst, color, false>;
+	return FindMinMax<primclass, real_iip, tme, real_fst, color>;
 }
 
-void GSVertexTraceFMM::Populate(GSVertexTrace& vt, bool provoking_vertex_first)
+void GSVertexTraceFMM::Populate(GSVertexTrace& vt)
 {
 	#define InitUpdate3(P, IIP, TME, FST, COLOR) \
-		vt.m_fmm[COLOR][FST][TME][IIP][P] = GetFMM<P, IIP, TME, FST, COLOR>(provoking_vertex_first);
+		vt.m_fmm[COLOR][FST][TME][IIP][P] = GetFMM<P, IIP, TME, FST, COLOR>();
 
 	#define InitUpdate2(P, IIP, TME) \
 		InitUpdate3(P, IIP, TME, 0, 0) \
@@ -63,29 +59,16 @@ void GSVertexTraceFMM::Populate(GSVertexTrace& vt, bool provoking_vertex_first)
 	InitUpdate(GS_SPRITE_CLASS);
 }
 
-template <GS_PRIM_CLASS primclass, u32 iip, u32 tme, u32 fst, u32 color, bool flat_swapped>
+template <GS_PRIM_CLASS primclass, u32 iip, u32 tme, u32 fst, u32 color>
 void GSVertexTraceFMM::FindMinMax(GSVertexTrace& vt, const void* vertex, const u16* index, int count)
 {
 	const GSDrawingContext* context = vt.m_state->m_context;
 
-	int n = 1;
-
-	switch (primclass)
-	{
-		case GS_POINT_CLASS:
-			n = 1;
-			break;
-		case GS_LINE_CLASS:
-		case GS_SPRITE_CLASS:
-			n = 2;
-			break;
-		case GS_TRIANGLE_CLASS:
-			n = 3;
-			break;
-	}
+	constexpr int n = GSUtil::GetClassVertexCount(primclass);
 
 	GSVector4 tmin = s_minmax.xxxx();
 	GSVector4 tmax = s_minmax.yyyy();
+	GSVector4i tnan = GSVector4i::zero();
 	GSVector4i cmin = GSVector4i::xffffffff();
 	GSVector4i cmax = GSVector4i::zero();
 
@@ -95,7 +78,7 @@ void GSVertexTraceFMM::FindMinMax(GSVertexTrace& vt, const void* vertex, const u
 	const GSVertex* RESTRICT v = (GSVertex*)vertex;
 
 	// Process 2 vertices at a time for increased efficiency
-	auto processVertices = [&tmin, &tmax, &cmin, &cmax, &pmin, &pmax, n](const GSVertex& v0, const GSVertex& v1, bool finalVertex)
+	auto processVertices = [&tmin, &tmax, &cmin, &cmax, &pmin, &pmax, &tnan](const GSVertex& v0, const GSVertex& v1, bool finalVertex)
 	{
 		if (color)
 		{
@@ -110,7 +93,7 @@ void GSVertexTraceFMM::FindMinMax(GSVertexTrace& vt, const void* vertex, const u
 			{
 				// For even n, we process v1 and v2 of the same prim
 				// (For odd n, we process one vertex from each of two prims)
-				GSVector4i c = flat_swapped ? c0 : c1;
+				GSVector4i c = c1; // second color is provoking in flat-shaded primitives
 				cmin = cmin.min_u8(c);
 				cmax = cmax.max_u8(c);
 			}
@@ -139,8 +122,16 @@ void GSVertexTraceFMM::FindMinMax(GSVertexTrace& vt, const void* vertex, const u
 				stq0 = st.xyww(primclass == GS_SPRITE_CLASS ? stq1 : stq0);
 				stq1 = st.zwww(stq1);
 
-				tmin = tmin.min(stq0.min(stq1));
-				tmax = tmax.max(stq0.max(stq1));
+				const GSVector4i nan0 = GSVector4i::cast(stq0 != stq0);
+				const GSVector4i nan1 = GSVector4i::cast(stq1 != stq1);
+
+				// Only update entries that are not NaN.
+				tmin = tmin.blend32(tmin.min(stq0), GSVector4::cast(~nan0));
+				tmin = tmin.blend32(tmin.min(stq1), GSVector4::cast(~nan1));
+				tmax = tmax.blend32(tmax.max(stq0), GSVector4::cast(~nan0));
+				tmax = tmax.blend32(tmax.max(stq1), GSVector4::cast(~nan1));
+
+				tnan |= nan0 | nan1;
 			}
 			else
 			{
@@ -196,26 +187,16 @@ void GSVertexTraceFMM::FindMinMax(GSVertexTrace& vt, const void* vertex, const u
 		int i = 0;
 		for (; i < (count - 3); i += 6)
 		{
-			processVertices(v[index[i + 0]], v[index[i + 3]], flat_swapped);
+			processVertices(v[index[i + 0]], v[index[i + 3]], false);
 			processVertices(v[index[i + 1]], v[index[i + 4]], false);
-			processVertices(v[index[i + 2]], v[index[i + 5]], !flat_swapped);
+			processVertices(v[index[i + 2]], v[index[i + 5]], true);
 		}
 		if (count & 1)
 		{
-			if (flat_swapped)
-			{
-				processVertices(v[index[i + 1]], v[index[i + 2]], false);
-				// Compiler optimizations go!
-				// (And if they don't, it's only one vertex out of many)
-				processVertices(v[index[i + 0]], v[index[i + 0]], true);
-			}
-			else
-			{
-				processVertices(v[index[i + 0]], v[index[i + 1]], false);
-				// Compiler optimizations go!
-				// (And if they don't, it's only one vertex out of many)
-				processVertices(v[index[i + 2]], v[index[i + 2]], true);
-			}
+			processVertices(v[index[i + 0]], v[index[i + 1]], false);
+			// Compiler optimizations go!
+			// (And if they don't, it's only one vertex out of many)
+			processVertices(v[index[i + 2]], v[index[i + 2]], true);
 		}
 	}
 	else
@@ -246,11 +227,15 @@ void GSVertexTraceFMM::FindMinMax(GSVertexTrace& vt, const void* vertex, const u
 
 		vt.m_min.t = tmin * s;
 		vt.m_max.t = tmax * s;
+
+		if (!fst)
+			vt.nan.value = tnan.mask() & ~4; // Remove pad bit.
 	}
 	else
 	{
 		vt.m_min.t = GSVector4::zero();
 		vt.m_max.t = GSVector4::zero();
+		vt.nan.value = 0;
 	}
 
 	if (color)

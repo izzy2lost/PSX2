@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 //all tables for R5900 are define here..
@@ -25,7 +25,7 @@ namespace R5900
 	{
 		// Generates an entry for the given opcode name.
 		// Assumes the default function naming schemes for interpreter and recompiler  functions.
-//#ifdef _M_X86 // TODO(Stenzek): Remove me once EE/VU/IOP recs are added.
+#if defined(_M_X86) || defined(ARCH_ARM64) // ARM64 EE recompiler is supported
 	#	define MakeOpcode( name, cycles, flags ) \
 		static const OPCODE name = { \
 			#name, \
@@ -69,51 +69,51 @@ namespace R5900
 			::R5900::Dynarec::OpcodeImpl::COP1::rec##name, \
 			::R5900::OpcodeDisasm::name \
 		}
-//#else
-//	#	define MakeOpcode( name, cycles, flags ) \
-//		static const OPCODE name = { \
-//			#name, \
-//			cycles, \
-//			flags, \
-//			NULL, \
-//			::R5900::Interpreter::OpcodeImpl::name, \
-//			nullptr, \
-//			::R5900::OpcodeDisasm::name \
-//		}
-//
-//#	define MakeOpcodeM( name, cycles, flags ) \
-//		static const OPCODE name = { \
-//			#name, \
-//			cycles, \
-//			flags, \
-//			NULL, \
-//			::R5900::Interpreter::OpcodeImpl::MMI::name, \
-//			nullptr, \
-//			::R5900::OpcodeDisasm::name \
-//		}
-//
-//#	define MakeOpcode0( name, cycles, flags ) \
-//		static const OPCODE name = { \
-//			#name, \
-//			cycles, \
-//			flags, \
-//			NULL, \
-//			::R5900::Interpreter::OpcodeImpl::COP0::name, \
-//			nullptr, \
-//			::R5900::OpcodeDisasm::name \
-//		}
-//
-//	#	define MakeOpcode1( name, cycles, flags ) \
-//		static const OPCODE name = { \
-//			#name, \
-//			cycles, \
-//			flags, \
-//			NULL, \
-//			::R5900::Interpreter::OpcodeImpl::COP1::name, \
-//			nullptr, \
-//			::R5900::OpcodeDisasm::name \
-//		}
-//#endif
+#else
+	#	define MakeOpcode( name, cycles, flags ) \
+		static const OPCODE name = { \
+			#name, \
+			cycles, \
+			flags, \
+			NULL, \
+			::R5900::Interpreter::OpcodeImpl::name, \
+			nullptr, \
+			::R5900::OpcodeDisasm::name \
+		}
+
+#	define MakeOpcodeM( name, cycles, flags ) \
+		static const OPCODE name = { \
+			#name, \
+			cycles, \
+			flags, \
+			NULL, \
+			::R5900::Interpreter::OpcodeImpl::MMI::name, \
+			nullptr, \
+			::R5900::OpcodeDisasm::name \
+		}
+
+#	define MakeOpcode0( name, cycles, flags ) \
+		static const OPCODE name = { \
+			#name, \
+			cycles, \
+			flags, \
+			NULL, \
+			::R5900::Interpreter::OpcodeImpl::COP0::name, \
+			nullptr, \
+			::R5900::OpcodeDisasm::name \
+		}
+
+	#	define MakeOpcode1( name, cycles, flags ) \
+		static const OPCODE name = { \
+			#name, \
+			cycles, \
+			flags, \
+			NULL, \
+			::R5900::Interpreter::OpcodeImpl::COP1::name, \
+			nullptr, \
+			::R5900::OpcodeDisasm::name \
+		}
+#endif
 
 	#	define MakeOpcodeClass( name ) \
 		static const OPCODE name = { \

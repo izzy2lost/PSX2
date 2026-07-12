@@ -1,10 +1,13 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Common.h"
 
 #include "VUmicro.h"
+#include "microVU_Divtrace.h"
+#include "vu_capture.h"
 
+#include <atomic>
 #include <cfenv>
 
 extern void _vuFlushAll(VURegs* VU);
@@ -64,7 +67,7 @@ static void _vu0Exec(VURegs* VU)
 	VU->code = ptr[1];
 	VU0regs_UPPER_OPCODE[VU->code & 0x3f](&uregs);
 
-	u32 cyclesBeforeOp = VU0.cycle - 1;
+	u64 cyclesBeforeOp = VU0.cycle - 1;
 
 	_vuTestUpperStalls(VU, &uregs);
 
@@ -252,7 +255,18 @@ void InterpVU0::Execute(u32 cycles)
 
 	VU0.VI[REG_TPC].UL <<= 3;
 	VU0.flags &= ~VUFLAG_MFLAGSET;
-	u32 startcycles = VU0.cycle;
+
+#ifdef PCSX2_RECOMPILER_TESTS
+	// Live-game capture probe — mirror of the mVU JIT-side probe in mVUexecute
+	// (microVU-arm64.cpp) and the VU1 interp probe. Micro-mode VU0 programs
+	// only; COP2 macro-mode single ops don't route through here (same as JIT
+	// side). No-op unless PCSX2_VU_CAPTURE_DIR / PCSX2_VU_RANK_OUT is set.
+	vu_capture::MaybeCapture(0, VU0.VI[REG_TPC].UL & 0xff8, cycles,
+		(const u8*)VU0.Micro, VU0_PROGSIZE,
+		(const u8*)VU0.Mem, VU0_MEMSIZE, VU0);
+#endif
+
+	u64 startcycles = VU0.cycle;
 	while ((VU0.cycle - startcycles) < cycles)
 	{
 		if (!(VU0.VI[REG_VPU_STAT].UL & 0x1))
@@ -268,13 +282,38 @@ void InterpVU0::Execute(u32 cycles)
 		if (VU0.flags & VUFLAG_MFLAGSET)
 			break;
 
+#ifdef PCSX2_RECOMPILER_TESTS
+		// REG_TPC was shifted to byte-PC at function entry; already a byte addr.
+		const u32 dt_pre_xPC = VU0.VI[REG_TPC].UL;
+#endif
 		vu0Exec(&VU0);
+
+#ifdef PCSX2_RECOMPILER_TESTS
+		// vudivtrace: snapshot VU0 architectural state after each interp op.
+		// Test-hook-only; release builds drop the per-op probe entirely.
+		if (mvu_divtrace::g_enabled.load(std::memory_order_relaxed)
+			&& mvu_divtrace::g_vu_index == 0
+			&& mvu_divtrace::g_interp_op_idx < mvu_divtrace::g_interp_fps.size())
+		{
+			const u32 idx = mvu_divtrace::g_interp_op_idx;
+			mvu_divtrace::g_interp_fps[idx] = mvu_divtrace::FingerprintRegs(vuRegs[0]);
+			mvu_divtrace::g_interp_xpc[idx] = dt_pre_xPC;
+			if (idx >= mvu_divtrace::g_full_lo && idx < mvu_divtrace::g_full_hi)
+			{
+				auto& snap = mvu_divtrace::g_interp_snaps[idx - mvu_divtrace::g_full_lo];
+				std::memcpy(&snap.regs, &vuRegs[0], sizeof(VURegs));
+				snap.meta_idx = 0xFFFF;
+				snap.pre_xPC  = dt_pre_xPC;
+			}
+			++mvu_divtrace::g_interp_op_idx;
+		}
+#endif
 	}
 	VU0.VI[REG_TPC].UL >>= 3;
 
 	if (EmuConfig.Speedhacks.EECycleRate != 0 && (!EmuConfig.Gamefixes.VUSyncHack || EmuConfig.Speedhacks.EECycleRate < 0))
 	{
-		u32 cycle_change = VU0.cycle - startcycles;
+		u64 cycle_change = VU0.cycle - startcycles;
 		VU0.cycle -= cycle_change;
 		switch (std::min(static_cast<int>(EmuConfig.Speedhacks.EECycleRate), static_cast<int>(cycle_change)))
 		{

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "CDVD/CDVDcommon.h"
@@ -6,7 +6,7 @@
 #include "CDVD/IsoFileFormats.h"
 #include "Config.h"
 #include "Host.h"
-#include "IconsFontAwesome5.h"
+#include "IconsFontAwesome.h"
 
 #include "common/Assertions.h"
 #include "common/Console.h"
@@ -21,6 +21,7 @@
 #include <ctype.h>
 #include <exception>
 #include <memory>
+#include <mutex>
 #include <time.h>
 
 #include "fmt/format.h"
@@ -270,6 +271,23 @@ static void DetectDiskType()
 
 static std::string m_SourceFilename[3];
 static CDVD_SourceType m_CurrentSourceType = CDVD_SourceType::NoDisc;
+static std::mutex s_cdvd_lock;
+
+bool cdvdLock(Error* error)
+{
+	if (!s_cdvd_lock.try_lock())
+	{
+		Error::SetString(error, TRANSLATE_STR("CDVD", "The CDVD system is currently in use."));
+		return false;
+	}
+
+	return true;
+}
+
+void cdvdUnlock()
+{
+	s_cdvd_lock.unlock();
+}
 
 void CDVDsys_SetFile(CDVD_SourceType srctype, std::string newfile)
 {
@@ -283,7 +301,7 @@ void CDVDsys_SetFile(CDVD_SourceType srctype, std::string newfile)
 		const auto driveType = GetDriveType(StringUtil::UTF8StringToWideString(root).c_str());
 		if (driveType == DRIVE_REMOVABLE)
 		{
-			Host::AddIconOSDMessage("RemovableDriveWarning", ICON_FA_EXCLAMATION_TRIANGLE,
+			Host::AddIconOSDMessage("RemovableDriveWarning", ICON_FA_TRIANGLE_EXCLAMATION,
 				TRANSLATE_SV("CDVD", "Game disc location is on a removable drive, performance issues such as jittering "
 									 "and freezing may occur."),
 				Host::OSD_WARNING_DURATION);
@@ -579,7 +597,7 @@ static s32 NODISCdummyS32()
 	return 0;
 }
 
-static void NODISCnewDiskCB(void (*/* callback */)())
+static void NODISCnewDiskCB(void (* /* callback */)())
 {
 }
 

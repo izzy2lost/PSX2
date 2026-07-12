@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "MipsAssemblerTables.h"
@@ -205,8 +205,10 @@ const tMipsOpcode MipsOpcodes[] = {
 	{ "dsrav",	"d,s",		MIPS_SPECIAL(0x17),				MA_MIPS3,	MO_64BIT|MO_RDT },
 	{ "clo",	"d,s",		MIPS_SPECIAL(0x17),				MA_PSP,		0 },
 	{ "mult",	"s,t",		MIPS_SPECIAL(0x18),				MA_MIPS1,	0 },
+	{ "mult",	"d,s,t",	MIPS_SPECIAL(0x18),				MA_PS2,	    0 },
 	{ "mult",	"r\x0,s,t",	MIPS_SPECIAL(0x18),				MA_MIPS1,	0 },
 	{ "multu",	"s,t",		MIPS_SPECIAL(0x19),				MA_MIPS1,	0 },
+	{ "multu",	"d,s,t",	MIPS_SPECIAL(0x19),				MA_PS2,	    0 },
 	{ "multu",	"r\x0,s,t",	MIPS_SPECIAL(0x19),				MA_MIPS1,	0 },
 	{ "div",	"s,t",		MIPS_SPECIAL(0x1A),				MA_MIPS1,	0 },
 	{ "div",	"r\x0,s,t",	MIPS_SPECIAL(0x1A),				MA_MIPS1,	0 },

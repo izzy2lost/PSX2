@@ -1,7 +1,8 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Host.h"
+#include "IconsPromptFont.h"
 #include "Input/InputManager.h"
 #include "StateWrapper.h"
 #include "USB/USB.h"
@@ -280,6 +281,11 @@ namespace usb_pad
 	const char* GametrakDevice::TypeName() const
 	{
 		return "Gametrak";
+	}
+
+	const char* GametrakDevice::IconName() const
+	{
+		return ICON_PF_GAMETRAK_DEVICE;
 	}
 
 	USBDevice* GametrakDevice::CreateDevice(SettingsInterface& si, u32 port, u32 subtype) const

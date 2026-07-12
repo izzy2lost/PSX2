@@ -93,6 +93,9 @@
 #           define C4_CLANG_VERSION __apple_build_version__
 #       endif
 #   elif defined(__GNUC__)
+#       ifdef __MINGW32__
+#           define C4_MINGW
+#       endif
 #       define C4_GCC
 #       if defined(__GNUC_PATCHLEVEL__)
 #           define C4_GCC_VERSION C4_VERSION_ENCODED(__GNUC__, __GNUC_MINOR__, __GNUC_PATCHLEVEL__)

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "DEV9/DEV9.h"
@@ -47,6 +47,6 @@ void spu2Irq()
 
 void iopIntcIrq(uint irqType)
 {
-	psxHu32(0x1070) |= 1 << irqType;
+	psxHu32(HW_ISTAT) |= 1 << irqType;
 	iopTestIntc();
 }

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #define INITGUID
@@ -75,7 +75,7 @@ bool DInputSource::Initialize(SettingsInterface& si, std::unique_lock<std::mutex
 	}
 
 	HRESULT hr =
-		create(GetModuleHandleA(nullptr), DIRECTINPUT_VERSION, IID_IDirectInput8W, reinterpret_cast<LPVOID*>(m_dinput.put()), nullptr);
+		create(GetModuleHandleA(nullptr), DIRECTINPUT_VERSION, IID_IDirectInput8W, m_dinput.put_void(), nullptr);
 	if (FAILED(hr))
 	{
 		Console.Error("DirectInput8Create() failed: %08X", hr);

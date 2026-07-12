@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "GS/GSClut.h"
@@ -9,6 +9,7 @@
 #include "GS/Renderers/Common/GSDevice.h"
 #include "GS/Renderers/Common/GSRenderer.h"
 #include "common/AlignedMalloc.h"
+#include "common/Console.h"
 
 GSClut::GSClut(GSLocalMemory* mem)
 	: m_mem(mem)
@@ -185,7 +186,7 @@ bool GSClut::CanLoadCLUT(const GIFRegTEX0& TEX0, const bool update_CBP)
 		case 4:
 			if (m_CBP[0] == TEX0.CBP)
 				return false;
-			if(update_CBP)
+			if (update_CBP)
 				m_CBP[0] = TEX0.CBP;
 			break;
 		case 5:
@@ -409,7 +410,6 @@ void GSClut::Read32(const GIFRegTEX0& TEX0, const GIFRegTEXA& TEXA)
 			}
 		}
 
-		m_current_gpu_clut = nullptr;
 		if (GSConfig.UserHacks_GPUTargetCLUTMode != GSGPUTargetCLUTMode::Disabled)
 		{
 			const bool is_4bit = (TEX0.PSM == PSMT4 || TEX0.PSM == PSMT4HL || TEX0.PSM == PSMT4HH);
@@ -440,21 +440,36 @@ void GSClut::Read32(const GIFRegTEX0& TEX0, const GIFRegTEXA& TEXA)
 				GSTexture* dst = is_4bit ? m_gpu_clut4 : m_gpu_clut8;
 				const u32 dst_size = is_4bit ? 16 : 256;
 				const u32 dOffset = (TEX0.CSA & ((TEX0.CPSM == PSMCT16 || TEX0.CPSM == PSMCT16S) ? 15u : 31u)) << 4;
+
+				if (src != m_current_gpu_clut && (src != m_last_gpu_clut || m_gpu_clut_last_offset != offset))
+					m_gpu_clut_dirty = true;
+
 				if (!dst)
 				{
 					// allocate texture lazily
 					dst = g_gs_device->CreateRenderTarget(dst_size, 1, GSTexture::Format::Color, false);
 					is_4bit ? (m_gpu_clut4 = dst) : (m_gpu_clut8 = dst);
+					m_gpu_clut_dirty = true;
 				}
 				if (dst)
 				{
 					GL_PUSH("Update GPU CLUT [CBP=%04X, CPSM=%s, CBW=%u, CSA=%u, Offset=(%d,%d)]",
-						TEX0.CBP, psm_str(TEX0.CPSM), CBW, TEX0.CSA, offset.x, offset.y);
-					g_gs_device->UpdateCLUTTexture(src, scale, offset.x, offset.y, dst, dOffset, dst_size);
+						TEX0.CBP, GSUtil::GetPSMName(TEX0.CPSM), CBW, TEX0.CSA, offset.x, offset.y);
+
+					if (m_gpu_clut_dirty)
+					{
+						m_last_gpu_clut = src;
+						g_gs_device->UpdateCLUTTexture(src, scale, offset.x, offset.y, dst, dOffset, dst_size);
+					}
+
+					m_gpu_clut_dirty = false;
 					m_current_gpu_clut = dst;
+					m_gpu_clut_last_offset = offset;
 				}
+				return;
 			}
 		}
+		m_current_gpu_clut = nullptr;
 	}
 }
 
@@ -531,7 +546,7 @@ void GSClut::GetAlphaMinMax32(int& amin_out, int& amax_out)
 void GSClut::WriteCLUT_T32_I8_CSM1(const u32* RESTRICT src, u16* RESTRICT clut, u16 offset)
 {
 	// This is required when CSA is offset from the base of the CLUT so we point to the right data
-	for (int i = offset; i < 16; i ++)
+	for (int i = offset; i < 16; i++)
 	{
 		const int off = i << 4; // WriteCLUT_T32_I4_CSM1 loads 16 at a time
 		// Source column

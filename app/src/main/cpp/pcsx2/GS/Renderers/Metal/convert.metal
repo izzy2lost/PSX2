@@ -1,9 +1,13 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "GSMTLShaderCommon.h"
 
 using namespace metal;
+
+constant bool BILN      [[function_constant(GSMTLConstantIndex_BILN)]];
+constant bool DEPTH_OUT [[function_constant(GSMTLConstantIndex_DEPTH_OUT)]];
+constant bool COLOR_OUT = !DEPTH_OUT;
 
 struct ConvertVSIn
 {
@@ -65,7 +69,7 @@ fragment float4 ps_copy(ConvertShaderData data [[stage_in]], ConvertPSRes res)
 	return res.sample(data.t);
 }
 
-fragment ushort ps_convert_rgba8_16bits(ConvertShaderData data [[stage_in]], ConvertPSRes res)
+fragment ushort ps_convert_rgb5a1_16bits(ConvertShaderData data [[stage_in]], ConvertPSRes res)
 {
 	float4 c = res.sample(data.t);
 	uint4 cu = uint4(c * 255.f + 0.5f);
@@ -156,28 +160,22 @@ fragment float4 ps_filter_transparency(ConvertShaderData data [[stage_in]], Conv
 	return float4(c.rgb, 1.0);
 }
 
-fragment uint ps_convert_float32_32bits(ConvertShaderData data [[stage_in]], ConvertPSDepthRes res)
+fragment uint ps_convert_depth32_32bits(ConvertShaderData data [[stage_in]], ConvertPSDepthRes res)
 {
 	return uint(0x1p32 * res.sample(data.t));
 }
 
-fragment float4 ps_convert_float32_rgba8(ConvertShaderData data [[stage_in]], ConvertPSDepthRes res)
+fragment float4 ps_convert_depth32_rgba8(ConvertShaderData data [[stage_in]], ConvertPSDepthRes res)
 {
 	return convert_depth32_rgba8(res.sample(data.t)) / 255.f;
 }
 
-fragment float4 ps_convert_float16_rgb5a1(ConvertShaderData data [[stage_in]], ConvertPSDepthRes res)
+fragment float4 ps_convert_depth16_rgb5a1(ConvertShaderData data [[stage_in]], ConvertPSDepthRes res)
 {
 	return convert_depth16_rgba8(res.sample(data.t)) / 255.f;
 }
 
-struct DepthOut
-{
-	float depth [[depth(any)]];
-	DepthOut(float depth): depth(depth) {}
-};
-
-fragment DepthOut ps_depth_copy(ConvertShaderData data [[stage_in]], ConvertPSDepthRes res)
+fragment float ps_convert_float32_depth_to_color(ConvertShaderData data [[stage_in]], ConvertPSDepthRes res)
 {
 	return res.sample(data.t);
 }
@@ -192,7 +190,7 @@ fragment float4 ps_downsample_copy(ConvertShaderData data [[stage_in]],
 	for (uint yoff = 0; yoff < uniform.downsample_factor; yoff++)
 	{
 		for (uint xoff = 0; xoff < uniform.downsample_factor; xoff++)
-			result += texture.read(coord + uint2(xoff, yoff), 0);
+			result += texture.read(coord + uint2(xoff * uniform.step_multiplier, yoff * uniform.step_multiplier), 0);
 	}
 	result /= uniform.weight;
 	return result;
@@ -219,6 +217,23 @@ static float rgb5a1_to_depth16(half4 unorm)
 	uint out = (cu.x >> 3) | ((cu.y << 2) & 0x03e0) | ((cu.z << 7) & 0x7c00) | ((cu.w << 8) & 0x8000);
 	return float(out) * 0x1p-32f;
 }
+
+struct DepthOrColorOut
+{
+	float color [[color(0), function_constant(COLOR_OUT)]];
+	float depth [[depth(any), function_constant(DEPTH_OUT)]];
+	DepthOrColorOut(float value): color(value), depth(value) {}
+};
+
+struct ConvertPSDepthOrColorRes
+{
+	texture2d<float> texture [[texture(GSMTLTextureIndexNonHW)]];
+	sampler s [[sampler(0)]];
+	float sample(float2 coord)
+	{
+		return texture.sample(s, coord).x;
+	}
+};
 
 struct ConvertToDepthRes
 {
@@ -247,53 +262,51 @@ struct ConvertToDepthRes
 		float depthBR = convert(texture.read(coords.zw));
 		return mix(mix(depthTL, depthTR, mix_vals.x), mix(depthBL, depthBR, mix_vals.x), mix_vals.y);
 	}
+
+	template <float (&convert)(half4)>
+	float sample_maybe_biln(float2 coord)
+	{
+		if (BILN)
+			return sample_biln<convert>(coord);
+		else
+			return convert(sample(coord));
+	}
 };
 
-fragment DepthOut ps_convert_float32_float24(ConvertShaderData data [[stage_in]], ConvertPSDepthRes res)
+fragment DepthOrColorOut ps_depth_copy(ConvertShaderData data [[stage_in]], ConvertPSDepthOrColorRes res)
+{
+	return res.sample(data.t);
+}
+
+static float depth32_to_depth24(float d)
+{
+	return float(uint(d * exp2(32.0f)) & 0xffffff) * exp2(-32.0f); 
+}
+
+fragment DepthOrColorOut ps_convert_depth32_depth24(ConvertShaderData data [[stage_in]], ConvertPSDepthOrColorRes res)
 {
 	// Truncates depth value to 24bits
-	uint val = uint(res.sample(data.t) * 0x1p32) & 0xFFFFFF;
-	return float(val) * 0x1p-32f;
+	return depth32_to_depth24(res.sample(data.t));
 }
 
-fragment DepthOut ps_convert_rgba8_float32(ConvertShaderData data [[stage_in]], ConvertToDepthRes res)
+fragment DepthOrColorOut ps_convert_rgba8_depth32(ConvertShaderData data [[stage_in]], ConvertToDepthRes res)
 {
-	return rgba8_to_depth32(res.sample(data.t));
+	return res.sample_maybe_biln<rgba8_to_depth32>(data.t);
 }
 
-fragment DepthOut ps_convert_rgba8_float24(ConvertShaderData data [[stage_in]], ConvertToDepthRes res)
+fragment DepthOrColorOut ps_convert_rgba8_depth24(ConvertShaderData data [[stage_in]], ConvertToDepthRes res)
 {
-	return rgba8_to_depth24(res.sample(data.t));
+	return res.sample_maybe_biln<rgba8_to_depth24>(data.t);
 }
 
-fragment DepthOut ps_convert_rgba8_float16(ConvertShaderData data [[stage_in]], ConvertToDepthRes res)
+fragment DepthOrColorOut ps_convert_rgba8_depth16(ConvertShaderData data [[stage_in]], ConvertToDepthRes res)
 {
-	return rgba8_to_depth16(res.sample(data.t));
+	return res.sample_maybe_biln<rgba8_to_depth16>(data.t);
 }
 
-fragment DepthOut ps_convert_rgb5a1_float16(ConvertShaderData data [[stage_in]], ConvertToDepthRes res)
+fragment DepthOrColorOut ps_convert_rgb5a1_depth16(ConvertShaderData data [[stage_in]], ConvertToDepthRes res)
 {
-	return rgb5a1_to_depth16(res.sample(data.t));
-}
-
-fragment DepthOut ps_convert_rgba8_float32_biln(ConvertShaderData data [[stage_in]], ConvertToDepthRes res)
-{
-	return res.sample_biln<rgba8_to_depth32>(data.t);
-}
-
-fragment DepthOut ps_convert_rgba8_float24_biln(ConvertShaderData data [[stage_in]], ConvertToDepthRes res)
-{
-	return res.sample_biln<rgba8_to_depth24>(data.t);
-}
-
-fragment DepthOut ps_convert_rgba8_float16_biln(ConvertShaderData data [[stage_in]], ConvertToDepthRes res)
-{
-	return res.sample_biln<rgba8_to_depth16>(data.t);
-}
-
-fragment DepthOut ps_convert_rgb5a1_float16_biln(ConvertShaderData data [[stage_in]], ConvertToDepthRes res)
-{
-	return res.sample_biln<rgb5a1_to_depth16>(data.t);
+	return res.sample_maybe_biln<rgb5a1_to_depth16>(data.t);
 }
 
 fragment float4 ps_convert_rgb5a1_8i(ConvertShaderData data [[stage_in]], DirectReadTextureIn<float> res,
@@ -527,11 +540,12 @@ fragment half4 ps_imgui(ImGuiShaderData data [[stage_in]], texture2d<half> textu
 	return data.c * texture.sample(s, data.t);
 }
 
-fragment float4 ps_shadeboost(float4 p [[position]], DirectReadTextureIn<float> tex, constant float3& cb [[buffer(GSMTLBufferIndexUniforms)]])
+fragment float4 ps_shadeboost(float4 p [[position]], DirectReadTextureIn<float> tex, constant float4& cb [[buffer(GSMTLBufferIndexUniforms)]])
 {
 	const float brt = cb.x;
 	const float con = cb.y;
 	const float sat = cb.z;
+	const float gam = cb.w;
 	// Increase or decrease these values to adjust r, g and b color channels separately
 	const float AvgLumR = 0.5;
 	const float AvgLumG = 0.5;
@@ -546,5 +560,7 @@ fragment float4 ps_shadeboost(float4 p [[position]], DirectReadTextureIn<float> 
 	float3 satColor = mix(intensity, brtColor, sat);
 	float3 conColor = mix(AvgLumin, satColor, con);
 
-	return float4(conColor, 1);
+	float3 csb = pow(conColor, float3(1.0 / gam));
+
+	return float4(csb, 1);
 }

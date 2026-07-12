@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "common/Assertions.h"
@@ -14,8 +14,10 @@
 #include <fcntl.h>
 #include <mutex>
 #include <sys/mman.h>
-#include <ucontext.h>
 #include <unistd.h>
+#ifndef __APPLE__
+#include <ucontext.h>
+#endif
 
 #include "fmt/format.h"
 
@@ -26,12 +28,6 @@
 
 #if defined(__FreeBSD__)
 #include "cpuinfo.h"
-#endif
-
-// FreeBSD does not have MAP_FIXED_NOREPLACE, but does have MAP_EXCL.
-// MAP_FIXED combined with MAP_EXCL behaves like MAP_FIXED_NOREPLACE.
-#if defined(__FreeBSD__) && !defined(MAP_FIXED_NOREPLACE)
-#define MAP_FIXED_NOREPLACE (MAP_FIXED | MAP_EXCL)
 #endif
 
 static __ri uint LinuxProt(const PageProtectionMode& mode)
@@ -46,34 +42,6 @@ static __ri uint LinuxProt(const PageProtectionMode& mode)
 		lnxmode |= PROT_EXEC | PROT_READ;
 
 	return lnxmode;
-}
-
-void* HostSys::Mmap(void* base, size_t size, const PageProtectionMode& mode)
-{
-	pxAssertMsg((size & (__pagesize - 1)) == 0, "Size is page aligned");
-
-	if (mode.IsNone())
-		return nullptr;
-
-	const u32 prot = LinuxProt(mode);
-
-	u32 flags = MAP_PRIVATE | MAP_ANONYMOUS;
-	if (base)
-		flags |= MAP_FIXED_NOREPLACE;
-
-	void* res = mmap(base, size, prot, flags, -1, 0);
-	if (res == MAP_FAILED)
-		return nullptr;
-
-	return res;
-}
-
-void HostSys::Munmap(void* base, size_t size)
-{
-	if (!base)
-		return;
-
-	munmap((void*)base, size);
 }
 
 void HostSys::MemProtect(void* baseaddr, size_t size, const PageProtectionMode& mode)
@@ -159,23 +127,7 @@ void HostSys::DestroySharedMemory(void* ptr)
 	close(static_cast<int>(reinterpret_cast<intptr_t>(ptr)));
 }
 
-void* HostSys::MapSharedMemory(void* handle, size_t offset, void* baseaddr, size_t size, const PageProtectionMode& mode)
-{
-	const uint lnxmode = LinuxProt(mode);
-
-	const int flags = (baseaddr != nullptr) ? (MAP_SHARED | MAP_FIXED_NOREPLACE) : MAP_SHARED;
-	void* ptr = mmap(baseaddr, size, lnxmode, flags, static_cast<int>(reinterpret_cast<intptr_t>(handle)), static_cast<off_t>(offset));
-	if (ptr == MAP_FAILED)
-		return nullptr;
-
-	return ptr;
-}
-
-void HostSys::UnmapSharedMemory(void* baseaddr, size_t size)
-{
-	if (munmap(baseaddr, size) != 0)
-		pxFailRel("Failed to unmap shared memory");
-}
+#ifndef __APPLE__
 
 size_t HostSys::GetRuntimePageSize()
 {
@@ -222,6 +174,8 @@ size_t HostSys::GetRuntimeCacheLineSize()
 #endif
 }
 
+#endif
+
 SharedMemoryMappingArea::SharedMemoryMappingArea(u8* base_ptr, size_t size, size_t num_pages)
 	: m_base_ptr(base_ptr)
 	, m_size(size)
@@ -238,11 +192,43 @@ SharedMemoryMappingArea::~SharedMemoryMappingArea()
 }
 
 
-std::unique_ptr<SharedMemoryMappingArea> SharedMemoryMappingArea::Create(size_t size)
+std::unique_ptr<SharedMemoryMappingArea> SharedMemoryMappingArea::Create(size_t size, bool jit, uptr fixed_base_hint)
 {
 	pxAssertRel(Common::IsAlignedPow2(size, __pagesize), "Size is page aligned");
 
-	void* alloc = mmap(nullptr, size, PROT_NONE, MAP_ANONYMOUS | MAP_PRIVATE, -1, 0);
+	uint flags = MAP_ANONYMOUS | MAP_PRIVATE;
+#ifdef __APPLE__
+	if (jit)
+		flags |= MAP_JIT;
+#endif
+
+	void* alloc = MAP_FAILED;
+
+	// Deterministic VA placement for the on-disk VU program cache: when a
+	// fixed base hint is given, try it (plus 256MB-stride fallback slots) with a
+	// hint-and-verify mmap (no MAP_FIXED, so we never clobber an existing
+	// mapping). If none of the slots land exactly, fall through to kernel
+	// placement — the program cache records the arena base and simply misses on
+	// a mismatch, so this trades determinism for booting, never correctness.
+	if (fixed_base_hint != 0)
+	{
+		for (int slot = 0; slot <= 10; slot++)
+		{
+			void* const want = reinterpret_cast<void*>(fixed_base_hint + (static_cast<uptr>(slot) << 28));
+			void* const got = mmap(want, size, PROT_NONE, flags, -1, 0);
+			if (got == MAP_FAILED)
+				continue;
+			if (got == want)
+			{
+				alloc = got;
+				break;
+			}
+			munmap(got, size);
+		}
+	}
+
+	if (alloc == MAP_FAILED)
+		alloc = mmap(nullptr, size, PROT_NONE, flags, -1, 0);
 	if (alloc == MAP_FAILED)
 		return nullptr;
 
@@ -253,18 +239,29 @@ u8* SharedMemoryMappingArea::Map(void* file_handle, size_t file_offset, void* ma
 {
 	pxAssert(static_cast<u8*>(map_base) >= m_base_ptr && static_cast<u8*>(map_base) < (m_base_ptr + m_size));
 
-	// MAP_FIXED is okay here, since we've reserved the entire region, and *want* to overwrite the mapping.
 	const uint lnxmode = LinuxProt(mode);
-	void* const ptr = mmap(map_base, map_size, lnxmode, MAP_SHARED | MAP_FIXED,
-		static_cast<int>(reinterpret_cast<intptr_t>(file_handle)), static_cast<off_t>(file_offset));
-	if (ptr == MAP_FAILED)
-		return nullptr;
+	if (file_handle)
+	{
+		const int fd = static_cast<int>(reinterpret_cast<intptr_t>(file_handle));
+		// MAP_FIXED is okay here, since we've reserved the entire region, and *want* to overwrite the mapping.
+		void* const ptr = mmap(map_base, map_size, lnxmode, MAP_SHARED | MAP_FIXED, fd, static_cast<off_t>(file_offset));
+		if (ptr == MAP_FAILED)
+			return nullptr;
+	}
+	else
+	{
+		// macOS doesn't seem to allow MAP_JIT with MAP_FIXED
+		// So we do the MAP_JIT in the allocation, and just mprotect here
+		// Note that this will only work the first time for a given region
+		if (mprotect(map_base, map_size, lnxmode) < 0)
+			return nullptr;
+	}
 
 	m_num_mappings++;
-	return static_cast<u8*>(ptr);
+	return static_cast<u8*>(map_base);
 }
 
-bool SharedMemoryMappingArea::Unmap(void* map_base, size_t map_size)
+bool SharedMemoryMappingArea::Unmap(void* map_base, size_t map_size, bool is_file)
 {
 	pxAssert(static_cast<u8*>(map_base) >= m_base_ptr && static_cast<u8*>(map_base) < (m_base_ptr + m_size));
 
@@ -275,6 +272,17 @@ bool SharedMemoryMappingArea::Unmap(void* map_base, size_t map_size)
 	return true;
 }
 
+#ifdef ARCH_ARM64
+
+void HostSys::FlushInstructionCache(void* address, u32 size)
+{
+	__builtin___clear_cache(reinterpret_cast<char*>(address), reinterpret_cast<char*>(address) + size);
+}
+
+#endif
+
+#ifndef __APPLE__ // These are done in DarwinMisc
+
 namespace PageFaultHandler
 {
 	static std::recursive_mutex s_exception_handler_mutex;
@@ -282,14 +290,7 @@ namespace PageFaultHandler
 	static bool s_installed = false;
 } // namespace PageFaultHandler
 
-#ifdef _M_ARM64
-
-void HostSys::FlushInstructionCache(void* address, u32 size)
-{
-    char* start = static_cast<char*>(address);
-    char* end = start + size;
-    __builtin___clear_cache(start, end);
-}
+#ifdef ARCH_ARM64
 
 [[maybe_unused]] static bool IsStoreInstruction(const void* ptr)
 {
@@ -326,7 +327,7 @@ void HostSys::FlushInstructionCache(void* address, u32 size)
 	}
 }
 
-#endif // _M_ARM64
+#endif // ARCH_ARM64
 
 namespace PageFaultHandler
 {
@@ -338,21 +339,21 @@ void PageFaultHandler::SignalHandler(int sig, siginfo_t* info, void* ctx)
 #if defined(__linux__) || defined(__ANDROID__)
 	void* const exception_address = reinterpret_cast<void*>(info->si_addr);
 
-#if defined(_M_X86)
+#if defined(ARCH_X86)
 	void* const exception_pc = reinterpret_cast<void*>(static_cast<ucontext_t*>(ctx)->uc_mcontext.gregs[REG_RIP]);
 	const bool is_write = (static_cast<ucontext_t*>(ctx)->uc_mcontext.gregs[REG_ERR] & 2) != 0;
-#elif defined(_M_ARM64)
+#elif defined(ARCH_ARM64)
 	void* const exception_pc = reinterpret_cast<void*>(static_cast<ucontext_t*>(ctx)->uc_mcontext.pc);
 	const bool is_write = IsStoreInstruction(exception_pc);
 #endif
 
 #elif defined(__FreeBSD__)
 
-#if defined(_M_X86)
+#if defined(ARCH_X86)
 	void* const exception_address = reinterpret_cast<void*>(static_cast<ucontext_t*>(ctx)->uc_mcontext.mc_addr);
 	void* const exception_pc = reinterpret_cast<void*>(static_cast<ucontext_t*>(ctx)->uc_mcontext.mc_rip);
 	const bool is_write = (static_cast<ucontext_t*>(ctx)->uc_mcontext.mc_err & 2) != 0;
-#elif defined(_M_ARM64)
+#elif defined(ARCH_ARM64)
 	void* const exception_address = reinterpret_cast<void*>(static_cast<ucontext_t*>(ctx)->uc_mcontext->__es.__far);
 	void* const exception_pc = reinterpret_cast<void*>(static_cast<ucontext_t*>(ctx)->uc_mcontext->__ss.__pc);
 	const bool is_write = IsStoreInstruction(exception_pc);
@@ -402,7 +403,7 @@ bool PageFaultHandler::Install(Error* error)
 		return false;
 	}
 
-#ifdef _M_ARM64
+#ifdef ARCH_ARM64
 	// We can get SIGBUS on ARM64.
 	if (sigaction(SIGBUS, &sa, nullptr) != 0)
 	{
@@ -414,3 +415,7 @@ bool PageFaultHandler::Install(Error* error)
 	s_installed = true;
 	return true;
 }
+
+bool PageFaultHandler::InstallSecondaryThread() { return true; }
+
+#endif // __APPLE__

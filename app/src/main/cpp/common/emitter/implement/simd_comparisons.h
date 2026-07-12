@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -8,10 +8,10 @@ namespace x86Emitter
 
 	struct xImplSimd_MinMax
 	{
-		const xImplSimd_DestRegSSE PS; // packed single precision
-		const xImplSimd_DestRegSSE PD; // packed double precision
-		const xImplSimd_DestRegSSE SS; // scalar single precision
-		const xImplSimd_DestRegSSE SD; // scalar double precision
+		const xImplSimd_3Arg PS; // packed single precision
+		const xImplSimd_3Arg PD; // packed double precision
+		const xImplSimd_3Arg SS; // scalar single precision
+		const xImplSimd_3Arg SD; // scalar double precision
 	};
 
 	//////////////////////////////////////////////////////////////////////////////////////////
@@ -20,17 +20,25 @@ namespace x86Emitter
 	{
 		SSE2_ComparisonType CType;
 
-		void PS(const xRegisterSSE& to, const xRegisterSSE& from) const;
-		void PS(const xRegisterSSE& to, const xIndirectVoid& from) const;
+		void PS(const xRegisterSSE& dst, const xRegisterSSE&  src) const { PS(dst, dst, src); }
+		void PS(const xRegisterSSE& dst, const xIndirectVoid& src) const { PS(dst, dst, src); }
+		void PS(const xRegisterSSE& dst, const xRegisterSSE& src1, const xRegisterSSE&  src2) const;
+		void PS(const xRegisterSSE& dst, const xRegisterSSE& src1, const xIndirectVoid& src2) const;
 
-		void PD(const xRegisterSSE& to, const xRegisterSSE& from) const;
-		void PD(const xRegisterSSE& to, const xIndirectVoid& from) const;
+		void PD(const xRegisterSSE& dst, const xRegisterSSE&  src) const { PD(dst, dst, src); }
+		void PD(const xRegisterSSE& dst, const xIndirectVoid& src) const { PD(dst, dst, src); }
+		void PD(const xRegisterSSE& dst, const xRegisterSSE& src1, const xRegisterSSE&  src2) const;
+		void PD(const xRegisterSSE& dst, const xRegisterSSE& src1, const xIndirectVoid& src2) const;
 
-		void SS(const xRegisterSSE& to, const xRegisterSSE& from) const;
-		void SS(const xRegisterSSE& to, const xIndirectVoid& from) const;
+		void SS(const xRegisterSSE& dst, const xRegisterSSE&  src) const { SS(dst, dst, src); }
+		void SS(const xRegisterSSE& dst, const xIndirectVoid& src) const { SS(dst, dst, src); }
+		void SS(const xRegisterSSE& dst, const xRegisterSSE& src1, const xRegisterSSE&  src2) const;
+		void SS(const xRegisterSSE& dst, const xRegisterSSE& src1, const xIndirectVoid& src2) const;
 
-		void SD(const xRegisterSSE& to, const xRegisterSSE& from) const;
-		void SD(const xRegisterSSE& to, const xIndirectVoid& from) const;
+		void SD(const xRegisterSSE& dst, const xRegisterSSE&  src) const { SD(dst, dst, src); }
+		void SD(const xRegisterSSE& dst, const xIndirectVoid& src) const { SD(dst, dst, src); }
+		void SD(const xRegisterSSE& dst, const xRegisterSSE& src1, const xRegisterSSE&  src2) const;
+		void SD(const xRegisterSSE& dst, const xRegisterSSE& src1, const xIndirectVoid& src2) const;
 	};
 
 	//////////////////////////////////////////////////////////////////////////////////////////
@@ -38,8 +46,8 @@ namespace x86Emitter
 	//
 	struct xImplSimd_COMI
 	{
-		const xImplSimd_DestRegSSE SS;
-		const xImplSimd_DestRegSSE SD;
+		const xImplSimd_2Arg SS;
+		const xImplSimd_2Arg SD;
 	};
 
 
@@ -47,36 +55,35 @@ namespace x86Emitter
 	//
 	struct xImplSimd_PCompare
 	{
-	public:
 		// Compare packed bytes for equality.
 		// If a data element in dest is equal to the corresponding date element src, the
 		// corresponding data element in dest is set to all 1s; otherwise, it is set to all 0s.
-		const xImplSimd_DestRegEither EQB;
+		const xImplSimd_3Arg EQB;
 
 		// Compare packed words for equality.
 		// If a data element in dest is equal to the corresponding date element src, the
 		// corresponding data element in dest is set to all 1s; otherwise, it is set to all 0s.
-		const xImplSimd_DestRegEither EQW;
+		const xImplSimd_3Arg EQW;
 
 		// Compare packed doublewords [32-bits] for equality.
 		// If a data element in dest is equal to the corresponding date element src, the
 		// corresponding data element in dest is set to all 1s; otherwise, it is set to all 0s.
-		const xImplSimd_DestRegEither EQD;
+		const xImplSimd_3Arg EQD;
 
 		// Compare packed signed bytes for greater than.
 		// If a data element in dest is greater than the corresponding date element src, the
 		// corresponding data element in dest is set to all 1s; otherwise, it is set to all 0s.
-		const xImplSimd_DestRegEither GTB;
+		const xImplSimd_3Arg GTB;
 
 		// Compare packed signed words for greater than.
 		// If a data element in dest is greater than the corresponding date element src, the
 		// corresponding data element in dest is set to all 1s; otherwise, it is set to all 0s.
-		const xImplSimd_DestRegEither GTW;
+		const xImplSimd_3Arg GTW;
 
 		// Compare packed signed doublewords [32-bits] for greater than.
 		// If a data element in dest is greater than the corresponding date element src, the
 		// corresponding data element in dest is set to all 1s; otherwise, it is set to all 0s.
-		const xImplSimd_DestRegEither GTD;
+		const xImplSimd_3Arg GTD;
 	};
 
 	//////////////////////////////////////////////////////////////////////////////////////////
@@ -85,27 +92,27 @@ namespace x86Emitter
 	{
 		// Compare packed unsigned byte integers in dest to src and store packed min/max
 		// values in dest.
-		const xImplSimd_DestRegEither UB;
+		const xImplSimd_3Arg UB;
 
 		// Compare packed signed word integers in dest to src and store packed min/max
 		// values in dest.
-		const xImplSimd_DestRegEither SW;
+		const xImplSimd_3Arg SW;
 
 		// [SSE-4.1] Compare packed signed byte integers in dest to src and store
 		// packed min/max values in dest. (SSE operands only)
-		const xImplSimd_DestRegSSE SB;
+		const xImplSimd_3Arg SB;
 
 		// [SSE-4.1] Compare packed signed doubleword integers in dest to src and store
 		// packed min/max values in dest. (SSE operands only)
-		const xImplSimd_DestRegSSE SD;
+		const xImplSimd_3Arg SD;
 
 		// [SSE-4.1] Compare packed unsigned word integers in dest to src and store
 		// packed min/max values in dest. (SSE operands only)
-		const xImplSimd_DestRegSSE UW;
+		const xImplSimd_3Arg UW;
 
 		// [SSE-4.1] Compare packed unsigned doubleword integers in dest to src and store
 		// packed min/max values in dest. (SSE operands only)
-		const xImplSimd_DestRegSSE UD;
+		const xImplSimd_3Arg UD;
 	};
 
 } // end namespace x86Emitter

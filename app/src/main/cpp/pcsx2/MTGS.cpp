@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "GS.h"
@@ -6,7 +6,7 @@
 #include "MTGS.h"
 #include "MTVU.h"
 #include "Host.h"
-#include "IconsFontAwesome5.h"
+#include "IconsFontAwesome.h"
 #include "VMManager.h"
 
 #include "common/FPControl.h"
@@ -144,6 +144,11 @@ void MTGS::ShutdownThread()
 void MTGS::ThreadEntryPoint()
 {
 	Threading::SetNameOfCurrentThread("GS");
+
+	// GS can hit SMC write traps when executing InitAndReadFIFO
+	// As racey as it sounds, it should be safe, since InitAndReadFIFO is requested and immediately waited for,
+	// so the EE thread shouldn't be touching any of its codegen structures while it happens.
+	PageFaultHandler::InstallSecondaryThread();
 
 	// Explicitly set rounding mode to default (nearest, FTZ off).
 	// Otherwise it appears to get inherited from the EE thread on Linux.
@@ -946,7 +951,7 @@ void MTGS::ApplySettings()
 		WaitGS(false, false, false);
 }
 
-void MTGS::ResizeDisplayWindow(int width, int height, float scale)
+void MTGS::ResizeDisplayWindow(u32 width, u32 height, float scale)
 {
 	pxAssertRel(IsOpen(), "MTGS is running");
 	RunOnGSThread([width, height, scale]() {
@@ -993,7 +998,7 @@ void MTGS::SetSoftwareRendering(bool software, GSInterlaceMode interlace, bool d
 
 	if (display_message)
 	{
-		Host::AddIconOSDMessage("SwitchRenderer", ICON_FA_MAGIC, software ?
+		Host::AddIconOSDMessage("SwitchRenderer", ICON_FA_WAND_MAGIC_SPARKLES, software ?
 			TRANSLATE_STR("GS", "Switching to Software Renderer...") : TRANSLATE_STR("GS", "Switching to Hardware Renderer..."),
 			Host::OSD_QUICK_DURATION);
 	}

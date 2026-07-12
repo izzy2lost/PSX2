@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 class alignas(32) GSVector8i
@@ -797,11 +797,6 @@ public:
 	__forceinline GSVector8i modulate16(const GSVector8i& f) const
 	{
 		// a * f << shift
-
-		if (shift == 0)
-		{
-			return mul16hrs(f);
-		}
 
 		return sll16<shift + 1>().mul16hs(f);
 	}

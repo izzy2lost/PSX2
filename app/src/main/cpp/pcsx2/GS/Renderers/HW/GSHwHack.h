@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "GS/Renderers/HW/GSRendererHW.h"
@@ -6,27 +6,27 @@
 class GSHwHack
 {
 public:
+	static bool GSC_IRem(GSRendererHW& r, int& skip);
 	static bool GSC_Manhunt2(GSRendererHW& r, int& skip);
 	static bool GSC_SacredBlaze(GSRendererHW& r, int& skip);
 	static bool GSC_GuitarHero(GSRendererHW& r, int& skip);
 	static bool GSC_SFEX3(GSRendererHW& r, int& skip);
 	static bool GSC_DTGames(GSRendererHW& r, int& skip);
 	static bool GSC_NamcoGames(GSRendererHW& r, int& skip);
+	static bool GSC_SandGrainGames(GSRendererHW& r, int& skip);
 	static bool GSC_BurnoutGames(GSRendererHW& r, int& skip);
 	static bool GSC_BlackAndBurnoutSky(GSRendererHW& r, int& skip);
 	static bool GSC_MidnightClub3(GSRendererHW& r, int& skip);
 	static bool GSC_TalesOfLegendia(GSRendererHW& r, int& skip);
-	static bool GSC_ZettaiZetsumeiToshi2(GSRendererHW& r, int& skip);
 	static bool GSC_UltramanFightingEvolution(GSRendererHW& r, int& skip);
 	static bool GSC_TalesofSymphonia(GSRendererHW& r, int& skip);
 	static bool GSC_UrbanReign(GSRendererHW& r, int& skip);
-	static bool GSC_SteambotChronicles(GSRendererHW& r, int& skip);
 	static bool GSC_BlueTongueGames(GSRendererHW& r, int& skip);
 	static bool GSC_NFSUndercover(GSRendererHW& r, int& skip);
 	static bool GSC_Battlefield2(GSRendererHW& r, int& skip);
 	static bool GSC_PolyphonyDigitalGames(GSRendererHW& r, int& skip);
 	static bool GSC_MetalGearSolid3(GSRendererHW& r, int& skip);
-	static bool GSC_HitmanBloodMoney(GSRendererHW& r, int& skip);
+	static bool GSC_Turok(GSRendererHW& r, int& skip);
 
 	static bool OI_PointListPalette(GSRendererHW& r, GSTexture* rt, GSTexture* ds, GSTextureCache::Source* t);
 	static bool OI_DBZBTGames(GSRendererHW& r, GSTexture* rt, GSTexture* ds, GSTextureCache::Source* t);

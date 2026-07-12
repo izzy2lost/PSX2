@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Host.h"
@@ -20,7 +20,7 @@
 #include <stdexcept>
 #include <string>
 
-#define PSXCLK 36864000 /* 36.864 Mhz */
+#define PSXCLK 36864000 /* 36.864 MHz */
 
 namespace USB
 {
@@ -559,6 +559,15 @@ const char* USB::GetDeviceName(const std::string_view device)
 {
 	const DeviceProxy* dev = RegisterDevice::instance().Device(device);
 	return dev ? dev->Name() : TRANSLATE_NOOP("USB", "Not Connected");
+}
+
+const char* USB::GetDeviceIconName(u32 port)
+{
+    pxAssert(port < NUM_PORTS);
+    if (s_usb_device_proxy[port])
+        return s_usb_device_proxy[port]->IconName();
+    else
+        return nullptr;
 }
 
 const char* USB::GetDeviceSubtypeName(const std::string_view device, u32 subtype)

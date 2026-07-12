@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "CDVD/CDVD.h"
@@ -16,6 +16,7 @@
 #include "common/HeterogeneousContainers.h"
 #include "common/Path.h"
 #include "common/ProgressCallback.h"
+#include "common/ScopedGuard.h"
 #include "common/StringUtil.h"
 
 #include <algorithm>
@@ -85,6 +86,8 @@ namespace GameList
 		const std::string& path, const std::string& serial, std::time_t last_time, std::time_t add_time);
 
 	static std::string GetCustomPropertiesFile();
+
+	static std::string EncodeIniKey(const std::string_view& input);
 } // namespace GameList
 
 static std::vector<GameList::Entry> s_entries;
@@ -148,6 +151,44 @@ const char* GameList::RegionToString(Region region, bool translate)
 		name = TRANSLATE("GameList", name);
 
 	return name;
+}
+
+const char* GameList::RegionToFlagFilename(Region region)
+{
+	static constexpr std::array<const char*, static_cast<int>(Region::Count)> flag_names = {
+		"br",  // NTSC-B
+		"cn",  // NTSC-C
+		"hk",  // NTSC-HK
+		"jp",  // NTSC-J
+		"kr",  // NTSC-K
+		"tw",  // NTSC-T
+		"us",  // NTSC-U
+		"Other",  // Other
+		"au",  // PAL-A
+		"za",  // PAL-AF
+		"at",  // PAL-AU
+		"be",  // PAL-BE
+		"eu",  // PAL-E
+		"fr",  // PAL-F
+		"fi",  // PAL-FI
+		"de",  // PAL-G
+		"gr",  // PAL-GR
+		"it",  // PAL-I
+		"in",  // PAL-IN
+		"eu",  // PAL-M
+		"nl",  // PAL-NL
+		"no",  // PAL-NO
+		"pt",  // PAL-P
+		"pl",  // PAL-PL
+		"ru",  // PAL-R
+		"es",  // PAL-S
+		"scn",  // PAL-SC
+		"se",  // PAL-SW
+		"ch",  // PAL-SWI
+		"gb",  // PAL-UK
+	};
+
+	return flag_names.at(static_cast<int>(region));
 }
 
 const char* GameList::EntryCompatibilityRatingToString(CompatibilityRating rating, bool translate)
@@ -760,12 +801,12 @@ bool GameList::ScanFile(std::string path, std::time_t timestamp, std::unique_loc
 		entry.total_played_time = iter->second.total_played_time;
 	}
 
-	auto custom_title = custom_attributes_ini.GetOptionalStringValue(entry.path.c_str(), "Title");
+	auto custom_title = custom_attributes_ini.GetOptionalStringValue(EncodeIniKey(entry.path).c_str(), "Title");
 	if (custom_title)
 	{
 		entry.title = std::move(custom_title.value());
 	}
-	const auto custom_region = custom_attributes_ini.GetOptionalIntValue(entry.path.c_str(), "Region");
+	const auto custom_region = custom_attributes_ini.GetOptionalIntValue(EncodeIniKey(entry.path).c_str(), "Region");
 	if (custom_region)
 	{
 		const int custom_region_value = custom_region.value();
@@ -840,6 +881,15 @@ void GameList::Refresh(bool invalidate_cache, bool only_cache, ProgressCallback*
 {
 	if (!progress)
 		progress = ProgressCallback::NullProgressCallback;
+
+	Error cdvd_lock_error;
+	if (!cdvdLock(&cdvd_lock_error))
+	{
+		progress->DisplayError(cdvd_lock_error.GetDescription().c_str());
+		return;
+	}
+
+	ScopedGuard unlock_cdvd = &cdvdUnlock;
 
 	if (invalidate_cache)
 		DeleteCacheFile();
@@ -1189,7 +1239,7 @@ std::string GameList::FormatTimestamp(std::time_t timestamp)
 	return ret;
 }
 
-std::string GameList::FormatTimespan(std::time_t timespan, bool long_format)
+std::string GameList::FormatTimespan(const std::time_t timespan, const bool long_format)
 {
 	const u32 hours = static_cast<u32>(timespan / 3600);
 	const u32 minutes = static_cast<u32>((timespan % 3600) / 60);
@@ -1213,8 +1263,10 @@ std::string GameList::FormatTimespan(std::time_t timespan, bool long_format)
 	{
 		if (hours > 0)
 			ret.assign(TRANSLATE_PLURAL_STR("GameList", "%n hours", "", hours));
-		else
+		else if (minutes > 0)
 			ret.assign(TRANSLATE_PLURAL_STR("GameList", "%n minutes", "", minutes));
+		else
+			ret.assign(TRANSLATE_PLURAL_STR("GameList", "%n seconds", "", seconds));
 	}
 
 	return ret;
@@ -1230,22 +1282,22 @@ std::string GameList::GetCoverImagePathForEntry(const Entry* entry)
 	for (const char* extension : extensions)
 	{
 
-		// Prioritize lookup by serial (Most specific)
-		if (!entry->serial.empty())
-		{
-			const std::string cover_filename(entry->serial + extension);
-			cover_path = Path::Combine(EmuFolders::Covers, cover_filename);
-			if (FileSystem::FileExists(cover_path.c_str()))
-				return cover_path;
-		}
-
-		// Try file title (for modded games or specific like above)
+		// Prioritize file title since users can change these (e.g. for modded games)
 		const std::string_view file_title(Path::GetFileTitle(entry->path));
 		if (!file_title.empty() && entry->title != file_title)
 		{
 			std::string cover_filename = fmt::format("{}{}", file_title, extension);
 			Path::SanitizeFileName(&cover_filename);
 
+			cover_path = Path::Combine(EmuFolders::Covers, cover_filename);
+			if (FileSystem::FileExists(cover_path.c_str()))
+				return cover_path;
+		}
+
+		// Lookup by serial (most specific)
+		if (!entry->serial.empty())
+		{
+			const std::string cover_filename(entry->serial + extension);
 			cover_path = Path::Combine(EmuFolders::Covers, cover_filename);
 			if (FileSystem::FileExists(cover_path.c_str()))
 				return cover_path;
@@ -1317,6 +1369,12 @@ bool GameList::DownloadCovers(const std::vector<std::string>& url_templates, boo
 	if (!has_title && !has_file_title && !has_serial)
 	{
 		progress->DisplayError("URL template must contain at least one of ${title}, ${filetitle}, or ${serial}.");
+		return false;
+	}
+
+	if (!FileSystem::CreateDirectoryPath(EmuFolders::Covers.c_str(), false))
+	{
+		progress->DisplayError(fmt::format("Failed to create covers directory: {}", EmuFolders::Covers).c_str());
 		return false;
 	}
 
@@ -1429,8 +1487,8 @@ void GameList::CheckCustomAttributesForPath(const std::string& path, bool& has_c
 	INISettingsInterface names(GetCustomPropertiesFile());
 	if (names.Load())
 	{
-		has_custom_title = names.ContainsValue(path.c_str(), "Title");
-		has_custom_region = names.ContainsValue(path.c_str(), "Region");
+		has_custom_title = names.ContainsValue(EncodeIniKey(path).c_str(), "Title");
+		has_custom_region = names.ContainsValue(EncodeIniKey(path).c_str(), "Region");
 	}
 }
 
@@ -1441,11 +1499,11 @@ void GameList::SaveCustomTitleForPath(const std::string& path, const std::string
 
 	if (!custom_title.empty())
 	{
-		names.SetStringValue(path.c_str(), "Title", custom_title.c_str());
+		names.SetStringValue(EncodeIniKey(path).c_str(), "Title", custom_title.c_str());
 	}
 	else
 	{
-		names.DeleteValue(path.c_str(), "Title");
+		names.DeleteValue(EncodeIniKey(path).c_str(), "Title");
 	}
 
 	if (names.Save())
@@ -1462,11 +1520,11 @@ void GameList::SaveCustomRegionForPath(const std::string& path, int custom_regio
 
 	if (custom_region >= 0)
 	{
-		names.SetIntValue(path.c_str(), "Region", custom_region);
+		names.SetIntValue(EncodeIniKey(path).c_str(), "Region", custom_region);
 	}
 	else
 	{
-		names.DeleteValue(path.c_str(), "Region");
+		names.DeleteValue(EncodeIniKey(path).c_str(), "Region");
 	}
 
 	if (names.Save())
@@ -1481,11 +1539,29 @@ std::string GameList::GetCustomTitleForPath(const std::string& path)
 	std::string ret;
 
 	std::unique_lock lock(s_mutex);
-	const GameList::Entry* entry = GetEntryForPath(path.c_str());
+	const GameList::Entry* entry = GetEntryForPath(EncodeIniKey(path).c_str());
 	if (entry)
 	{
 		ret = entry->title;
 	}
 
 	return ret;
+}
+
+static std::string GameList::EncodeIniKey(const std::string_view& input)
+{
+	std::string out;
+	out.reserve(input.size());
+
+	for (char c : input)
+	{
+		if (c == '[')
+			out += "{{";
+		else if (c == ']')
+			out += "}}";
+		else
+			out += c;
+	}
+
+	return out;
 }

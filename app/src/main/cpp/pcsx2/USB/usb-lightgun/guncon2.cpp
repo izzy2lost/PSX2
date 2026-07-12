@@ -1,8 +1,9 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "GS/GS.h"
 #include "Host.h"
+#include "IconsPromptFont.h"
 #include "ImGui/ImGuiManager.h"
 #include "Input/InputManager.h"
 #include "StateWrapper.h"
@@ -442,6 +443,11 @@ namespace usb_lightgun
 	const char* GunCon2Device::TypeName() const
 	{
 		return "guncon2";
+	}
+
+	const char* GunCon2Device::IconName() const
+	{
+		return ICON_PF_GUNCON2;
 	}
 
 	USBDevice* GunCon2Device::CreateDevice(SettingsInterface& si, u32 port, u32 subtype) const

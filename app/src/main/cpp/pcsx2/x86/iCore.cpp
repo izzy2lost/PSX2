@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Config.h"
@@ -51,6 +51,10 @@ bool _isAllocatableX86reg(int x86reg)
 //	if (CHECK_FASTMEM && x86reg == 5)
 ////    if (CHECK_FASTMEM && x86reg == 20)
 //		return false;
+
+	// rbx is used to reference PCSX2 program text
+	if (xGetTextPtr() && x86reg == RTEXTPTR.GetId())
+		return false;
 
 #ifdef ENABLE_VTUNE
 	// vtune needs ebp...

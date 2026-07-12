@@ -11,6 +11,9 @@
 #define _NETBSD_SOURCE /* timersub() */
 #endif
 #define _XOPEN_SOURCE 500
+#if defined(__linux__)
+#define _GNU_SOURCE
+#endif
 #include "cubeb-internal.h"
 #include "cubeb/cubeb.h"
 #include "cubeb_tracing.h"
@@ -294,6 +297,9 @@ set_timeout(struct timeval * timeout, unsigned int ms)
 static void
 stream_buffer_decrement(cubeb_stream * stm, long count)
 {
+  if (count < 0 || (snd_pcm_uframes_t)count > stm->bufframes) {
+    count = stm->bufframes;
+  }
   char * bufremains =
       stm->buffer + WRAP(snd_pcm_frames_to_bytes)(stm->pcm, count);
   memmove(stm->buffer, bufremains,
@@ -584,6 +590,9 @@ alsa_run_thread(void * context)
   int r;
 
   CUBEB_REGISTER_THREAD("cubeb rendering thread");
+#if defined(__linux__)
+  pthread_setname_np(pthread_self(), "Audio");
+#endif
 
   do {
     r = alsa_run(ctx);

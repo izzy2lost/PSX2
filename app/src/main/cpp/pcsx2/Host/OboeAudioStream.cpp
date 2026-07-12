@@ -113,9 +113,14 @@ bool OboeAudioStream::Open() {
     builder.setDirection(oboe::Direction::Output);
     builder.setPerformanceMode(oboe::PerformanceMode::LowLatency);
     builder.setSharingMode(oboe::SharingMode::Exclusive);
-    builder.setFormat(oboe::AudioFormat::I16);
+    // AudioStream produces float samples (SampleType == float) for
+    // m_output_channels channels; the stream format must match exactly or
+    // ReadFrames() overruns the AAudio buffer in the data callback.
+    builder.setFormat(oboe::AudioFormat::Float);
+    builder.setFormatConversionAllowed(true);
     builder.setSampleRate(m_sample_rate);
-    builder.setChannelCount(m_output_channels >= 2 ? oboe::ChannelCount::Stereo : oboe::ChannelCount::Mono);
+    builder.setChannelCount(static_cast<int>(m_output_channels));
+    builder.setChannelConversionAllowed(true);
     builder.setDeviceId(oboe::kUnspecified);
 
     const int32_t buffer_frames = static_cast<int32_t>(AudioStream::GetBufferSizeForMS(m_sample_rate, m_parameters.buffer_ms));

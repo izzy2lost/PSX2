@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "common/HostSys.h"
@@ -34,22 +34,6 @@ static DWORD ConvertToWinApi(const PageProtectionMode& mode)
 	return winmode;
 }
 
-void* HostSys::Mmap(void* base, size_t size, const PageProtectionMode& mode)
-{
-	if (mode.IsNone())
-		return nullptr;
-
-	return VirtualAlloc(base, size, MEM_RESERVE | MEM_COMMIT, ConvertToWinApi(mode));
-}
-
-void HostSys::Munmap(void* base, size_t size)
-{
-	if (!base)
-		return;
-
-	VirtualFree((void*)base, 0, MEM_RELEASE);
-}
-
 void HostSys::MemProtect(void* baseaddr, size_t size, const PageProtectionMode& mode)
 {
 	pxAssert((size & (__pagesize - 1)) == 0);
@@ -74,29 +58,6 @@ void* HostSys::CreateSharedMemory(const char* name, size_t size)
 void HostSys::DestroySharedMemory(void* ptr)
 {
 	CloseHandle(static_cast<HANDLE>(ptr));
-}
-
-void* HostSys::MapSharedMemory(void* handle, size_t offset, void* baseaddr, size_t size, const PageProtectionMode& mode)
-{
-	void* ret = MapViewOfFileEx(static_cast<HANDLE>(handle), FILE_MAP_READ | FILE_MAP_WRITE,
-		static_cast<DWORD>(offset >> 32), static_cast<DWORD>(offset), size, baseaddr);
-	if (!ret)
-		return nullptr;
-
-	const DWORD prot = ConvertToWinApi(mode);
-	if (prot != PAGE_READWRITE)
-	{
-		DWORD old_prot;
-		if (!VirtualProtect(ret, size, prot, &old_prot))
-			pxFail("Failed to protect memory mapping");
-	}
-	return ret;
-}
-
-void HostSys::UnmapSharedMemory(void* baseaddr, size_t size)
-{
-	if (!UnmapViewOfFile(baseaddr))
-		pxFail("Failed to unmap shared memory");
 }
 
 size_t HostSys::GetRuntimePageSize()
@@ -128,7 +89,7 @@ size_t HostSys::GetRuntimeCacheLineSize()
 	return max_line_size;
 }
 
-#ifdef _M_ARM64
+#ifdef ARCH_ARM64
 
 void HostSys::FlushInstructionCache(void* address, u32 size)
 {
@@ -182,9 +143,14 @@ SharedMemoryMappingArea::PlaceholderMap::iterator SharedMemoryMappingArea::FindP
 		return m_placeholder_ranges.end();
 }
 
-std::unique_ptr<SharedMemoryMappingArea> SharedMemoryMappingArea::Create(size_t size)
+std::unique_ptr<SharedMemoryMappingArea> SharedMemoryMappingArea::Create(size_t size, bool jit, uptr fixed_base_hint)
 {
 	pxAssertRel(Common::IsAlignedPow2(size, __pagesize), "Size is page aligned");
+
+	// Deterministic fixed-base placement is not implemented on Windows; kernel-chosen
+	// placement is used and the program cache simply incurs a miss if the arena base
+	// differs across runs.
+	(void)fixed_base_hint;
 
 	void* alloc = VirtualAlloc2(GetCurrentProcess(), nullptr, size, MEM_RESERVE | MEM_RESERVE_PLACEHOLDER, PAGE_NOACCESS, nullptr, 0);
 	if (!alloc)
@@ -240,11 +206,22 @@ u8* SharedMemoryMappingArea::Map(void* file_handle, size_t file_offset, void* ma
 	}
 
 	// actually do the mapping, replacing the placeholder on the range
-	if (!MapViewOfFile3(static_cast<HANDLE>(file_handle), GetCurrentProcess(),
-			map_base, file_offset, map_size, MEM_REPLACE_PLACEHOLDER, PAGE_READWRITE, nullptr, 0))
+	if (file_handle)
 	{
-		Console.Error("(SharedMemoryMappingArea) MapViewOfFile3() failed: %u", GetLastError());
-		return nullptr;
+		if (!MapViewOfFile3(static_cast<HANDLE>(file_handle), GetCurrentProcess(),
+				map_base, file_offset, map_size, MEM_REPLACE_PLACEHOLDER, PAGE_READWRITE, nullptr, 0))
+		{
+			Console.Error("(SharedMemoryMappingArea) MapViewOfFile3() failed: %u", GetLastError());
+			return nullptr;
+		}
+	}
+	else
+	{
+		if (!VirtualAlloc2(GetCurrentProcess(), map_base, map_size, MEM_RESERVE | MEM_COMMIT | MEM_REPLACE_PLACEHOLDER, PAGE_READWRITE, nullptr, 0))
+		{
+			Console.Error("(SharedMemoryMappingArea) VirtualAlloc2() failed: %u", GetLastError());
+			return nullptr;
+		}
 	}
 
 	const DWORD prot = ConvertToWinApi(mode);
@@ -259,7 +236,7 @@ u8* SharedMemoryMappingArea::Map(void* file_handle, size_t file_offset, void* ma
 	return static_cast<u8*>(map_base);
 }
 
-bool SharedMemoryMappingArea::Unmap(void* map_base, size_t map_size)
+bool SharedMemoryMappingArea::Unmap(void* map_base, size_t map_size, bool is_file)
 {
 	pxAssert(static_cast<u8*>(map_base) >= m_base_ptr && static_cast<u8*>(map_base) < (m_base_ptr + m_size));
 
@@ -268,10 +245,22 @@ bool SharedMemoryMappingArea::Unmap(void* map_base, size_t map_size)
 	pxAssert(Common::IsAlignedPow2(map_size, __pagesize));
 
 	// unmap the specified range
-	if (!UnmapViewOfFile2(GetCurrentProcess(), map_base, MEM_PRESERVE_PLACEHOLDER))
+	if (is_file)
 	{
-		Console.Error("(SharedMemoryMappingArea) UnmapViewOfFile2() failed: %u", GetLastError());
-		return false;
+		if (!UnmapViewOfFile2(GetCurrentProcess(), map_base, MEM_PRESERVE_PLACEHOLDER))
+		{
+			Console.Error("(SharedMemoryMappingArea) UnmapViewOfFile2() failed: %u", GetLastError());
+			return false;
+		}
+	}
+	else
+	{
+		// For some reason Windows wants you to alloc with RESERVE | COMMIT but free with just RELEASE
+		if (!VirtualFreeEx(GetCurrentProcess(), map_base, map_size, MEM_RELEASE | MEM_PRESERVE_PLACEHOLDER))
+		{
+			Console.Error("(SharedMemoryMappingArea) VirtualFreeEx() failed: %u", GetLastError());
+			return false;
+		}
 	}
 
 	// can we coalesce to the left?
@@ -338,9 +327,9 @@ LONG PageFaultHandler::ExceptionHandler(PEXCEPTION_POINTERS exi)
 	if (exi->ExceptionRecord->ExceptionCode != EXCEPTION_ACCESS_VIOLATION)
 		return EXCEPTION_CONTINUE_SEARCH;
 
-#if defined(_M_X86)
+#if defined(ARCH_X86)
 	void* const exception_pc = reinterpret_cast<void*>(exi->ContextRecord->Rip);
-#elif defined(_M_ARM64)
+#elif defined(ARCH_ARM64)
 	void* const exception_pc = reinterpret_cast<void*>(exi->ContextRecord->Pc);
 #else
 	void* const exception_pc = nullptr;
@@ -373,3 +362,5 @@ bool PageFaultHandler::Install(Error* error)
 	s_installed = true;
 	return true;
 }
+
+bool PageFaultHandler::InstallSecondaryThread() { return true; }

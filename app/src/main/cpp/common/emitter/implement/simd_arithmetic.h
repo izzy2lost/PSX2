@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -11,15 +11,16 @@ namespace x86Emitter
 	// --------------------------------------------------------------------------------------
 	struct _SimdShiftHelper
 	{
-		u8 Prefix;
-		u16 Opcode;
-		u16 OpcodeImm;
-		u8 Modcode;
+		SIMDInstructionInfo info;
+		SIMDInstructionInfo infoImm;
 
-		void operator()(const xRegisterSSE& to, const xRegisterSSE& from) const;
-		void operator()(const xRegisterSSE& to, const xIndirectVoid& from) const;
+		void operator()(const xRegisterSSE& dst, const xRegisterSSE& src)  const { (*this)(dst, dst, src); }
+		void operator()(const xRegisterSSE& dst, const xIndirectVoid& src) const { (*this)(dst, dst, src); }
+		void operator()(const xRegisterSSE& dst, const xRegisterSSE& src1, const xRegisterSSE& src2)  const;
+		void operator()(const xRegisterSSE& dst, const xRegisterSSE& src1, const xIndirectVoid& src2) const;
 
-		void operator()(const xRegisterSSE& to, u8 imm8) const;
+		void operator()(const xRegisterSSE& dst, u8 imm8) const { (*this)(dst, dst, imm8); }
+		void operator()(const xRegisterSSE& dst, const xRegisterSSE& src, u8 imm8) const;
 	};
 
 	// --------------------------------------------------------------------------------------
@@ -42,39 +43,40 @@ namespace x86Emitter
 		const _SimdShiftHelper D;
 		const _SimdShiftHelper Q;
 
-		void DQ(const xRegisterSSE& to, u8 imm8) const;
+		void DQ(const xRegisterSSE& dst, u8 imm8) const { DQ(dst, dst, imm8); }
+		void DQ(const xRegisterSSE& dst, const xRegisterSSE& src, u8 imm8) const;
 	};
 
 	//////////////////////////////////////////////////////////////////////////////////////////
 	//
 	struct xImplSimd_AddSub
 	{
-		const xImplSimd_DestRegEither B;
-		const xImplSimd_DestRegEither W;
-		const xImplSimd_DestRegEither D;
-		const xImplSimd_DestRegEither Q;
+		const xImplSimd_3Arg B;
+		const xImplSimd_3Arg W;
+		const xImplSimd_3Arg D;
+		const xImplSimd_3Arg Q;
 
 		// Add/Sub packed signed byte [8bit] integers from src into dest, and saturate the results.
-		const xImplSimd_DestRegEither SB;
+		const xImplSimd_3Arg SB;
 
 		// Add/Sub packed signed word [16bit] integers from src into dest, and saturate the results.
-		const xImplSimd_DestRegEither SW;
+		const xImplSimd_3Arg SW;
 
 		// Add/Sub packed unsigned byte [8bit] integers from src into dest, and saturate the results.
-		const xImplSimd_DestRegEither USB;
+		const xImplSimd_3Arg USB;
 
 		// Add/Sub packed unsigned word [16bit] integers from src into dest, and saturate the results.
-		const xImplSimd_DestRegEither USW;
+		const xImplSimd_3Arg USW;
 	};
 
 	//////////////////////////////////////////////////////////////////////////////////////////
 	//
 	struct xImplSimd_PMul
 	{
-		const xImplSimd_DestRegEither LW;
-		const xImplSimd_DestRegEither HW;
-		const xImplSimd_DestRegEither HUW;
-		const xImplSimd_DestRegEither UDQ;
+		const xImplSimd_3Arg LW;
+		const xImplSimd_3Arg HW;
+		const xImplSimd_3Arg HUW;
+		const xImplSimd_3Arg UDQ;
 
 		// [SSE-3] PMULHRSW multiplies vertically each signed 16-bit integer from dest with the
 		// corresponding signed 16-bit integer of source, producing intermediate signed 32-bit
@@ -86,14 +88,14 @@ namespace x86Emitter
 		//
 		// Both operands can be MMX or XMM registers.  Source can be register or memory.
 		//
-		const xImplSimd_DestRegEither HRSW;
+		const xImplSimd_3Arg HRSW;
 
 		// [SSE-4.1] Multiply the packed dword signed integers in dest with src, and store
 		// the low 32 bits of each product in xmm1.
-		const xImplSimd_DestRegSSE LD;
+		const xImplSimd_3Arg LD;
 
 		// [SSE-4.1] Multiply the packed signed dword integers in dest with src.
-		const xImplSimd_DestRegSSE DQ;
+		const xImplSimd_3Arg DQ;
 	};
 
 	//////////////////////////////////////////////////////////////////////////////////////////
@@ -101,26 +103,27 @@ namespace x86Emitter
 	//
 	struct xImplSimd_rSqrt
 	{
-		const xImplSimd_DestRegSSE PS;
-		const xImplSimd_DestRegSSE SS;
+		const xImplSimd_2Arg PS;
+		const xImplSimd_3Arg SS;
 	};
 
 	//////////////////////////////////////////////////////////////////////////////////////////
-	// SQRT has PS/SS/SD forms, but not the PD form.
+	// SQRT has PS/SS/PD/SD forms
 	//
 	struct xImplSimd_Sqrt
 	{
-		const xImplSimd_DestRegSSE PS;
-		const xImplSimd_DestRegSSE SS;
-		const xImplSimd_DestRegSSE SD;
+		const xImplSimd_2Arg PS;
+		const xImplSimd_3Arg SS;
+		const xImplSimd_2Arg PD;
+		const xImplSimd_3Arg SD;
 	};
 
 	//////////////////////////////////////////////////////////////////////////////////////////
 	//
 	struct xImplSimd_AndNot
 	{
-		const xImplSimd_DestRegSSE PS;
-		const xImplSimd_DestRegSSE PD;
+		const xImplSimd_3Arg PS;
+		const xImplSimd_3Arg PD;
 	};
 
 	//////////////////////////////////////////////////////////////////////////////////////////
@@ -130,15 +133,15 @@ namespace x86Emitter
 	{
 		// [sSSE-3] Computes the absolute value of bytes in the src, and stores the result
 		// in dest, as UNSIGNED.
-		const xImplSimd_DestRegEither B;
+		const xImplSimd_2Arg B;
 
 		// [sSSE-3] Computes the absolute value of word in the src, and stores the result
 		// in dest, as UNSIGNED.
-		const xImplSimd_DestRegEither W;
+		const xImplSimd_2Arg W;
 
 		// [sSSE-3] Computes the absolute value of doublewords in the src, and stores the
 		// result in dest, as UNSIGNED.
-		const xImplSimd_DestRegEither D;
+		const xImplSimd_2Arg D;
 	};
 
 	//////////////////////////////////////////////////////////////////////////////////////////
@@ -152,21 +155,21 @@ namespace x86Emitter
 		// of a data element in src is positive, the corresponding data element in dest is
 		// unchanged. If a data element in src is zero, the corresponding data element in
 		// dest is set to zero.
-		const xImplSimd_DestRegEither B;
+		const xImplSimd_3Arg B;
 
 		// [sSSE-3] negates each word element of dest if the signed integer value of the
 		// corresponding data element in src is less than zero. If the signed integer value
 		// of a data element in src is positive, the corresponding data element in dest is
 		// unchanged. If a data element in src is zero, the corresponding data element in
 		// dest is set to zero.
-		const xImplSimd_DestRegEither W;
+		const xImplSimd_3Arg W;
 
 		// [sSSE-3] negates each doubleword element of dest if the signed integer value
 		// of the corresponding data element in src is less than zero. If the signed integer
 		// value of a data element in src is positive, the corresponding data element in dest
 		// is unchanged. If a data element in src is zero, the corresponding data element in
 		// dest is set to zero.
-		const xImplSimd_DestRegEither D;
+		const xImplSimd_3Arg D;
 	};
 
 	//////////////////////////////////////////////////////////////////////////////////////////
@@ -182,7 +185,7 @@ namespace x86Emitter
 		//   DEST[63:32] = ( DEST[47:32] * SRC[47:32]) + (DEST[63:48] * SRC[63:48] );
 		//   [.. repeat in the case of XMM src/dest operands ..]
 		//
-		const xImplSimd_DestRegEither WD;
+		const xImplSimd_3Arg WD;
 
 		// [sSSE-3] multiplies vertically each unsigned byte of dest with the corresponding
 		// signed byte of src, producing intermediate signed 16-bit integers. Each adjacent
@@ -198,7 +201,7 @@ namespace x86Emitter
 		//   DEST[31-16] = SaturateToSignedWord( SRC[31-24] * DEST[31-24] + SRC[23-16] * DEST[23-16] );
 		//   [.. repeat for each 16 bits up to 64 (mmx) or 128 (xmm) ..]
 		//
-		const xImplSimd_DestRegEither UBSW;
+		const xImplSimd_3Arg UBSW;
 	};
 
 	//////////////////////////////////////////////////////////////////////////////////////////
@@ -213,14 +216,14 @@ namespace x86Emitter
 		//   stores the result in the second dword of dest.
 		// * Adds single-precision floating-point values in the first and second dword of *src*
 		//   and stores the result in the third dword of dest.
-		const xImplSimd_DestRegSSE PS;
+		const xImplSimd_3Arg PS;
 
 		// [SSE-3] Horizontal Add of Packed Data.  A two step process:
 		// * Adds the double-precision floating-point values in the high and low quadwords of
 		//   dest and stores the result in the low quadword of dest.
 		// * Adds the double-precision floating-point values in the high and low quadwords of
 		//   *src* stores the result in the high quadword of dest.
-		const xImplSimd_DestRegSSE PD;
+		const xImplSimd_3Arg PD;
 	};
 
 	//////////////////////////////////////////////////////////////////////////////////////////
@@ -241,10 +244,10 @@ namespace x86Emitter
 		// element in dest.  If a broadcast mask bit is zero, the corresponding element in
 		// the destination is set to zero.
 		//
-		xImplSimd_DestRegImmSSE PS;
+		xImplSimd_3ArgImm PS;
 
 		// [SSE-4.1]
-		xImplSimd_DestRegImmSSE PD;
+		xImplSimd_3ArgImm PD;
 	};
 
 	//////////////////////////////////////////////////////////////////////////////////////////
@@ -262,7 +265,7 @@ namespace x86Emitter
 		// Rounding Mode Reference:
 		//   0 - Nearest, 1 - Negative Infinity, 2 - Positive infinity, 3 - Truncate.
 		//
-		const xImplSimd_DestRegImmSSE PS;
+		const xImplSimd_2ArgImm PS;
 
 		// [SSE-4.1] Rounds the 2 packed double-precision src values and stores them in dest.
 		//
@@ -274,7 +277,7 @@ namespace x86Emitter
 		// Rounding Mode Reference:
 		//   0 - Nearest, 1 - Negative Infinity, 2 - Positive infinity, 3 - Truncate.
 		//
-		const xImplSimd_DestRegImmSSE PD;
+		const xImplSimd_2ArgImm PD;
 
 		// [SSE-4.1] Rounds the single-precision src value and stores in dest.
 		//
@@ -286,7 +289,7 @@ namespace x86Emitter
 		// Rounding Mode Reference:
 		//   0 - Nearest, 1 - Negative Infinity, 2 - Positive infinity, 3 - Truncate.
 		//
-		const xImplSimd_DestRegImmSSE SS;
+		const xImplSimd_3ArgImm SS;
 
 		// [SSE-4.1] Rounds the double-precision src value and stores in dest.
 		//
@@ -298,7 +301,7 @@ namespace x86Emitter
 		// Rounding Mode Reference:
 		//   0 - Nearest, 1 - Negative Infinity, 2 - Positive infinity, 3 - Truncate.
 		//
-		const xImplSimd_DestRegImmSSE SD;
+		const xImplSimd_3ArgImm SD;
 	};
 
 } // End namespace x86Emitter

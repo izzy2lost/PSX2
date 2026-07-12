@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -51,6 +51,7 @@ public:
 
 	virtual const char* Name() const = 0;
 	virtual const char* TypeName() const = 0;
+	virtual const char* IconName() const = 0;
 	virtual std::span<const char*> SubTypes() const;
 	virtual std::span<const InputBindingInfo> Bindings(u32 subtype) const;
 	virtual std::span<const SettingInfo> Settings(u32 subtype) const;

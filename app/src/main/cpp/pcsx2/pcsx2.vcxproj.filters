@@ -1352,6 +1352,9 @@
     <ClCompile Include="ImGui\FullscreenUI.cpp">
       <Filter>Misc\ImGui</Filter>
     </ClCompile>
+    <ClCompile Include="ImGui\FullscreenUI_Settings.cpp">
+      <Filter>Misc\ImGui</Filter>
+    </ClCompile>
     <ClCompile Include="ImGui\ImGuiFullscreen.cpp">
       <Filter>Misc\ImGui</Filter>
     </ClCompile>
@@ -1445,6 +1448,9 @@
     </ClCompile>
     <ClCompile Include="SIO\Pad\PadNegcon.cpp">
       <Filter>System\Ps2\Iop\SIO\PAD</Filter>
+    </ClCompile>
+    <ClCompile Include="GS\GSDrawingEnvironment.cpp">
+      <Filter>System\Ps2\GS\Renderers\Software</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -2021,6 +2027,9 @@
     <ClInclude Include="GS\Renderers\Common\GSDevice.h">
       <Filter>System\Ps2\GS\Renderers\Common</Filter>
     </ClInclude>
+    <ClInclude Include="GS\Renderers\Common\GSShaderEnums.h">
+      <Filter>System\Ps2\GS\Renderers\Common</Filter>
+    </ClInclude>
     <ClInclude Include="GS\Renderers\Common\GSTexture.h">
       <Filter>System\Ps2\GS\Renderers\Common</Filter>
     </ClInclude>
@@ -2289,6 +2298,9 @@
     <ClInclude Include="LayeredSettingsInterface.h">
       <Filter>Misc</Filter>
     </ClInclude>
+    <ClInclude Include="ImGui\ImGuiAnimated.h">
+      <Filter>Misc\ImGui</Filter>
+    </ClInclude>
     <ClInclude Include="ImGui\ImGuiManager.h">
       <Filter>Misc\ImGui</Filter>
     </ClInclude>
@@ -2296,6 +2308,9 @@
       <Filter>Misc\ImGui</Filter>
     </ClInclude>
     <ClInclude Include="ImGui\FullscreenUI.h">
+      <Filter>Misc\ImGui</Filter>
+    </ClInclude>
+    <ClInclude Include="ImGui\FullscreenUI_Internal.h">
       <Filter>Misc\ImGui</Filter>
     </ClInclude>
     <ClInclude Include="ImGui\ImGuiFullscreen.h">
@@ -2349,7 +2364,6 @@
     <ClInclude Include="SIO\Pad\Pad.h">
       <Filter>System\Ps2\Iop\SIO\PAD</Filter>
     </ClInclude>
-    <ClInclude Include="ImGui\ImGuiAnimated.h" />
     <ClInclude Include="SIO\Pad\PadPopn.h">
       <Filter>System\Ps2\Iop\SIO\PAD</Filter>
     </ClInclude>

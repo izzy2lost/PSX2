@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -24,7 +24,7 @@ namespace soundtouch
 class AudioStream
 {
 public:
-	using SampleType = s16;
+	using SampleType = float;
 
 	static constexpr u32 NUM_INPUT_CHANNELS = 2;
 	static constexpr u32 MAX_OUTPUT_CHANNELS = 8;
@@ -167,7 +167,7 @@ private:
 	void UpdateStretchTempo();
 
 	u32 m_buffer_size = 0;
-	std::unique_ptr<s16[]> m_buffer;
+	std::unique_ptr<float[]> m_buffer;
 	SampleReader m_sample_reader = nullptr;
 
 	std::atomic<u32> m_rpos{0};
@@ -189,10 +189,7 @@ private:
 	std::array<float, AVERAGING_BUFFER_SIZE> m_average_fullness = {};
 
 	// temporary staging buffer, used for timestretching
-	std::unique_ptr<s16[]> m_staging_buffer;
-
-	// float buffer, soundtouch only accepts float samples as input
-	std::unique_ptr<float[]> m_float_buffer;
+	std::unique_ptr<SampleType[]> m_staging_buffer;
 
 	std::unique_ptr<FreeSurroundDecoder> m_expander;
 

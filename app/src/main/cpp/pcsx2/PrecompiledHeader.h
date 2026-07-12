@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -9,6 +9,7 @@
 #endif
 
 #include "common/Pcsx2Defs.h"
+#include "common/VectorIntrin.h"
 
 //////////////////////////////////////////////////////////////////////////////////////////
 // Include the STL that's actually handy.

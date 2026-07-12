@@ -1,7 +1,9 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "usb-pad.h"
+#include "IconsFontAwesome.h"
+#include "IconsPromptFont.h"
 #include "USB/qemu-usb/USBinternal.h"
 #include "USB/usb-pad/usb-pad-sdl-ff.h"
 #include "USB/USB.h"
@@ -284,6 +286,7 @@ namespace usb_pad
 
 				w->lo = data.steering & 0x3FF;
 				w->lo |= (data.buttons & 0xFFF) << 10;
+				w->lo |= 1 << 16; // Tokyo Xtreme Racer (Zero) ignores the pedals unless the 3rd byte is different than zero
 				w->lo |= 0xFF << 24;
 
 				w->hi = (data.throttle & 0xFF);
@@ -813,6 +816,11 @@ namespace usb_pad
 		return "Pad";
 	}
 
+	const char* PadDevice::IconName() const
+	{
+		return ICON_PF_STEERING_WHEEL_ALT;
+	}
+
 	bool PadDevice::Freeze(USBDevice* dev, StateWrapper& sw) const
 	{
 		PadState* s = USB_CONTAINER_OF(dev, PadState, dev);
@@ -886,6 +894,11 @@ namespace usb_pad
 		return "RBDrumKit";
 	}
 
+	const char* RBDrumKitDevice::IconName() const
+	{
+		return ICON_FA_DRUM;
+	}
+
 	USBDevice* RBDrumKitDevice::CreateDevice(SettingsInterface& si, u32 port, u32 subtype) const
 	{
 		PadState* s = new PadState(port, WT_ROCKBAND1_DRUMKIT);
@@ -946,6 +959,11 @@ namespace usb_pad
 	const char* KeyboardmaniaDevice::TypeName() const
 	{
 		return "Keyboardmania";
+	}
+
+	const char* KeyboardmaniaDevice::IconName() const
+	{
+		return ICON_PF_KEYBOARDMANIA;
 	}
 
 	std::span<const char*> KeyboardmaniaDevice::SubTypes() const

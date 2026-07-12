@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 Texture2D Texture;
@@ -21,6 +21,7 @@ float4 ContrastSaturationBrightness(float4 color) // Ported to HLSL
 	float brt = params.x;
 	float con = params.y;
 	float sat = params.z;
+	float gam = params.w;
 	
 	// Increase or decrease these values to adjust r, g and b color channels separately
 	const float AvgLumR = 0.5;
@@ -34,8 +35,10 @@ float4 ContrastSaturationBrightness(float4 color) // Ported to HLSL
 	float3 intensity = dot(brtColor, LumCoeff);
 	float3 satColor = lerp(intensity, brtColor, sat);
 	float3 conColor = lerp(AvgLumin, satColor, con);
-
-	color.rgb = conColor;	
+	
+	float3 csb = conColor;
+	csb = exp2(log2(csb) * (1.0 / gam));
+	color.rgb = csb;
 	return color;
 }
 

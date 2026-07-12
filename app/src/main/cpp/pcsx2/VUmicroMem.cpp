@@ -1,11 +1,11 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Common.h"
 #include "VUmicro.h"
 #include "MTVU.h"
 
-//alignas(16) VURegs vuRegs[2];
+alignas(16) VURegs vuRegs[2];
 
 void vuMemAllocate()
 {

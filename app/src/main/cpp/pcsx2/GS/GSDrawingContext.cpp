@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "GS/GSDrawingContext.h"
@@ -91,11 +91,11 @@ void GSDrawingContext::UpdateScissor()
 	scissor.in = rscissor + GSVector4i::cxpr(0, 0, 1, 1);
 
 	// Fixed-point scissor min/max, used for rejecting primitives which are entirely outside.
-	scissor.cull = rscissor.sll32<4>();
+	// Add half a pixel around the edges for upscaling and lines/points.
+	scissor.cull = rscissor.sll32<4>() + GSVector4i(-8, -8, 8, 8);
 
-	// Offset applied to vertices for culling, zw is for native resolution culling
-	// We want to round subpixels down, because at least one pixel gets filled per scanline.
-	scissor.xyof = GSVector4i::loadl(&XYOFFSET.U64).xyxy().sub32(GSVector4i::cxpr(0, 0, 15, 15));
+	// Offset applied to vertices for culling.
+	scissor.xyof = GSVector4i::loadl(&XYOFFSET.U64).xyxy();
 }
 
 GIFRegTEX0 GSDrawingContext::GetSizeFixedTEX0(const GSVector4& st, bool linear, bool mipmap) const
@@ -169,123 +169,124 @@ void GSDrawingContext::Dump(const std::string& filename)
 	if (!fp)
 		return;
 
-	fprintf(fp,
-		"XYOFFSET\n"
-		"\tX:%u\n"
-		"\tY:%u\n\n",
-		XYOFFSET.OFX, XYOFFSET.OFY);
+	// Warning: The indentation must be consistent with GSDrawingEnvironment::Dump().
 
 	fprintf(fp,
-		"MIPTBP1\n"
-		"\tBP1:0x%x\n"
-		"\tBW1:%u\n"
-		"\tBP2:0x%x\n"
-		"\tBW2:%u\n"
-		"\tBP3:0x%x\n"
-		"\tBW3:%u\n\n",
+		"XYOFFSET:\n"
+		"    OFX: %.4f\n"
+		"    OFY: %.4f\n\n",
+		XYOFFSET.OFX / 16.0f, XYOFFSET.OFY / 16.0f);
+
+	fprintf(fp,
+		"MIPTBP1:\n"
+		"    TBP1: 0x%x\n"
+		"    TBW1: %u\n"
+		"    TBP2: 0x%x\n"
+		"    TBW2: %u\n"
+		"    TBP3: 0x%x\n"
+		"    TBW3: %u\n\n",
 		static_cast<uint32_t>(MIPTBP1.TBP1), static_cast<uint32_t>(MIPTBP1.TBW1), static_cast<uint32_t>(MIPTBP1.TBP2),
 		static_cast<uint32_t>(MIPTBP1.TBW2), static_cast<uint32_t>(MIPTBP1.TBP3), static_cast<uint32_t>(MIPTBP1.TBW3));
 
 	fprintf(fp,
-		"MIPTBP2\n"
-		"\tBP4:0x%x\n"
-		"\tBW4:%u\n"
-		"\tBP5:0x%x\n"
-		"\tBW5:%u\n"
-		"\tBP6:0x%x\n"
-		"\tBW6:%u\n\n",
+		"MIPTBP2:\n"
+		"    TBP4: 0x%x\n"
+		"    TBW4: %u\n"
+		"    TBP5: 0x%x\n"
+		"    TBW5: %u\n"
+		"    TBP6: 0x%x\n"
+		"    TBW6: %u\n\n",
 		static_cast<uint32_t>(MIPTBP2.TBP4), static_cast<uint32_t>(MIPTBP2.TBW4), static_cast<uint32_t>(MIPTBP2.TBP5),
 		static_cast<uint32_t>(MIPTBP2.TBW5), static_cast<uint32_t>(MIPTBP2.TBP6), static_cast<uint32_t>(MIPTBP2.TBW6));
 
 	fprintf(fp,
-		"TEX0\n"
-		"\tTBP0:0x%x\n"
-		"\tTBW:%u\n"
-		"\tPSM:0x%x\n"
-		"\tTW:%u\n"
-		"\tTH:%u\n"
-		"\tTCC:%u\n"
-		"\tTFX:%u\n"
-		"\tCBP:0x%x\n"
-		"\tCPSM:0x%x\n"
-		"\tCSM:%u\n"
-		"\tCSA:%u\n"
-		"\tCLD:%u\n\n",
-		TEX0.TBP0, TEX0.TBW, TEX0.PSM, TEX0.TW, static_cast<uint32_t>(TEX0.TH), TEX0.TCC, TEX0.TFX, TEX0.CBP, TEX0.CPSM, TEX0.CSM, TEX0.CSA, TEX0.CLD);
+		"TEX0:\n"
+		"    TBP0: 0x%x\n"
+		"    TBW: %u\n"
+		"    PSM: 0x%x # %s\n"
+		"    TW: %u\n"
+		"    TH: %u\n"
+		"    TCC: %u # %s\n"
+		"    TFX: %u # %s\n"
+		"    CBP: 0x%x\n"
+		"    CPSM: 0x%x # %s\n"
+		"    CSM: %u\n"
+		"    CSA: %u\n"
+		"    CLD: %u\n\n",
+		TEX0.TBP0, TEX0.TBW, TEX0.PSM, GSUtil::GetPSMName(TEX0.PSM), TEX0.TW, static_cast<uint32_t>(TEX0.TH), TEX0.TCC, GSUtil::GetTCCName(TEX0.TCC), TEX0.TFX, GSUtil::GetTFXName(TEX0.TFX), TEX0.CBP, TEX0.CPSM, GSUtil::GetPSMName(TEX0.CPSM), TEX0.CSM, TEX0.CSA, TEX0.CLD);
 
 	fprintf(fp,
-		"TEX1\n"
-		"\tLCM:%u\n"
-		"\tMXL:%u\n"
-		"\tMMAG:%u\n"
-		"\tMMIN:%u\n"
-		"\tMTBA:%u\n"
-		"\tL:%u\n"
-		"\tK:%d\n\n",
-		TEX1.LCM, TEX1.MXL, TEX1.MMAG, TEX1.MMIN, TEX1.MTBA, TEX1.L, TEX1.K);
+		"TEX1:\n"
+		"    LCM: %u # %s\n"
+		"    MXL: %u\n"
+		"    MMAG: %u # %s\n"
+		"    MMIN: %u # %s\n"
+		"    MTBA: %u\n"
+		"    L: %u\n"
+		"    K: %.4f\n\n",
+		TEX1.LCM, GSUtil::GetLCMName(TEX1.LCM), TEX1.MXL, TEX1.MMAG, GSUtil::GetMMAGName(TEX1.MMAG), TEX1.MMIN, GSUtil::GetMMINName(TEX1.MMIN), TEX1.MTBA, TEX1.L, static_cast<float>((static_cast<int>(TEX1.K) ^ 0x800) - 0x800) / 16.0f);
 
 	fprintf(fp,
-		"CLAMP\n"
-		"\tWMS:%u\n"
-		"\tWMT:%u\n"
-		"\tMINU:%u\n"
-		"\tMAXU:%u\n"
-		"\tMAXV:%u\n"
-		"\tMINV:%u\n\n",
-		CLAMP.WMS, CLAMP.WMT, CLAMP.MINU, CLAMP.MAXU, CLAMP.MAXV, static_cast<uint32_t>(CLAMP.MINV));
+		"CLAMP:\n"
+		"    WMS: %u # %s\n"
+		"    WMT: %u # %s\n"
+		"    MINU: %u\n"
+		"    MAXU: %u\n"
+		"    MINV: %u\n"
+		"    MAXV: %u\n\n",
+		CLAMP.WMS, GSUtil::GetWMName(CLAMP.WMS), CLAMP.WMT,GSUtil::GetWMName(CLAMP.WMT), CLAMP.MINU, CLAMP.MAXU, static_cast<uint32_t>(CLAMP.MINV), CLAMP.MAXV);
 
-	// TODO mimmap? (yes I'm lazy)
 	fprintf(fp,
-		"SCISSOR\n"
-		"\tX0:%u\n"
-		"\tX1:%u\n"
-		"\tY0:%u\n"
-		"\tY1:%u\n\n",
+		"SCISSOR:\n"
+		"    SCAX0: %u\n"
+		"    SCAX1: %u\n"
+		"    SCAY0: %u\n"
+		"    SCAY1: %u\n\n",
 		SCISSOR.SCAX0, SCISSOR.SCAX1, SCISSOR.SCAY0, SCISSOR.SCAY1);
 
 	fprintf(fp,
-		"ALPHA\n"
-		"\tA:%u\n"
-		"\tB:%u\n"
-		"\tC:%u\n"
-		"\tD:%u\n"
-		"\tFIX:%u\n",
+		"ALPHA:\n"
+		"    A: %u\n"
+		"    B: %u\n"
+		"    C: %u\n"
+		"    D: %u\n"
+		"    FIX: %u\n",
 		ALPHA.A, ALPHA.B, ALPHA.C, ALPHA.D, ALPHA.FIX);
-	const char* col[3] = {"Cs", "Cd", "0"};
-	const char* alpha[3] = {"As", "Ad", "Af"};
-	fprintf(fp, "\t=> (%s - %s) * %s + %s\n\n", col[ALPHA.A], col[ALPHA.B], alpha[ALPHA.C], col[ALPHA.D]);
+	constexpr const char* col[3] = {"Cs", "Cd", "0"};
+	constexpr const char* alpha[3] = {"As", "Ad", "Af"};
+	fprintf(fp, "    # => (%s - %s) * %s + %s\n\n", col[ALPHA.A], col[ALPHA.B], alpha[ALPHA.C], col[ALPHA.D]);
 
 	fprintf(fp,
-		"TEST\n"
-		"\tATE:%u\n"
-		"\tATST:%s\n"
-		"\tAREF:%u\n"
-		"\tAFAIL:%s\n"
-		"\tDATE:%u\n"
-		"\tDATM:%u\n"
-		"\tZTE:%u\n"
-		"\tZTST:%u\n\n",
-		TEST.ATE, GSUtil::GetATSTName(TEST.ATST), TEST.AREF, GSUtil::GetAFAILName(TEST.AFAIL), TEST.DATE, TEST.DATM, TEST.ZTE, TEST.ZTST);
+		"TEST:\n"
+		"    ATE: %u\n"
+		"    ATST: %u # %s\n"
+		"    AREF: %u\n"
+		"    AFAIL: %u # %s\n"
+		"    DATE: %u\n"
+		"    DATM: %u # %s\n"
+		"    ZTE: %u\n"
+		"    ZTST: %u # %s\n\n",
+		TEST.ATE, TEST.ATST, GSUtil::GetATSTName(TEST.ATST), TEST.AREF, TEST.AFAIL, GSUtil::GetAFAILName(TEST.AFAIL), TEST.DATE, TEST.DATM, GSUtil::GetDATMName(TEST.DATM), TEST.ZTE, TEST.ZTST, GSUtil::GetZTSTName(TEST.ZTST));
 
 	fprintf(fp,
-		"FBA\n"
-		"\tFBA:%u\n\n",
+		"FBA:\n"
+		"    FBA: %u\n\n",
 		FBA.FBA);
 
 	fprintf(fp,
-		"FRAME\n"
-		"\tFBP (*32):0x%x\n"
-		"\tFBW:%u\n"
-		"\tPSM:0x%x\n"
-		"\tFBMSK:0x%x\n\n",
-		FRAME.FBP * 32, FRAME.FBW, FRAME.PSM, FRAME.FBMSK);
+		"FRAME:\n"
+		"    FBP: 0x%x # (*32)\n"
+		"    FBW: %u\n"
+		"    PSM: 0x%x # %s\n"
+		"    FBMSK: 0x%x\n\n",
+		FRAME.FBP * 32, FRAME.FBW, FRAME.PSM, GSUtil::GetPSMName(FRAME.PSM), FRAME.FBMSK);
 
 	fprintf(fp,
-		"ZBUF\n"
-		"\tZBP (*32):0x%x\n"
-		"\tPSM:0x%x\n"
-		"\tZMSK:%u\n\n",
-		ZBUF.ZBP * 32, ZBUF.PSM, ZBUF.ZMSK);
+		"ZBUF:\n"
+		"    ZBP: 0x%x # (*32)\n"
+		"    PSM: 0x%x # %s\n"
+		"    ZMSK: %u\n\n",
+		ZBUF.ZBP * 32, ZBUF.PSM, GSUtil::GetPSMName(ZBUF.PSM), ZBUF.ZMSK);
 
 	fclose(fp);
 }

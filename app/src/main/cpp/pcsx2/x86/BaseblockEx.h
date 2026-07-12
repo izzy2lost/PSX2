@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -7,7 +7,6 @@
 #include <map>
 
 #include "common/Assertions.h"
-#include "arm64/VixlHelpers.h"
 
 // Every potential jump point in the PS2's addressable memory has a BASEBLOCK
 // associated with it. So that means a BASEBLOCK for every 4 bytes of PS2
@@ -37,56 +36,53 @@ struct BASEBLOCKEX
 
 class BaseBlockArray
 {
-	s32 mReserved;
-	s32 mSize;
+	s32 _Reserved;
+	s32 _Size;
 	BASEBLOCKEX* blocks;
 
 	__fi void resize(s32 size)
 	{
 		pxAssert(size > 0);
-		auto* newMem = new BASEBLOCKEX[size];
+		BASEBLOCKEX* newMem = new BASEBLOCKEX[size];
 		if (blocks)
 		{
-			memcpy(newMem, blocks, mReserved * sizeof(BASEBLOCKEX));
+			memcpy(newMem, blocks, _Reserved * sizeof(BASEBLOCKEX));
 			delete[] blocks;
-            blocks = nullptr;
 		}
 		blocks = newMem;
 		pxAssert(blocks != NULL);
 	}
 
-	void reserve(s32 size)
+	void reserve(u32 size)
 	{
 		resize(size);
-        mReserved = size;
+		_Reserved = size;
 	}
 
 public:
 	~BaseBlockArray()
 	{
-		if (blocks) {
-            delete[] blocks;
-            blocks = nullptr;
-        }
+		if (blocks)
+			delete[] blocks;
 	}
 
-	explicit BaseBlockArray(s32 size)
-		: mReserved(0)
-		, mSize(0)
-		, blocks(nullptr)
+	BaseBlockArray(s32 size)
+		: _Reserved(0)
+		, _Size(0)
+		, blocks(NULL)
 	{
 		reserve(size);
 	}
 
 	BASEBLOCKEX* insert(u32 startpc, uptr fnptr)
 	{
-		if (mSize + 1 >= mReserved)
+		if (_Size + 1 >= _Reserved)
 		{
-			reserve(mReserved + 0x2000); // some games requires even more!
+			reserve(_Reserved + 0x2000); // some games requires even more!
 		}
 
 		// Insert the the new BASEBLOCKEX by startpc order
-		int imin = 0, imax = mSize, imid;
+		int imin = 0, imax = _Size, imid;
 
 		while (imin < imax)
 		{
@@ -98,19 +94,19 @@ public:
 				imin = imid + 1;
 		}
 
-		pxAssert(imin == mSize || blocks[imin].startpc > startpc);
+		pxAssert(imin == _Size || blocks[imin].startpc > startpc);
 
-		if (imin < mSize)
+		if (imin < _Size)
 		{
 			// make a hole for a new block.
-			memmove(blocks + imin + 1, blocks + imin, (mSize - imin) * sizeof(BASEBLOCKEX));
+			memmove(blocks + imin + 1, blocks + imin, (_Size - imin) * sizeof(BASEBLOCKEX));
 		}
 
 		memset((blocks + imin), 0, sizeof(BASEBLOCKEX));
 		blocks[imin].startpc = startpc;
 		blocks[imin].fnptr = fnptr;
 
-		mSize++;
+		_Size++;
 		return &blocks[imin];
 	}
 
@@ -121,24 +117,24 @@ public:
 
 	void clear()
 	{
-		mSize = 0;
+		_Size = 0;
 	}
 
-	[[nodiscard]] __fi u32 size() const
+	__fi u32 size() const
 	{
-		return mSize;
+		return _Size;
 	}
 
 	__fi void erase(s32 first, s32 last)
 	{
 		int range = last - first;
 
-		if (last < mSize)
+		if (last < _Size)
 		{
-			memmove(blocks + first, blocks + last, (mSize - last) * sizeof(BASEBLOCKEX));
+			memmove(blocks + first, blocks + last, (_Size - last) * sizeof(BASEBLOCKEX));
 		}
 
-		mSize -= range;
+		_Size -= range;
 	}
 };
 
@@ -165,17 +161,15 @@ public:
 	}
 
 	BASEBLOCKEX* New(u32 startpc, uptr fnptr);
-	[[nodiscard]] int LastIndex(u32 startpc) const;
+	int LastIndex(u32 startpc) const;
 	//BASEBLOCKEX* GetByX86(uptr ip);
 
-	[[nodiscard]] __fi int Index(u32 startpc) const
+	__fi int Index(u32 startpc) const
 	{
 		int idx = LastIndex(startpc);
-        u32 block_startpc = blocks[idx].startpc;
-        u32 block_size = (blocks[idx].size);
 
-		if ((idx == -1) || (startpc < block_startpc) ||
-			(block_size && (startpc >= block_startpc + block_size << 2))) // blocks[idx].size * 4
+		if ((idx == -1) || (startpc < blocks[idx].startpc) ||
+			((blocks[idx].size) && (startpc >= blocks[idx].startpc + blocks[idx].size * 4)))
 			return -1;
 		else
 			return idx;
@@ -184,7 +178,7 @@ public:
 	__fi BASEBLOCKEX* operator[](int idx)
 	{
 		if (idx < 0 || idx >= (int)blocks.size())
-			return nullptr;
+			return 0;
 
 		return &blocks[idx];
 	}
@@ -203,11 +197,9 @@ public:
 			pxAssert(idx <= last);
 
 			//u32 startpc = blocks[idx].startpc;
-			auto range = links.equal_range(blocks[idx].startpc);
-			for (auto i = range.first; i != range.second; ++i) {
-//                *(u32 *) i->second = recompiler - (i->second + 4);
-                armEmitJmpPtr((void*)i->second, (void*)recompiler, true);
-            }
+			std::pair<linkiter_t, linkiter_t> range = links.equal_range(blocks[idx].startpc);
+			for (linkiter_t i = range.first; i != range.second; ++i)
+				*(u32*)i->second = recompiler - (i->second + 4);
 
 			if (IsDevBuild)
 			{
@@ -234,7 +226,7 @@ public:
 	}
 };
 
-#define PC_GETBLOCK_(x, reclut) ((BASEBLOCK*)(reclut[((u32)(x)) >> 16] + (x) * (sizeof(BASEBLOCK) >> 2))) // (sizeof(BASEBLOCK) / 4)
+#define PC_GETBLOCK_(x, reclut) ((BASEBLOCK*)(reclut[((u32)(x)) >> 16] + (x) * (sizeof(BASEBLOCK) / 4)))
 
 /**
  * Add a page to the recompiler lookup table

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -10,7 +10,7 @@
 
 #include <bitset>
 #include <cstring>
-#include <d3d12.h>
+#include <directx/d3d12.h>
 #include <unordered_map>
 #include <vector>
 
@@ -61,6 +61,9 @@ public:
 	bool Allocate(D3D12DescriptorHandle* handle);
 	void Free(D3D12DescriptorHandle* handle);
 	void Free(u32 index);
+
+	u32 GetNumDescriptors() const { return m_num_descriptors; }
+	u32 GetAllocatedDescriptors();
 
 private:
 	wil::com_ptr_nothrow<ID3D12DescriptorHeap> m_descriptor_heap;

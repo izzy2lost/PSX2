@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -215,6 +215,9 @@ static const char eeOpcodeName[][16] = {
 #ifdef eeProfileProg
 #include <utility>
 #include <algorithm>
+#include "common/emitter/x86emitter.h"
+#include "common/Console.h"
+#include "GS/MultiISA.h"
 
 #if !defined(__ANDROID__)
 using namespace x86Emitter;
@@ -366,20 +369,19 @@ struct eeProfiler
 		}
 	}
 
-	// Warning dirty ebx
-	void EmitMem()
+	void EmitMem(int addr_reg)
 	{
 		// Compact the 4GB virtual address to a 512KB virtual address
-		if (x86caps.hasBMI2)
+		if (g_cpu.hasBMI2)
 		{
-			xPEXT(ebx, ecx, ptr[&memMask]);
-			xADD(ptr32[(rbx * 4) + memStats], 1);
+			xPEXT(arg1regd, xRegister32(addr_reg), ptr[&memMask]);
+			xADD(ptr32[(arg1reg * 4) + memStats], 1);
 		}
 	}
 
 	void EmitConstMem(u32 add)
 	{
-		if (x86caps.hasBMI2)
+		if (g_cpu.hasBMI2)
 		{
 			u32 a = _pext_u32(add, memMask);
 			xADD(ptr32[a + memStats], 1);
@@ -405,7 +407,7 @@ struct eeProfiler
 	__fi void Reset() {}
 	__fi void EmitOp(eeOpcode op) {}
 	__fi void Print() {}
-	__fi void EmitMem() {}
+	__fi void EmitMem(int addrReg) {}
 	__fi void EmitConstMem(u32 add) {}
 	__fi void EmitSlowMem() {}
 	__fi void EmitFastMem() {}

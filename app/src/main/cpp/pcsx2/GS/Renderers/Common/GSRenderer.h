@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -21,16 +21,11 @@ private:
 	u32 m_skipped_duplicate_frames = 0;
 
 	// Tracking draw counters for idle frame detection.
-	int m_last_draw_n = 0;
-	int m_last_transfer_n = 0;
+	u64 m_last_draw_n = 0;
+	u64 m_last_transfer_n = 0;
 
 protected:
 	GSVector2i m_real_size{0, 0};
-	bool m_texture_shuffle = false;
-	bool m_process_texture = false;
-	bool m_copy_16bit_to_target_shuffle = false;
-	bool m_same_group_texture_shuffle = false;
-	bool m_downscale_source = false;
 
 	virtual GSTexture* GetOutput(int i, float& scale, int& y_offset) = 0;
 	virtual GSTexture* GetFeedbackOutput(float& scale) { return nullptr; }
@@ -59,7 +54,7 @@ public:
 	bool SaveSnapshotToMemory(u32 window_width, u32 window_height, bool apply_aspect, bool crop_borders,
 		u32* width, u32* height, std::vector<u32>* pixels);
 
-	void QueueSnapshot(const std::string& path, u32 gsdump_frames);
+	void QueueSnapshot(const std::string& path, const u32 gsdump_frames);
 	void StopGSDump();
 	void PresentCurrentFrame();
 	bool BeginCapture(std::string filename, const GSVector2i& size = GSVector2i(0, 0));

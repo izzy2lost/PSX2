@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Common.h"
@@ -6,6 +6,7 @@
 #include "VMManager.h"
 #include "Elfheader.h"
 #include "Cache.h"
+#include "ee_divtrace.h"
 
 #include "DebugTools/Breakpoints.h"
 
@@ -24,7 +25,19 @@ static bool intExitExecution = false;
 static fastjmp_buf intJmpBuf;
 static u32 intLastBranchTo;
 
-static void intEventTest();
+void intEventTest();
+
+// Charge raw block cycles for a syscall handler the interpreter
+// SKIPPED (FlushCache/iFlushCache under g_skip_flushcache_syscall), mirroring the
+// JIT's recSYSCALL `s_nBlockCycles += 5650`. cpuBlockCycles is the same 3-bit
+// fixed-point accumulator as the JIT's s_nBlockCycles with identical scaling
+// (intUpdateCPUCycles == scaleblockcycles_calculation), so adding the same raw
+// constant keeps the cycle-derived hardware (EE timers) in lockstep across the
+// skip. Gated entirely by the caller; no effect in production.
+void intChargeSkippedHandlerCycles(u32 raw_block_cycles)
+{
+	cpuBlockCycles += raw_block_cycles;
+}
 
 void intUpdateCPUCycles()
 {
@@ -67,7 +80,10 @@ void intBreakpoint(bool memcheck)
 {
 	const u32 pc = cpuRegs.pc;
  	if (CBreakPoints::CheckSkipFirst(BREAKPOINT_EE, pc) != 0)
+	{
+		CBreakPoints::ClearSkipFirst(BREAKPOINT_EE);
 		return;
+	}
 
 	if (!memcheck)
 	{
@@ -84,7 +100,7 @@ void intBreakpoint(bool memcheck)
 void intMemcheck(u32 op, u32 bits, bool store)
 {
 	// compute accessed address
-	u32 start = cpuRegs.GPR.r[(op >> 21) & 0x1F].UD[0];
+	u32 start = cpuRegs.GPR.r[(op >> 21) & 0x1F].UL[0];
 	if (static_cast<s16>(op) != 0)
 		start += static_cast<s16>(op);
 	if (bits == 128)
@@ -161,6 +177,8 @@ static void execI()
 		intBreakpoint(false);
 
 	intCheckMemcheck();
+
+	CBreakPoints::CommitClearSkipFirst(BREAKPOINT_EE);
 #endif
 
 	const u32 pc = cpuRegs.pc;
@@ -209,6 +227,17 @@ static void execI()
 	cpuBlockCycles += opcode.cycles * (2 - ((cpuRegs.CP0.n.Config >> 18) & 0x1));
 
 	opcode.interpret();
+
+#ifdef PCSX2_RECOMPILER_TESTS
+	// One sample per retired instruction (including branch delay slots, which also
+	// flow through execI). cpuRegs.pc now points at the next instruction to execute,
+	// so a sample with pc=X is "architectural state just before executing X" — the
+	// same point the JIT block hook captures for block entry X. Off unless
+	// ee_divtrace::g_enabled was set for this frame (single relaxed load otherwise).
+	// Test-hook only — release builds drop the per-instruction probe entirely.
+	if (ee_divtrace::g_enabled.load(std::memory_order_relaxed))
+		ee_divtrace::RecordSample(cpuRegs.pc);
+#endif
 }
 
 static __fi void _doBranch_shared(u32 tar)
@@ -246,7 +275,7 @@ static __fi void _doBranch_shared(u32 tar)
 
 				if (can_skip)
 				{
-					if (static_cast<s32>(cpuRegs.nextEventCycle - cpuRegs.cycle) > 0)
+					if (static_cast<s64>(cpuRegs.nextEventCycle - cpuRegs.cycle) > 0)
 						cpuRegs.cycle = cpuRegs.nextEventCycle;
 					else
 						cpuRegs.nextEventCycle = cpuRegs.cycle;
@@ -548,7 +577,7 @@ static void intReset()
 	branch2 = 0;
 }
 
-static void intEventTest()
+void intEventTest()
 {
 	// Perform counters, ints, and IOP updates:
 	_cpuEventTest_Shared();
@@ -654,6 +683,14 @@ static void intExecute()
 
 static void intStep()
 {
+	// Arm the cancel target: intCancelInstruction (TLB miss / vtlb_Miss path)
+	// longjmps to intJmpBuf, which only intExecute used to arm — a cancel
+	// during a single Step (debugger stepping, recompiler_tests interp
+	// oracle) jumped through an unarmed buffer straight to PC=0. A cancelled
+	// instruction has already vectored via cpuException, so returning here
+	// with pc on the exception vector is exactly one completed "step".
+	if (fastjmp_set(&intJmpBuf) != 0)
+		return;
 	execI();
 }
 

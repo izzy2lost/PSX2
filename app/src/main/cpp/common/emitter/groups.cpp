@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 /*
@@ -29,7 +29,7 @@ namespace x86Emitter
 	// Note on "[Indirect],Imm" forms : use int as the source operand since it's "reasonably inert" from a
 	// compiler perspective.  (using uint tends to make the compiler try and fail to match signed immediates
 	// with one of the other overloads).
-	static void _g1_IndirectImm(G1Type InstType, const xIndirect64orLess& sibdest, int imm)
+	void xImpl_Group1::operator()(const xIndirect64orLess& sibdest, int imm) const
 	{
 		if (sibdest.Is8BitOp())
 		{
@@ -49,7 +49,7 @@ namespace x86Emitter
 		}
 	}
 
-	void _g1_EmitOp(G1Type InstType, const xRegisterInt& to, const xRegisterInt& from)
+	void xImpl_Group1::operator()(const xRegisterInt& to, const xRegisterInt& from) const
 	{
 		pxAssert(to.GetOperandSize() == from.GetOperandSize());
 
@@ -57,19 +57,19 @@ namespace x86Emitter
 		xOpWrite(to.GetPrefix16(), opcode, from, to);
 	}
 
-	static void _g1_EmitOp(G1Type InstType, const xIndirectVoid& sibdest, const xRegisterInt& from)
+	void xImpl_Group1::operator()(const xIndirectVoid& sibdest, const xRegisterInt& from) const
 	{
 		u8 opcode = (from.Is8BitOp() ? 0 : 1) | (InstType << 3);
 		xOpWrite(from.GetPrefix16(), opcode, from, sibdest);
 	}
 
-	static void _g1_EmitOp(G1Type InstType, const xRegisterInt& to, const xIndirectVoid& sibsrc)
+	void xImpl_Group1::operator()(const xRegisterInt& to, const xIndirectVoid& sibsrc) const
 	{
 		u8 opcode = (to.Is8BitOp() ? 2 : 3) | (InstType << 3);
 		xOpWrite(to.GetPrefix16(), opcode, to, sibsrc);
 	}
 
-	static void _g1_EmitOp(G1Type InstType, const xRegisterInt& to, int imm)
+	void xImpl_Group1::operator()(const xRegisterInt& to, int imm) const
 	{
 		if (!to.Is8BitOp() && is_s8(imm))
 		{
@@ -92,28 +92,16 @@ namespace x86Emitter
 		}
 	}
 
-#define ImplementGroup1(g1type, insttype)                                                                                 \
-    void g1type::operator()(const xRegisterInt& to, const xRegisterInt& from) const { _g1_EmitOp(insttype, to, from); }   \
-    void g1type::operator()(const xIndirectVoid& to, const xRegisterInt& from) const { _g1_EmitOp(insttype, to, from); }  \
-    void g1type::operator()(const xRegisterInt& to, const xIndirectVoid& from) const { _g1_EmitOp(insttype, to, from); }  \
-    void g1type::operator()(const xRegisterInt& to, int imm) const { _g1_EmitOp(insttype, to, imm); }                     \
-    void g1type::operator()(const xIndirect64orLess& sibdest, int imm) const { _g1_IndirectImm(insttype, sibdest, imm); }
+	const xImpl_G1Logic xAND = {{G1Type_AND}, {SIMDInstructionInfo(0x54).commutative()}, {SIMDInstructionInfo(0x54).commutative().p66()}};
+	const xImpl_G1Logic xOR  = {{G1Type_OR},  {SIMDInstructionInfo(0x56).commutative()}, {SIMDInstructionInfo(0x56).commutative().p66()}};
+	const xImpl_G1Logic xXOR = {{G1Type_XOR}, {SIMDInstructionInfo(0x57).commutative()}, {SIMDInstructionInfo(0x57).commutative().p66()}};
 
-	ImplementGroup1(xImpl_Group1, InstType)
-	ImplementGroup1(xImpl_G1Logic, InstType)
-	ImplementGroup1(xImpl_G1Arith, InstType)
-	ImplementGroup1(xImpl_G1Compare, G1Type_CMP)
-
-	const xImpl_G1Logic xAND = {G1Type_AND, {0x00, 0x54}, {0x66, 0x54}};
-	const xImpl_G1Logic xOR = {G1Type_OR, {0x00, 0x56}, {0x66, 0x56}};
-	const xImpl_G1Logic xXOR = {G1Type_XOR, {0x00, 0x57}, {0x66, 0x57}};
-
-	const xImpl_G1Arith xADD = {G1Type_ADD, {0x00, 0x58}, {0x66, 0x58}, {0xf3, 0x58}, {0xf2, 0x58}};
-	const xImpl_G1Arith xSUB = {G1Type_SUB, {0x00, 0x5c}, {0x66, 0x5c}, {0xf3, 0x5c}, {0xf2, 0x5c}};
-	const xImpl_G1Compare xCMP = {{0x00, 0xc2}, {0x66, 0xc2}, {0xf3, 0xc2}, {0xf2, 0xc2}};
+	const xImpl_G1Arith xADD = {{G1Type_ADD}, {SIMDInstructionInfo(0x58).commutative()}, {SIMDInstructionInfo(0x58).commutative().p66()}, {SIMDInstructionInfo(0x58).pf3()}, {SIMDInstructionInfo(0x58).pf2()}};
+	const xImpl_G1Arith xSUB = {{G1Type_SUB}, {SIMDInstructionInfo(0x5c)}, {SIMDInstructionInfo(0x5c).p66()}, {SIMDInstructionInfo(0x5c).pf3()}, {SIMDInstructionInfo(0x5c).pf2()}};
 
 	const xImpl_Group1 xADC = {G1Type_ADC};
 	const xImpl_Group1 xSBB = {G1Type_SBB};
+	const xImpl_Group1 xCMP = {G1Type_CMP};
 
 	// =====================================================================================================
 	//  Group 2 Instructions - SHR, SHL, etc.
@@ -186,11 +174,15 @@ namespace x86Emitter
 		xOpWrite(from.GetPrefix16(), from.Is8BitOp() ? 0xf6 : 0xf7, InstType, from);
 	}
 
-	void xImpl_Group3::operator()(const xRegisterInt& from) const { _g3_EmitOp(InstType, from); }
-	void xImpl_Group3::operator()(const xIndirect64orLess& from) const { _g3_EmitOp(InstType, from); }
+	void xImpl_Group3::operator()(const xRegisterInt& from) const
+	{
+		xOpWrite(from.GetPrefix16(), from.Is8BitOp() ? 0xf6 : 0xf7, InstType, from);
+	}
 
-	void xImpl_iDiv::operator()(const xRegisterInt& from) const { _g3_EmitOp(G3Type_iDIV, from); }
-	void xImpl_iDiv::operator()(const xIndirect64orLess& from) const { _g3_EmitOp(G3Type_iDIV, from); }
+	void xImpl_Group3::operator()(const xIndirect64orLess& from) const
+	{
+		xOpWrite(from.GetPrefix16(), from.Is8BitOp() ? 0xf6 : 0xf7, InstType, from);
+	}
 
 	template <typename SrcType>
 	static void _imul_ImmStyle(const xRegisterInt& param1, const SrcType& param2, int imm)
@@ -204,9 +196,6 @@ namespace x86Emitter
 		else
 			param1.xWriteImm(imm);
 	}
-
-	void xImpl_iMul::operator()(const xRegisterInt& from) const { _g3_EmitOp(G3Type_iMUL, from); }
-	void xImpl_iMul::operator()(const xIndirect64orLess& from) const { _g3_EmitOp(G3Type_iMUL, from); }
 
 	void xImpl_iMul::operator()(const xRegister32& to, const xRegister32& from) const { xOpWrite0F(0xaf, to, from); }
 	void xImpl_iMul::operator()(const xRegister32& to, const xIndirectVoid& src) const { xOpWrite0F(0xaf, to, src); }
@@ -223,8 +212,8 @@ namespace x86Emitter
 	const xImpl_Group3 xUMUL = {G3Type_MUL};
 	const xImpl_Group3 xUDIV = {G3Type_DIV};
 
-	const xImpl_iDiv xDIV = {{0x00, 0x5e}, {0x66, 0x5e}, {0xf3, 0x5e}, {0xf2, 0x5e}};
-	const xImpl_iMul xMUL = {{0x00, 0x59}, {0x66, 0x59}, {0xf3, 0x59}, {0xf2, 0x59}};
+	const xImpl_iDiv xDIV = {{G3Type_iDIV}, {SIMDInstructionInfo(0x5e)}, {SIMDInstructionInfo(0x5e).p66()}, {SIMDInstructionInfo(0x5e).pf3()}, {SIMDInstructionInfo(0x5e).pf2()}};
+	const xImpl_iMul xMUL = {{G3Type_iMUL}, {SIMDInstructionInfo(0x59).commutative()}, {SIMDInstructionInfo(0x59).commutative().p66()}, {SIMDInstructionInfo(0x59).pf3()}, {SIMDInstructionInfo(0x59).pf2()}};
 
 	// =====================================================================================================
 	//  Group 8 Instructions

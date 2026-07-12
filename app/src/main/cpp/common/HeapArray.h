@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -87,24 +87,15 @@ public:
 		return *this;
 	}
 
-#define RELATIONAL_OPERATOR(op) \
-	bool operator op(const this_type& rhs) const \
-	{ \
-		for (size_type i = 0; i < SIZE; i++) \
-		{ \
-			if (!(m_data[i] op rhs.m_data[i])) \
-				return false; \
-		} \
+	bool operator==(const this_type& rhs) const
+	{
+		return std::equal(m_data, m_data + SIZE, rhs.m_data, rhs.m_data + SIZE);
 	}
 
-	RELATIONAL_OPERATOR(==);
-	RELATIONAL_OPERATOR(!=);
-	RELATIONAL_OPERATOR(<);
-	RELATIONAL_OPERATOR(<=);
-	RELATIONAL_OPERATOR(>);
-	RELATIONAL_OPERATOR(>=);
-
-#undef RELATIONAL_OPERATOR
+	auto operator<=>(const this_type& rhs) const
+	{
+		return std::lexicographical_compare_three_way(m_data, m_data + SIZE, rhs.m_data, rhs.m_data + SIZE);
+	}
 
 private:
 	void allocate()
@@ -288,6 +279,7 @@ public:
 			m_size = 0;
 		}
 	}
+
 	void assign(const T* begin, size_t count)
 	{
 		if (count > 0)
@@ -308,7 +300,13 @@ public:
 			m_size = 0;
 		}
 	}
-	void assign(const this_type& copy) { assign(copy.m_data, copy.m_size); }
+
+	void assign(const this_type& copy)
+	{
+		if (this != &copy)
+			assign(copy.m_data, copy.m_size);
+	}
+
 	void assign(this_type&& move)
 	{
 		internal_deallocate();
@@ -330,26 +328,17 @@ public:
 		return *this;
 	}
 
-#define RELATIONAL_OPERATOR(op, size_op) \
-	bool operator op(const this_type& rhs) const \
-	{ \
-		if (m_size != rhs.m_size) \
-			return m_size size_op rhs.m_size; \
-		for (size_type i = 0; i < m_size; i++) \
-		{ \
-			if (!(m_data[i] op rhs.m_data[i])) \
-				return false; \
-		} \
+	bool operator==(const this_type& rhs) const
+	{
+		return std::equal(m_data, m_data + m_size, rhs.m_data, rhs.m_data + rhs.m_size);
 	}
 
-	RELATIONAL_OPERATOR(==, !=);
-	RELATIONAL_OPERATOR(!=, ==);
-	RELATIONAL_OPERATOR(<, <);
-	RELATIONAL_OPERATOR(<=, <=);
-	RELATIONAL_OPERATOR(>, >);
-	RELATIONAL_OPERATOR(>=, >=);
-
-#undef RELATIONAL_OPERATOR
+	auto operator<=>(const this_type& rhs) const
+	{
+		return std::lexicographical_compare_three_way(
+			m_data, m_data + m_size,
+			rhs.m_data, rhs.m_data + rhs.m_size);
+	}
 
 private:
 	void internal_resize(size_t size, T* prev_ptr, size_t prev_size)

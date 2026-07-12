@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Common.h"
@@ -23,7 +23,7 @@ namespace
 		// When this happens, the cache still fills with the data and when it gets evicted the data is lost.
 		// We don't emulate memory access on a logic level, so we need to ensure that we don't try to load/store to a non-existant physical address.
 		// This fixes the Find My Own Way demo.
-		
+
 		// The lower parts of a cache tags structure is as follows:
 		// 31 - 12: The physical address cache tag.
 		// 11: Used by PCSX2 to indicate if the physical address is valid.
@@ -468,7 +468,7 @@ namespace R5900
 						const int way = addr & 0x1;
 						CacheLine line = cache.lineAt(index, way);
 
-                        line.tag.setAddr(cpuRegs.CP0.n.TagLo);
+						line.tag.setAddr(cpuRegs.CP0.n.TagLo);
 						line.tag.rawValue &= ~CacheTag::ALL_FLAGS;
 						line.tag.rawValue |= (cpuRegs.CP0.n.TagLo & CacheTag::ALL_FLAGS);
 

@@ -1,9 +1,10 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "SymbolGuardian.h"
 
 #include "DebugInterface.h"
+#include "Host.h"
 
 SymbolGuardian R5900SymbolGuardian;
 SymbolGuardian R3000SymbolGuardian;
@@ -151,7 +152,7 @@ FunctionInfo SymbolGuardian::FunctionOverlappingAddress(u32 address) const
 	return info;
 }
 
-void SymbolGuardian::GenerateFunctionHashes(ccc::SymbolDatabase& database, MemoryReader& reader)
+void SymbolGuardian::GenerateFunctionHashes(ccc::SymbolDatabase& database, MemoryInterface& reader)
 {
 	for (ccc::Function& function : database.functions)
 	{
@@ -163,7 +164,7 @@ void SymbolGuardian::GenerateFunctionHashes(ccc::SymbolDatabase& database, Memor
 	}
 }
 
-void SymbolGuardian::UpdateFunctionHashes(ccc::SymbolDatabase& database, MemoryReader& reader)
+void SymbolGuardian::UpdateFunctionHashes(ccc::SymbolDatabase& database, MemoryInterface& reader)
 {
 	for (ccc::Function& function : database.functions)
 	{
@@ -181,7 +182,7 @@ void SymbolGuardian::UpdateFunctionHashes(ccc::SymbolDatabase& database, MemoryR
 		source_file.check_functions_match(database);
 }
 
-std::optional<ccc::FunctionHash> SymbolGuardian::HashFunction(const ccc::Function& function, MemoryReader& reader)
+std::optional<ccc::FunctionHash> SymbolGuardian::HashFunction(const ccc::Function& function, MemoryInterface& reader)
 {
 	if (!function.address().valid())
 		return std::nullopt;
@@ -194,7 +195,7 @@ std::optional<ccc::FunctionHash> SymbolGuardian::HashFunction(const ccc::Functio
 	for (u32 i = 0; i < function.size() / 4; i++)
 	{
 		bool valid;
-		u32 value = reader.read32(function.address().value + i * 4, valid);
+		u32 value = reader.Read32(function.address().value + i * 4, &valid);
 		if (!valid)
 			return std::nullopt;
 
@@ -215,4 +216,24 @@ void SymbolGuardian::ClearIrxModules()
 		for (ccc::ModuleHandle module : irx_modules)
 			m_database.destroy_symbols_from_module(module, false);
 	});
+}
+
+const char* SymbolGuardian::TranslateSymbolSourceName(const char* name)
+{
+	static constexpr std::array<const char*, 8> names = {
+		TRANSLATE_NOOP("SymbolGuardian", "DWARF Symbol Table"),
+		TRANSLATE_NOOP("SymbolGuardian", "ELF Section Headers"),
+		TRANSLATE_NOOP("SymbolGuardian", "ELF Symbol Table"),
+		TRANSLATE_NOOP("SymbolGuardian", "Function Scanner"),
+		TRANSLATE_NOOP("SymbolGuardian", "Nocash Symbols"),
+		TRANSLATE_NOOP("SymbolGuardian", "SNDLL Symbol Table"),
+		TRANSLATE_NOOP("SymbolGuardian", "Symbol Table Importer"),
+		TRANSLATE_NOOP("SymbolGuardian", "User-Defined"),
+	};
+
+	for (const char* test_name : names)
+		if (strcmp(test_name, name) == 0)
+			return TRANSLATE("SymbolGuardian", name);
+
+	return name;
 }

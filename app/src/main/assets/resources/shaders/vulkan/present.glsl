@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #ifdef VERTEX_SHADER
@@ -264,7 +264,7 @@ vec3 Bloom(vec2 pos)
 	vec3 e = Horz5(pos, 2.0);
 
 	float wa = BloomScan(pos,-2.0);
-	float wb = BloomScan(pos,-1.0); 
+	float wb = BloomScan(pos,-1.0);
 	float wc = BloomScan(pos, 0.0);
 	float wd = BloomScan(pos, 1.0);
 	float we = BloomScan(pos, 2.0);

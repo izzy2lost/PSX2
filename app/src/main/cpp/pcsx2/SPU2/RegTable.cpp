@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "SPU2/defs.h"
@@ -69,8 +69,10 @@ static std::array<u16*, 0x401> ComputeRegTable()
 		PCORE(0, IRQA) + 1,
 		PCORE(0, IRQA),
 
-		nullptr, nullptr,
-		nullptr, nullptr,
+		PCORE(0, KeyOn),
+		PCORE(0, KeyOn) + 1,
+		PCORE(0, KeyOff),
+		PCORE(0, KeyOff) + 1,
 
 		PCORE(0, TSA) + 1,
 		PCORE(0, TSA),
@@ -172,8 +174,10 @@ static std::array<u16*, 0x401> ComputeRegTable()
 		PCORE(1, IRQA) + 1,
 		PCORE(1, IRQA),
 
-		nullptr, nullptr,
-		nullptr, nullptr,
+		PCORE(1, KeyOn),
+		PCORE(1, KeyOn) + 1,
+		PCORE(1, KeyOff),
+		PCORE(1, KeyOff) + 1,
 
 		PCORE(1, TSA) + 1,
 		PCORE(1, TSA),

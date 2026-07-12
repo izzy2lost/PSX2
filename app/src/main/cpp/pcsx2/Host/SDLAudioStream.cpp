@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Host/AudioStream.h"
@@ -41,17 +41,16 @@ static bool InitializeSDLAudio(Error* error)
 	SDL_SetHint("SDL_AUDIO_DEVICE_APP_NAME", "PCSX2");
 
 	// May as well keep it alive until the process exits.
-    if (SDL_InitSubSystem(SDL_INIT_AUDIO) != 0)
-    {
-        Error::SetStringFmt(error, "SDL_InitSubSystem(SDL_INIT_AUDIO) failed: {}", SDL_GetError());
-        return false;
-    }
+	if (!SDL_InitSubSystem(SDL_INIT_AUDIO))
+	{
+		Error::SetStringFmt(error, "SDL_InitSubSystem(SDL_INIT_AUDIO) failed: {}", SDL_GetError());
+		return false;
+	}
 
-    std::atexit([]() { SDL_QuitSubSystem(SDL_INIT_AUDIO); });
+	std::atexit([]() { SDL_QuitSubSystem(SDL_INIT_AUDIO); });
 
-    initialized = true;
-    Console.WriteLn("[SDL-Audio] Initialized SDL audio subsystem");
-    return true;
+	initialized = true;
+	return true;
 }
 
 SDLAudioStream::SDLAudioStream(u32 sample_rate, const AudioStreamParameters& parameters)
@@ -108,13 +107,8 @@ bool SDLAudioStream::OpenDevice(bool stretch_enabled, Error* error)
 
 	SDL_SetHint(SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES, fmt::format("{}", samples).c_str());
 
-	const SDL_AudioSpec spec = {SDL_AUDIO_S16LE, m_output_channels, static_cast<int>(m_sample_rate)};
-    m_stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, AudioCallback, static_cast<void*>(this));
-    if (!m_stream)
-    {
-        Error::SetStringFmt(error, "SDL_OpenAudioDeviceStream() failed: {}", SDL_GetError());
-        return false;
-    }
+	const SDL_AudioSpec spec = {SDL_AUDIO_F32, m_output_channels, static_cast<int>(m_sample_rate)};
+	m_stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, AudioCallback, static_cast<void*>(this));
 
 	SDL_AudioSpec obtained_spec = {};
 	int obtained_samples = 0;
@@ -124,31 +118,23 @@ bool SDLAudioStream::OpenDevice(bool stretch_enabled, Error* error)
 	else
 		DEV_LOG("SDL_GetAudioDeviceFormat() failed {}", SDL_GetError());
 
-    BaseInitialize(sample_readers[static_cast<size_t>(m_parameters.expansion_mode)], stretch_enabled);
-    SDL_AudioDeviceID dev = SDL_GetAudioStreamDevice(m_stream);
-    Console.WriteLnFmt("[SDL-Audio] Opened stream: rate={} Hz, channels={}, device_id={}", m_sample_rate, m_output_channels, dev);
-    SDL_ResumeAudioDevice(dev);
+	BaseInitialize(sample_readers[static_cast<size_t>(m_parameters.expansion_mode)], stretch_enabled);
+	SDL_ResumeAudioDevice(SDL_GetAudioStreamDevice(m_stream));
 
-    return true;
+	return true;
 }
 
 void SDLAudioStream::SetPaused(bool paused)
 {
-    if (m_paused == paused)
-        return;
+	if (m_paused == paused)
+		return;
 
-    if (paused)
-    {
-        SDL_PauseAudioDevice(SDL_GetAudioStreamDevice(m_stream));
-        Console.WriteLn("[SDL-Audio] Paused");
-    }
-    else
-    {
-        SDL_ResumeAudioDevice(SDL_GetAudioStreamDevice(m_stream));
-        Console.WriteLn("[SDL-Audio] Resumed");
-    }
+	if (paused)
+		SDL_PauseAudioDevice(SDL_GetAudioStreamDevice(m_stream));
+	else
+		SDL_ResumeAudioDevice(SDL_GetAudioStreamDevice(m_stream));
 
-    m_paused = paused;
+	m_paused = paused;
 }
 
 void SDLAudioStream::CloseDevice()
@@ -159,23 +145,17 @@ void SDLAudioStream::CloseDevice()
 
 void SDLAudioStream::AudioCallback(void* userdata, SDL_AudioStream* stream, int additional_amount, int total_amount)
 {
-    if (additional_amount > 0)
-    {
-        SDLAudioStream* const this_ptr = static_cast<SDLAudioStream*>(userdata);
+	if (additional_amount > 0)
+	{
+		SDLAudioStream* const this_ptr = static_cast<SDLAudioStream*>(userdata);
 
-        const u32 num_frames = additional_amount / sizeof(SampleType) / this_ptr->m_output_channels;
-        SampleType* buffer = SDL_stack_alloc(SampleType, additional_amount / sizeof(SampleType));
-        if (buffer)
-        {
-            this_ptr->ReadFrames(buffer, num_frames);
-            SDL_PutAudioStreamData(stream, buffer, additional_amount);
-            SDL_stack_free(buffer);
-        }
-        static int s_dbg_count = 0;
-        if (s_dbg_count < 3)
-        {
-            Console.WriteLnFmt("[SDL-Audio] Callback: additional={} bytes, total={}, frames={}", additional_amount, total_amount, num_frames);
-            s_dbg_count++;
-        }
-    }
+		const u32 num_frames = additional_amount / sizeof(SampleType) / this_ptr->m_output_channels;
+		SampleType* buffer = SDL_stack_alloc(SampleType, additional_amount / sizeof(SampleType));
+		if (buffer)
+		{
+			this_ptr->ReadFrames(buffer, num_frames);
+			SDL_PutAudioStreamData(stream, buffer, additional_amount);
+			SDL_stack_free(buffer);
+		}
+	}
 }

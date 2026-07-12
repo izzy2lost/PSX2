@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0
 
 #pragma once
@@ -6,7 +6,11 @@
 #include "Common.h"
 #include "Vif_Dma.h"
 #include "Vif_Dynarec.h"
-#include "VixlHelpers.h"
+#include "arm64/AsmHelpers.h"
+
+// Shared with microVU — single definition in arm64/microVU_Misc-arm64.inl
+// (mirrors x86, where newVif.h declares the helper defined in microVU_Misc.inl).
+extern void mVUmergeRegs(const vixl::aarch64::VRegister& dest, const vixl::aarch64::VRegister& src, int xyzw, bool modXYZW = false);
 
 #define xmmCol0 vixl::aarch64::q2
 #define xmmCol1 vixl::aarch64::q3
@@ -144,63 +148,3 @@ protected:
 		return fillingWrite;
 	}
 };
-
-// --------------------------------------------------------------------------------------------------
-//  NEON helper functions
-//
-//  The dynamic recompiler versions of VIF unpacking operate by emitting ARM64 instructions via Vixl.
-//  For better performance and maintainability on modern devices it can be advantageous to bypass
-//  the macro assembler entirely and instead perform the unpacking directly with NEON intrinsics.
-//  The declarations below expose a handful of helper routines which load packed VIF data,
-//  widen it to 32‑bit values, and perform lane duplication.  These functions are implemented
-//  in Vif_UnpackNEON.cpp and can be called from C++ code when appropriate.
-
-#ifdef __ARM_NEON
-
-#include <arm_neon.h>
-
-/// \brief Load a packed 8‑bit value from @p src, widen it to a vector of four 32‑bit values
-/// and convert them to float.  When @p usn is true the values are treated as unsigned,
-/// otherwise they are treated as signed.
-float32x4_t pmovxx8_neon(const u8* src, bool usn);
-
-/// \brief Load a packed 16‑bit value from @p src, widen it to a vector of four 32‑bit values
-/// and convert them to float.  When @p usn is true the values are treated as unsigned,
-/// otherwise they are treated as signed.
-float32x4_t pmovxx16_neon(const u16* src, bool usn);
-
-/// \brief Duplicate a single 32‑bit lane from @p vec across all four lanes.  The lane index
-/// must be in the range [0,3].
-static inline float32x4_t dup_lane_f32(const float32x4_t vec, int lane)
-{
-    switch (lane & 3)
-    {
-        case 0: return vdupq_laneq_f32(vec, 0);
-        case 1: return vdupq_laneq_f32(vec, 1);
-        case 2: return vdupq_laneq_f32(vec, 2);
-        default: return vdupq_laneq_f32(vec, 3);
-    }
-}
-
-/// \brief Duplicate one half (low or high) of the 128‑bit vector @p vec across both halves.
-/// If @p half is 0 the low half is duplicated; if 1 the high half is duplicated.  When
-/// @p zero_last is true the final 32‑bit lane of the result is zeroed.
-static inline float32x4_t dup_half_f32(const float32x4_t vec, int half, bool zero_last)
-{
-    float32x4_t result;
-    if ((half & 1) == 0)
-    {
-        float32x2_t lo = vget_low_f32(vec);
-        result = vcombine_f32(lo, lo);
-    }
-    else
-    {
-        float32x2_t hi = vget_high_f32(vec);
-        result = vcombine_f32(hi, hi);
-    }
-    if (zero_last)
-        result = vsetq_lane_f32(0.0f, result, 3);
-    return result;
-}
-
-#endif // __ARM_NEON

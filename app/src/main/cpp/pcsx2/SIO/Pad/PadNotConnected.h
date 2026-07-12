@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -30,6 +30,8 @@ public:
 	std::tuple<u8, u8> GetRawRightAnalog() const override;
 	u32 GetButtons() const override;
 	u8 GetPressure(u32 index) const override;
+	bool IsAnalogLightEnabled() const override;
+	bool IsAnalogLocked() const override;
 
 	u8 SendCommandByte(u8 commandByte) override;
 

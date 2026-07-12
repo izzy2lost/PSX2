@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -27,6 +27,7 @@ namespace USB
 
 	std::vector<std::pair<const char*, const char*>> GetDeviceTypes();
 	const char* GetDeviceName(const std::string_view device);
+	const char* GetDeviceIconName(u32 port);
 	const char* GetDeviceSubtypeName(const std::string_view device, u32 subtype);
 	std::span<const char*> GetDeviceSubtypes(const std::string_view device);
 	std::span<const InputBindingInfo> GetDeviceBindings(const std::string_view device, u32 subtype);

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0
 
 #include "GS/Renderers/SW/GSSetupPrimCodeGenerator.arm64.h"
@@ -20,7 +20,11 @@ static const auto& _locals = x3;
 static const auto& _scratchaddr = x7;
 static const auto& _vscratch = v31;
 
-#define _local(field) MemOperand(_locals, offsetof(GSScanlineLocalData, field))
+static constexpr const GSScanlineConstantData128B& g_const = g_const_128b;
+
+// Yay, you can't offsetof with non-constant array indices in GCC
+#define OFFSETOF(base, field) (reinterpret_cast<uptr>(&reinterpret_cast<base*>(0)->field))
+#define _local(field) MemOperand(_locals, OFFSETOF(GSScanlineLocalData, field))
 #define armAsm (&m_emitter)
 
 GSSetupPrimCodeGenerator::GSSetupPrimCodeGenerator(u64 key, void* code, size_t maxsize)
@@ -38,10 +42,10 @@ void GSSetupPrimCodeGenerator::Generate()
 	const bool needs_shift = ((m_en.z || m_en.f) && m_sel.prim != GS_SPRITE_CLASS) || m_en.t || (m_en.c && m_sel.iip);
 	if (needs_shift)
 	{
-		armAsm->Mov(x4, reinterpret_cast<intptr_t>(g_const.m_shift_128b));
+		armAsm->Mov(x4, reinterpret_cast<intptr_t>(g_const.m_shift));
 		for (int i = 0; i < (m_sel.notest ? 2 : 5); i++)
 		{
-			armAsm->Ldr(VRegister(3 + i, kFormat16B), MemOperand(x4, i * sizeof(g_const.m_shift_128b[0])));
+			armAsm->Ldr(VRegister(3 + i, kFormat16B), MemOperand(x4, i * sizeof(g_const.m_shift[0])));
 		}
 	}
 
@@ -225,14 +229,13 @@ void GSSetupPrimCodeGenerator::Color()
 		// GSVector4 c = dscan.c;
 		armAsm->Ldr(v16, MemOperand(_dscan, offsetof(GSVertexSW, c)));
 
-		// m_local.d4.c = GSVector4i(c * 4.0f).xzyw().ps32();
-
+		// GSVector4i tmp = GSVector4i(dscan.c * step_shift).xzyw();
+		// local.d4.c = tmp.uzp1_16(tmp); // Not currently in GSVector since that's mainly targeting x86 for now
 		armAsm->Fmul(v2.V4S(), v16.V4S(), v3.V4S());
 		armAsm->Fcvtzs(v2.V4S(), v2.V4S());
 		armAsm->Rev64(_vscratch.V4S(), v2.V4S());
 		armAsm->Uzp1(v2.V4S(), v2.V4S(), _vscratch.V4S());
-		armAsm->Sqxtn(v2.V4H(), v2.V4S());
-		armAsm->Dup(v2.V2D(), v2.V2D(), 0);
+		armAsm->Uzp1(v2.V8H(), v2.V8H(), v2.V8H());
 		armAsm->Str(v2, MemOperand(_locals, offsetof(GSScanlineLocalData, d4.c)));
 
 		// GSVector4 dr = c.xxxx();
@@ -243,23 +246,18 @@ void GSSetupPrimCodeGenerator::Color()
 
 		for (int i = 0; i < (m_sel.notest ? 1 : 4); i++)
 		{
-			// GSVector4i r = GSVector4i(dr * m_shift[i]).ps32();
+			// VectorI r = VectorI(dr * shift[1 + i]);
 
 			armAsm->Fmul(v2.V4S(), v0.V4S(), VRegister(4 + i, kFormat4S));
 			armAsm->Fcvtzs(v2.V4S(), v2.V4S());
-			armAsm->Sqxtn(v2.V4H(), v2.V4S());
-			armAsm->Dup(v2.V2D(), v2.V2D(), 0);
 
-			// GSVector4i b = GSVector4i(db * m_shift[i]).ps32();
+			// VectorI b = VectorI(db * shift[1 + i]);
 
 			armAsm->Fmul(v3.V4S(), v1.V4S(), VRegister(4 + i, kFormat4S));
 			armAsm->Fcvtzs(v3.V4S(), v3.V4S());
-			armAsm->Sqxtn(v3.V4H(), v3.V4S());
-			armAsm->Dup(v3.V2D(), v3.V2D(), 0);
 
-			// m_local.d[i].rb = r.upl16(b);
-
-			armAsm->Zip1(v2.V8H(), v2.V8H(), v3.V8H());
+			// m_local.d[i].rb = r.trn1_16(b); // Not currently in GSVector since that's mainly targeting x86 for now
+			armAsm->Trn1(v2.V8H(), v2.V8H(), v3.V8H());
 			armAsm->Str(v2, _local(d[i].rb));
 		}
 
@@ -273,23 +271,19 @@ void GSSetupPrimCodeGenerator::Color()
 
 		for (int i = 0; i < (m_sel.notest ? 1 : 4); i++)
 		{
-			// GSVector4i g = GSVector4i(dg * m_shift[i]).ps32();
+			// VectorI g = VectorI(dg * shift[1 + i]);
 
 			armAsm->Fmul(v2.V4S(), v0.V4S(), VRegister(4 + i, kFormat4S));
 			armAsm->Fcvtzs(v2.V4S(), v2.V4S());
-			armAsm->Sqxtn(v2.V4H(), v2.V4S());
-			armAsm->Dup(v2.V2D(), v2.V2D(), 0);
 
-			// GSVector4i a = GSVector4i(da * m_shift[i]).ps32();
+			// VectorI a = VectorI(da * shift[1 + i]);
 
 			armAsm->Fmul(v3.V4S(), v1.V4S(), VRegister(4 + i, kFormat4S));
 			armAsm->Fcvtzs(v3.V4S(), v3.V4S());
-			armAsm->Sqxtn(v3.V4H(), v3.V4S());
-			armAsm->Dup(v3.V2D(), v3.V2D(), 0);
 
-			// m_local.d[i].ga = g.upl16(a);
+			// m_local.d[i].ga = g.trn1_16(a); // Not currently in GSVector since that's mainly targeting x86 for now
 
-			armAsm->Zip1(v2.V8H(), v2.V8H(), v3.V8H());
+			armAsm->Trn1(v2.V8H(), v2.V8H(), v3.V8H());
 			armAsm->Str(v2, _local(d[i].ga));
 		}
 	}

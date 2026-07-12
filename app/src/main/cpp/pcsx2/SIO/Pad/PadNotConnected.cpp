@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "SIO/Pad/PadNotConnected.h"
@@ -109,6 +109,16 @@ u32 PadNotConnected::GetButtons() const
 u8 PadNotConnected::GetPressure(u32 index) const
 {
 	return 0;
+}
+
+bool PadNotConnected::IsAnalogLightEnabled() const
+{
+	return this->analogLight;
+}
+
+bool PadNotConnected::IsAnalogLocked() const
+{
+	return this->analogLocked;
 }
 
 u8 PadNotConnected::SendCommandByte(u8 commandByte)

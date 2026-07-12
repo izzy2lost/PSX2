@@ -7,7 +7,6 @@ endif(NOT TOP_CMAKE_WAS_SOURCED)
 
 add_library(common)
 
-# x86emitter sources
 target_sources(common PRIVATE
 	AlignedMalloc.cpp
 	Assertions.cpp
@@ -20,10 +19,12 @@ target_sources(common PRIVATE
 	HostSys.cpp
 	Image.cpp
 	HTTPDownloader.cpp
+	MemoryInterface.cpp
 	MemorySettingsInterface.cpp
 	MD5Digest.cpp
 	PrecompiledHeader.cpp
 	Perf.cpp
+	PmuCounters.cpp
 	ProgressCallback.cpp
 	ReadbackSpinManager.cpp
 	Semaphore.cpp
@@ -34,9 +35,9 @@ target_sources(common PRIVATE
 	Timer.cpp
 	WAVWriter.cpp
 	WindowInfo.cpp
+	YAML.cpp
 )
 
-# x86emitter headers
 target_sources(common PRIVATE
 	AlignedMalloc.h
 	Assertions.h
@@ -59,10 +60,12 @@ target_sources(common PRIVATE
 	LRUCache.h
 	HeapArray.h
 	HTTPDownloader.h
+	MemoryInterface.h
 	MemorySettingsInterface.h
 	MD5Digest.h
 	MRCHelpers.h
 	Path.h
+	PmuCounters.h
 	PrecompiledHeader.h
 	ProgressCallback.h
 	ReadbackSpinManager.h
@@ -81,11 +84,11 @@ target_sources(common PRIVATE
 	WAVWriter.h
 	WindowInfo.h
 	WrappedMemCopy.h
+	YAML.h
 )
 
-if(_M_X86)
+if(ARCH_X86)
 	target_sources(common PRIVATE
-		emitter/avx.cpp
 		emitter/bmi.cpp
 		emitter/fpu.cpp
 		emitter/groups.cpp
@@ -154,6 +157,7 @@ elseif(APPLE)
 		Darwin/DarwinThreads.cpp
 		Darwin/DarwinMisc.cpp
 		Darwin/DarwinMisc.h
+		Linux/LnxHostSys.cpp
 	)
 	target_compile_options(common PRIVATE -fobjc-arc)
 	target_link_options(common PRIVATE -fobjc-link-runtime)
@@ -167,12 +171,14 @@ else()
 		Linux/LnxThreads.cpp
 		Linux/LnxMisc.cpp
 	)
+	target_include_directories(common PRIVATE
+		${DBUS_INCLUDE_DIRS}
+	)
+	target_link_libraries(common PRIVATE
+		${DBUS_LINK_LIBRARIES}
+	)
 	if(X11_API)
-		target_include_directories(common PRIVATE
-			${DBUS_INCLUDE_DIRS}
-		)
 		target_link_libraries(common PRIVATE
-			${DBUS_LINK_LIBRARIES}
 			X11::X11
 			X11::Xrandr
 			X11::Xi
@@ -181,9 +187,6 @@ else()
 	if(USE_BACKTRACE)
 		target_compile_definitions(common PRIVATE "HAS_LIBBACKTRACE=1")
 		target_link_libraries(common PRIVATE libbacktrace::libbacktrace)
-	endif()
-	if(${CMAKE_SYSTEM_NAME} STREQUAL "FreeBSD")
-		target_link_libraries(common PRIVATE cpuinfo)
 	endif()
 endif()
 
@@ -219,6 +222,7 @@ if(ANDROID)
 		jpeg
 		png16
 		webp
+		cpuinfo
 	)
 else()
 	target_link_libraries(common PRIVATE
@@ -226,22 +230,15 @@ else()
 		JPEG::JPEG
 		PNG::PNG
 		WebP::libwebp
+		cpuinfo
 	)
 endif()
 
-if(ANDROID)
-	find_library(log-lib log)
-	target_link_libraries(common PUBLIC
-		fmt::fmt
-		fast_float
-		${log-lib}
-	)
-else()
-	target_link_libraries(common PUBLIC
-		fmt::fmt
-		fast_float
-	)
-endif()
+target_link_libraries(common PUBLIC
+	fmt::fmt
+	fast_float
+	rapidyaml::rapidyaml
+)
 
 fixup_file_properties(common)
 target_compile_features(common PUBLIC cxx_std_20)

@@ -1,14 +1,21 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
 
 #include "ImGuiManager.h"
+#include "Config.h"
+
+struct ImVec2;
 
 namespace ImGuiManager
 {
 	void RenderOverlays();
 }
+
+ImVec2 CalculateOSDPosition(OsdOverlayPos position, float margin, const ImVec2& text_size, float window_width, float window_height);
+ImVec2 CalculatePerformanceOverlayTextPosition(OsdOverlayPos position, float margin, const ImVec2& text_size, float window_width, float position_y);
+bool ShouldUseLeftAlignment(OsdOverlayPos position);
 
 namespace SaveStateSelectorUI
 {

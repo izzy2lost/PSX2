@@ -993,7 +993,7 @@
 - hashes:
   - md5: c4c935cc566a32a81af471fef6cde741
     size: 4640997376
-  name: Grand Theft Auto III (USA)
+  name: Grand Theft Auto III (USA, Canada)
   serial: SLUS-20062
   version: '1.40'
 - hashes:
@@ -1305,13 +1305,13 @@
 - hashes:
   - md5: 5cae530ed1c57790890a65babb6c8d46
     size: 4107599872
-  name: Driv3r (USA) (En,Fr,Es)
+  name: Driv3r (USA, Canada) (En,Fr,Es)
   serial: SLUS-20587
   version: '1.00'
 - hashes:
   - md5: b179e241b9e696063a8c915f1bde78e1
     size: 5314478080
-  name: Gran Turismo 4 (USA) (v1.01)
+  name: Gran Turismo 4 (USA, Canada) (v1.01)
   serial: SCUS-97328
   version: '1.01'
 - hashes:
@@ -1959,13 +1959,13 @@
 - hashes:
   - md5: bd7cb624a86abe7c185090005ae15564
     size: 3698720768
-  name: Need for Speed - Carbon (USA)
+  name: Need for Speed - Carbon (USA, Canada)
   serial: SLUS-21493
   version: '1.00'
 - hashes:
   - md5: 53d793704ac0a263546d05893804d0cc
     size: 2867822592
-  name: Burnout 3 - Takedown (USA)
+  name: Burnout 3 - Takedown (USA, Canada)
   serial: SLUS-21050
   version: '1.00'
 - hashes:
@@ -2025,7 +2025,7 @@
 - hashes:
   - md5: 0ba329d070cd6179df80b4197df6b17e
     size: 4218617856
-  name: Burnout Dominator (USA)
+  name: Burnout Dominator (USA, Canada)
   serial: SLUS-21596
   version: '1.00'
 - hashes:
@@ -2312,7 +2312,7 @@
 - hashes:
   - md5: e572c0dac2bab2a9153d878aa105d4ef
     size: 4197416960
-  name: Twisted Metal - Head-On - Extra Twisted Edition (USA)
+  name: Twisted Metal - Head-On - Extra Twisted Edition (USA, Canada)
   serial: SCUS-97621
   version: '1.00'
 - hashes:
@@ -2654,13 +2654,13 @@
 - hashes:
   - md5: 3b36d4e386532036d72974f5f8ded462
     size: 2501378048
-  name: Dai-2-Ji Super Robot Taisen Alpha (Japan) (Genteiban Collection Figure Box)
+  name: Dai-2-ji Super Robot Taisen Alpha (Japan) (Genteiban Collection Figure Box)
   serial: SLPS-25227
   version: '1.08'
 - hashes:
   - md5: da1cfc296bd896e88dddcccc374d4b08
     size: 4285595648
-  name: Dai-3-Ji Super Robot Taisen Alpha - Shuuen no Ginga e (Japan)
+  name: Dai-3-ji Super Robot Taisen Alpha - Shuuen no Ginga e (Japan)
   serial: SLPS-25537
   version: '1.12'
 - hashes:
@@ -4184,7 +4184,7 @@
 - hashes:
   - md5: 61e1b324c78c2703f1d1d269280c1934
     size: 204993264
-  name: WWI - Aces of the Sky (Europe)
+  name: WWI - Aces of the Sky (Europe, Australia)
   serial: SLES-54205
   version: '1.01'
 - hashes:
@@ -4757,7 +4757,7 @@
 - hashes:
   - md5: d23b27532fed0550dfc283274ba8c90e
     size: 4698767360
-  name: Street Fighter Alpha Anthology (Europe)
+  name: Street Fighter Alpha Anthology (Europe, Australia)
   serial: SLES-54085
   version: '1.00'
 - hashes:
@@ -5112,7 +5112,7 @@
 - hashes:
   - md5: 01d5c41c443e0b85ede54edf63647abf
     size: 4510023680
-  name: Fate-stay night - Realta Nua (Japan)
+  name: Fate-Stay Night - Realta Nua (Japan)
   serial: SLPM-66513
   version: '1.03'
 - hashes:
@@ -6235,19 +6235,19 @@
 - hashes:
   - md5: a7e51117609b98673851ef9abc2fd6f3
     size: 4698767360
-  name: Grand Theft Auto - Vice City (USA) (v3.00)
+  name: Grand Theft Auto - Vice City (USA, Canada) (v3.00)
   serial: SLUS-20552
   version: '3.00'
 - hashes:
   - md5: 0cc7e76c94e4842a87085fa5484832df
     size: 4517036032
-  name: Grand Theft Auto - San Andreas (USA) (v3.00)
+  name: Grand Theft Auto - San Andreas (USA, Canada) (v3.00)
   serial: SLUS-20946
   version: '3.00'
 - hashes:
   - md5: b50fab373b43926f771345141dd4aef0
     size: 2874605568
-  name: Need for Speed - Underground 2 (USA)
+  name: Need for Speed - Underground 2 (USA, Canada)
   serial: SLUS-21065
   version: '1.00'
 - hashes:
@@ -6283,7 +6283,7 @@
 - hashes:
   - md5: 81a41e2b3eed92334faf70d79658ffa8
     size: 2244640768
-  name: Tokyo Xtreme Racer - Drift (USA)
+  name: Tokyo Xtreme Racer - Drift (USA, Canada)
   serial: SLUS-21236
   version: '1.00'
 - hashes:
@@ -6842,7 +6842,7 @@
 - hashes:
   - md5: 2a8596200a396c736ad88197a87c4b54
     size: 46901232
-  name: Space Invaders Anniversary (Europe) (En,Fr,De,Es,It)
+  name: Space Invaders Anniversary (Europe, Australia) (En,Fr,De,Es,It)
   serial: SLES-52313
   version: '1.01'
 - hashes:
@@ -6998,7 +6998,7 @@
 - hashes:
   - md5: 8e0b7c63bd01946284d473883bd5775a
     size: 2550333440
-  name: Bouncer, The (USA) (En,Ja)
+  name: Bouncer, The (USA, Canada) (En,Ja)
   serial: SLUS-20069
   version: '1.00'
 - hashes:
@@ -7814,7 +7814,7 @@
 - hashes:
   - md5: bbc38eb9d5d702624993add72fe479b6
     size: 7903084544
-  name: ATV Offroad Fury 4 (USA)
+  name: ATV Offroad Fury 4 (USA, Canada)
   serial: SCUS-97479
   version: '1.00'
 - hashes:
@@ -8132,7 +8132,7 @@
 - hashes:
   - md5: 9ef21db5eb663e30fee600e29407b97e
     size: 3650453504
-  name: Burnout Revenge (USA)
+  name: Burnout Revenge (USA, Canada)
   serial: SLUS-21242
   version: '1.00'
 - hashes:
@@ -8561,7 +8561,7 @@
   - md5: 9a05eeb10c0e06d16ee3c9ecbf6f0384
     size: 223936512
   name: Capcom vs. SNK 2 - Millionaire Fighting 2001 (Japan)
-  serial: SLPM-74246
+  serial: SLPM-65047
   version: '1.03'
 - hashes:
   - md5: 10985c3ab2251a9bed2f0762bbd89d89
@@ -9825,7 +9825,7 @@
 - hashes:
   - md5: 566a6e7255142d4c909ae74529cd90bd
     size: 3702456320
-  name: Need for Speed - Most Wanted (USA) (v2.00)
+  name: Need for Speed - Most Wanted (USA, Canada) (v2.00)
   serial: SLUS-21267
   version: '2.00'
 - hashes:
@@ -10126,7 +10126,7 @@
 - hashes:
   - md5: 4ae4c58b52a73b1c230d390e39366dca
     size: 1586790400
-  name: SingStar (Europe) (Demo)
+  name: SingStar (Europe) (Demo) (2004-02-22)
   serial: SCED-52461
   version: '1.00'
 - hashes:
@@ -10366,7 +10366,7 @@
 - hashes:
   - md5: 054c01f5ca1a069a339b8c127b848ff0
     size: 2865725440
-  name: Tokyo Xtreme Racer 3 (USA)
+  name: Tokyo Xtreme Racer 3 (USA, Canada)
   serial: SLUS-20831
   version: '1.00'
 - hashes:
@@ -10813,7 +10813,7 @@
 - hashes:
   - md5: e7074ff4d0fc08e910d6de009bf0c4df
     size: 2563506176
-  name: Aqua Teen Hunger Force - Zombie Ninja Pro-Am (USA)
+  name: Aqua Teen Hunger Force - Zombie Ninja Pro-Am (USA, Canada)
   serial: SLUS-21633
   version: '1.01'
 - hashes:
@@ -11389,7 +11389,7 @@
 - hashes:
   - md5: 9b9722c07933aa886c0c558db1e2c706
     size: 4393533440
-  name: TY the Tasmanian Tiger (Europe) (En,Fr,De,Es,It)
+  name: Ty the Tasmanian Tiger (Europe) (En,Fr,De,Es,It)
   serial: SLES-51220
   version: '1.00'
 - hashes:
@@ -11485,7 +11485,7 @@
 - hashes:
   - md5: 5a27191623e2248e14bd6f0aca2eb476
     size: 2726166528
-  name: Need for Speed - Underground (USA)
+  name: Need for Speed - Underground (USA, Canada)
   serial: SLUS-20811
   version: '1.00'
 - hashes:
@@ -11701,7 +11701,7 @@
 - hashes:
   - md5: 825f7b19b00094ca61bd17668b754f66
     size: 1715273728
-  name: Corvette Evolution GT (USA)
+  name: Corvette Evolution GT (USA, Canada)
   serial: SLUS-21499
   version: '1.00'
 - hashes:
@@ -13576,7 +13576,7 @@
 - hashes:
   - md5: 163382c3586965cfac9b5df1f8454eda
     size: 422936576
-  name: Devil May Cry - Trial Edition (Japan) (Taikenban)
+  name: Devil May Cry - Trial Edition (Japan) (Taikenban) (SLPM-65023)
   serial: SLPM-65023
   version: '1.00'
 - hashes:
@@ -13732,7 +13732,7 @@
 - hashes:
   - md5: e0e9a5fd8d878645bb0ffdc86b2de859
     size: 457529856
-  name: Sunny Garcia Surfing (Europe) (En,Fr,De)
+  name: Sunny Garcia Surfing (Europe, Australia) (En,Fr,De)
   serial: SLES-50533
   version: '1.01'
 - hashes:
@@ -13937,14 +13937,14 @@
 - hashes:
   - md5: d65ccceab95f29522b58b4024c80afef
     size: 571496016
-  name: Dragon Quest VIII Premium Eizou Disc (Japan)
-  serial: SLPM-62490
+  name: Dragon Quest VIII Premium Eizou Disc (Japan, Asia)
+  serial: SCAJ-10005
   version: '1.01'
 - hashes:
   - md5: 4879f9004c86635e5c03fe81cae6b70d
     size: 2549121024
-  name: Dragon Quest V - Tenkuu no Hanayome (Japan)
-  serial: SLPM-65555
+  name: Dragon Quest V - Tenkuu no Hanayome (Japan, Asia)
+  serial: SCAJ-20075
   version: '1.20'
 - hashes:
   - md5: 85885ebb56dee8be3ef7c3f51233710c
@@ -15165,7 +15165,7 @@
 - hashes:
   - md5: 7ca863ca8268ece8ce6e58667e21077d
     size: 160140624
-  name: Operation Air Assault 2 (Europe)
+  name: Operation Air Assault 2 (Europe, Australia)
   serial: SLES-54804
   version: '1.01'
 - hashes:
@@ -15310,7 +15310,7 @@
 - hashes:
   - md5: 45fe00fc50d96e5be00de39301272220
     size: 723414048
-  name: PlayStation BB Navigator - Version 0.10 (Prerelease) (Japan) (Disc 1)
+  name: PlayStation BB Navigator - Version 0.10 - Prerelease (Japan) (Disc 1)
   serial: SCPN-60101
   version: '1.00'
 - hashes:
@@ -15466,7 +15466,7 @@
 - hashes:
   - md5: 8bca10dd3d39ac87e4656d652609a39a
     size: 1254752256
-  name: Suzuki Super-Bikes II - Riding Challenge (USA) (En,Fr,Es)
+  name: Suzuki Super-Bikes II - Riding Challenge (USA, Canada) (En,Fr,Es)
   serial: SLUS-21500
   version: '1.00'
 - hashes:
@@ -16324,7 +16324,7 @@
 - hashes:
   - md5: 8aa6514294b90843289243d43e52b688
     size: 3422027776
-  name: Holiday 2004 Demo Disc (USA) (PR-Mature)
+  name: Holiday 2004 Demo Disc (USA) (Mature)
   serial: SCUS-97455
   version: '1.00'
 - hashes:
@@ -16409,7 +16409,7 @@
 - hashes:
   - md5: d8888cedab83010d77ea5ecb8389fc38
     size: 4536074240
-  name: Kessen (Japan)
+  name: Kessen (Japan) (v1.50)
   serial: SLPM-65001
   version: '1.50'
 - hashes:
@@ -17075,8 +17075,8 @@
 - hashes:
   - md5: 44d33a12eb50bb9e6eaa6d7730b7fa41
     size: 1452933120
-  name: Kengou 2 (Japan)
-  serial: SLPM-74412
+  name: Kengou 2 (Japan, Asia)
+  serial: SCPS-55020
   version: '1.03'
 - hashes:
   - md5: 68c000ad087a1ffb33f3c6393e427f04
@@ -17203,8 +17203,8 @@
 - hashes:
   - md5: 3f9c91720393224195c66e01202976f9
     size: 2040659968
-  name: Dennou Senki - Virtual-On Marz (Japan)
-  serial: SLPM-65303
+  name: Dennou Senki - Virtual-On Marz (Japan, Korea)
+  serial: SCKA-20115
   version: '1.02'
 - hashes:
   - md5: 711bbbd93c148fc314d8da4bf1c0d584
@@ -19076,7 +19076,7 @@
 - hashes:
   - md5: 281027afa9ab350bcc4fb7c745fb6841
     size: 4303454208
-  name: Signore degli Anelli, Il - Il ritorno del Re (Italy)
+  name: Signore degli Anelli, Il - Il Ritorno del Re (Italy)
   serial: SLES-52021
   version: '1.00'
 - hashes:
@@ -19676,7 +19676,7 @@
 - hashes:
   - md5: 0b69b4d6925a7ce99ee8e73bd1721d34
     size: 2315419648
-  name: Fast and the Furious, The (USA)
+  name: Fast and the Furious, The (USA) (v1.01)
   serial: SLUS-21449
   version: '1.01'
 - hashes:
@@ -19748,7 +19748,7 @@
 - hashes:
   - md5: 8c60b5670dca98f89ed62aac350be01e
     size: 4627333120
-  name: Sims 2, The - Castaway (USA)
+  name: Sims 2, The - Castaway (USA, Canada)
   serial: SLUS-21664
   version: '1.00'
 - hashes:
@@ -20194,7 +20194,7 @@
 - hashes:
   - md5: 3c5c9717e8f21781f0751833a1ad39c4
     size: 1577975808
-  name: Juiced 2 - Hot Import Nights (USA)
+  name: Juiced 2 - Hot Import Nights (USA, Canada)
   serial: SLUS-21593
   version: '1.01'
 - hashes:
@@ -20218,7 +20218,7 @@
 - hashes:
   - md5: 1cda43af4beb779a1429fa9f1473235a
     size: 2786852864
-  name: Call of Duty - World at War - Final Fronts (USA) (En,Fr)
+  name: Call of Duty - World at War - Final Fronts (USA, Canada) (En,Fr)
   serial: SLUS-21746
   version: '1.00'
 - hashes:
@@ -20482,7 +20482,7 @@
 - hashes:
   - md5: 06811fd45d653d00d301ad1e5ebbf3ad
     size: 4094197760
-  name: Need for Speed - Most Wanted (Europe) (En,Fr,De,Es,It,Nl,Sv)
+  name: Need for Speed - Most Wanted (Europe) (En,Es,It)
   serial: SLES-53559
   version: '1.00'
 - hashes:
@@ -21049,7 +21049,7 @@
 - hashes:
   - md5: 6f31b0d128de49143e6ba5c3c23bd1c9
     size: 4322557952
-  name: NASCAR 09 (USA)
+  name: NASCAR 09 (USA, Canada)
   serial: SLUS-21744
   version: '1.01'
 - hashes:
@@ -21277,7 +21277,7 @@
 - hashes:
   - md5: 8d588f1c30310b00dfcd4a01975a64bc
     size: 4649287680
-  name: Monopoly (USA) (En,Fr)
+  name: Monopoly (USA, Canada) (En,Fr)
   serial: SLUS-21753
   version: '1.00'
 - hashes:
@@ -21493,7 +21493,7 @@
 - hashes:
   - md5: 8cc2c84be09533c18d8d34af67cebcb5
     size: 3757998080
-  name: TY the Tasmanian Tiger 2 - Bush Rescue (Europe) (En,Fr,De,Es,It,Sv,Da)
+  name: Ty the Tasmanian Tiger 2 - Bush Rescue (Europe) (En,Fr,De,Es,It,Sv,Da)
   serial: SLES-52709
   version: '1.00'
 - hashes:
@@ -21810,7 +21810,7 @@
 - hashes:
   - md5: dc064cb4d0767a10e8d1a1ef36ef602a
     size: 3698786304
-  name: Need for Speed - Undercover (USA) (En,Fr,Es)
+  name: Need for Speed - Undercover (USA, Canada) (En,Fr,Es)
   serial: SLUS-21801
   version: '1.00'
 - hashes:
@@ -21960,7 +21960,7 @@
 - hashes:
   - md5: f56b0a17680f43c95787383dbc731b89
     size: 2501378048
-  name: Dai-2-Ji Super Robot Taisen Alpha (Japan)
+  name: Dai-2-ji Super Robot Taisen Alpha (Japan)
   serial: SLPS-25228
   version: '1.08'
 - hashes:
@@ -22122,7 +22122,7 @@
 - hashes:
   - md5: b63b17b73292067d17ef0724cdbdf08f
     size: 2396880896
-  name: True Love Story - Summer Days, and Yet ... (Japan)
+  name: True Love Story - Summer Days, and Yet... (Japan)
   serial: SLPS-25245
   version: '1.01'
 - hashes:
@@ -22152,7 +22152,7 @@
 - hashes:
   - md5: 65f5d0f43e87a0f23001ec242cf577f7
     size: 3705667584
-  name: Need for Speed - ProStreet (USA)
+  name: Need for Speed - ProStreet (USA, Canada)
   serial: SLUS-21658
   version: '1.00'
 - hashes:
@@ -22512,8 +22512,8 @@
 - hashes:
   - md5: 59a8d0ce669d1afe25d512e7ed706043
     size: 4204003328
-  name: Final Fantasy XII International - Zodiac Job System (Japan)
-  serial: SLPM-55210
+  name: Final Fantasy XII International - Zodiac Job System (Japan, Korea)
+  serial: SCKA-20110
   version: '1.00'
 - hashes:
   - md5: 148911a360da34a8d5cb30f47215b0a8
@@ -22932,7 +22932,7 @@
 - hashes:
   - md5: 4113ca5d3681e4d04eb7b77d48d7190b
     size: 3004628992
-  name: Tourist Trophy (USA)
+  name: Tourist Trophy (USA, Canada)
   serial: SCUS-97502
   version: '1.00'
 - hashes:
@@ -23004,7 +23004,7 @@
 - hashes:
   - md5: 0e7f07cb7706d20d57339747dd384379
     size: 3757998080
-  name: TY the Tasmanian Tiger 2 - Bush Rescue (USA)
+  name: Ty the Tasmanian Tiger 2 - Bush Rescue (USA)
   serial: SLUS-21057
   version: '1.00'
 - hashes:
@@ -23192,7 +23192,7 @@
   - md5: 35335c4c081740a9f9909216ec7e2d30
     size: 442446480
   name: Puyo Puyo! (Japan)
-  serial: SLPM-62779
+  serial: SLPM-62754
   version: '1.01'
 - hashes:
   - md5: 7418d627c9de69ac62175d12dda3d23a
@@ -23235,7 +23235,7 @@
 - hashes:
   - md5: 470bfbc2cab52bc1dfed77f0814f6e4f
     size: 4383506432
-  name: TY the Tasmanian Tiger (USA) (En,Fr,De,Es)
+  name: Ty the Tasmanian Tiger (USA) (En,Fr,De,Es)
   serial: SLUS-20571
   version: '0.01'
 - hashes:
@@ -23649,7 +23649,7 @@
 - hashes:
   - md5: 70dd2bb750bc490776ff2a111a9d2f90
     size: 3778969600
-  name: TY the Tasmanian Tiger - Night of the Quinkan (Australia)
+  name: Ty the Tasmanian Tiger - Night of the Quinkan (Australia)
   serial: SLES-53636
   version: '1.00'
 - hashes:
@@ -24628,7 +24628,7 @@
 - hashes:
   - md5: 7feeb21fa57dbd14e77d54dc138e718e
     size: 2207940608
-  name: Una Serie de Catastroficas Desdichas de Lemony Snicket (Spain)
+  name: Serie de Catastroficas Desdichas de Lemony Snicket, Una (Spain)
   serial: SLES-52825
   version: '1.01'
 - hashes:
@@ -26412,7 +26412,7 @@
 - hashes:
   - md5: 3aa287fccf93c949e1929b0baa30e57e
     size: 536288928
-  name: Jurassic Park - Operation Genesis (Europe) (En,Fr,De,Es,It)
+  name: Jurassic Park - Operation Genesis (Europe, Australia) (En,Fr,De,Es,It)
   serial: SLES-51354
   version: '1.00'
 - hashes:
@@ -27186,7 +27186,7 @@
 - hashes:
   - md5: 6ece9cc2f090e275a7342a45f8acff0f
     size: 4256595968
-  name: DT Racer (USA)
+  name: DT Racer (USA, Canada)
   serial: SLUS-21095
   version: '1.01'
 - hashes:
@@ -27860,7 +27860,7 @@
 - hashes:
   - md5: b6d65af36b752dc33571a58e9d550f75
     size: 676962048
-  name: Tetris Worlds (Europe) (En,Fr,De)
+  name: Tetris Worlds (Europe, Australia) (En,Fr,De)
   serial: SLES-50551
   version: '1.00'
 - hashes:
@@ -27906,7 +27906,7 @@
 - hashes:
   - md5: b79f4c62e7c16d1d35ca599bf13e3e5f
     size: 378886032
-  name: Pool Master (Europe) (En,Fr,De)
+  name: Pool Master (Europe, Australia) (En,Fr,De)
   serial: SLES-50052
   version: '1.00'
 - hashes:
@@ -27978,8 +27978,8 @@
 - hashes:
   - md5: a23f3cb7d93f210566986394b4a2b330
     size: 2470608896
-  name: Dot Hack Akusei Hen'i Vol. 2 (Japan)
-  serial: SLPS-25143
+  name: Dot Hack Akusei Hen'i Vol. 2 (Japan, Asia)
+  serial: SCPS-55042
   version: '1.00'
 - hashes:
   - md5: 9bd15684053f4c2888856b4f5f982644
@@ -30421,9 +30421,9 @@
 - hashes:
   - md5: 807d9add85b11ba2beb8ca54411fa0d2
     size: 3237478400
-  name: Ratchet & Clank 4th - Giri Giri Ginga no Giga Battle (Japan) (Special Gift
-    Package)
-  serial: SCPS-15099
+  name: Ratchet & Clank 4th - Giri Giri Ginga no Giga Battle (Japan, Asia) (Special
+    Gift Package)
+  serial: SCAJ-20157
   version: '1.00'
 - hashes:
   - md5: cc8105973efd092d398635127886cb78
@@ -30597,7 +30597,7 @@
 - hashes:
   - md5: 49279a88b1c2105bf9ab8ab40616a3c0
     size: 2311651328
-  name: Zettai Zetsumei Toshi 2 - Itetsuita Kioku-tachi (Japan)
+  name: Zettai Zetsumei Toshi 2 - Itetsuita Kiokutachi (Japan)
   serial: SLPS-25606
   version: '1.02'
 - hashes:
@@ -30820,7 +30820,7 @@
 - hashes:
   - md5: fe41d69dd963edcd9073e3f36c53707f
     size: 3778969600
-  name: TY the Tasmanian Tiger - Night of the Quinkan (USA)
+  name: Ty the Tasmanian Tiger - Night of the Quinkan (USA)
   serial: SLUS-21253
   version: '1.00'
 - hashes:
@@ -31102,8 +31102,8 @@
 - hashes:
   - md5: c84a9aa52e6acf1cf9763aa0436077a4
     size: 3970072576
-  name: Tales of Destiny (Japan)
-  serial: SLPS-25715
+  name: Tales of Destiny (Japan, Korea)
+  serial: SCKA-20100
   version: '2.00'
 - hashes:
   - md5: 5faddded6be7340411368816d2752888
@@ -31427,20 +31427,20 @@
 - hashes:
   - md5: 24d5f51c6ae3d24599e6a7b4595a1dbb
     size: 4299980800
-  name: Ar Tonelico II - Sekai ni Hibiku Shoujo-tachi no Metafalica (Japan) (PlayStation
+  name: Ar Tonelico II - Sekai ni Hibiku Shoujotachi no Metafalica (Japan) (PlayStation
     2 the Best)
   serial: SLPS-73263
   version: '1.01'
 - hashes:
   - md5: 990907d446aaf40277e5f7ea549d7256
     size: 1902936064
-  name: Mana-Khemia - Gakuen no Renkinjutsushi-tachi (Japan)
+  name: Mana-Khemia - Gakuen no Renkinjutsushitachi (Japan)
   serial: SLPM-66748
   version: '1.03'
 - hashes:
   - md5: 90ae836a6912634bd748fa8b3470d1bd
     size: 2777088000
-  name: Mana-Khemia 2 - Ochita Gakuen to Renkinjutsushi-tachi (Japan) (Gust Best Price)
+  name: Mana-Khemia 2 - Ochita Gakuen to Renkinjutsushitachi (Japan) (Gust Best Price)
   serial: SLPM-55114
   version: '1.00'
 - hashes:
@@ -32063,7 +32063,7 @@
 - hashes:
   - md5: f047274ea7d6f0d64cd09d6af3849d6c
     size: 4698767360
-  name: Devil May Cry - Trial Edition Ver. 2 (Japan) (Taikenban 2)
+  name: Devil May Cry - Trial Edition Ver. 2 (Japan) (Taikenban) (SLPM-61010)
   serial: SLPM-61010
   version: '1.00'
 - hashes:
@@ -33733,7 +33733,7 @@
 - hashes:
   - md5: 636269927b0c32d5222aec7e71604b4c
     size: 1230733312
-  name: Konjiki no Gashbell!! Gekitou! Saikyou no Mamono-tachi (Japan)
+  name: Konjiki no Gashbell!! Gekitou! Saikyou no Mamonotachi (Japan)
   serial: SLPS-25440
   version: '1.03'
 - hashes:
@@ -33823,7 +33823,7 @@
 - hashes:
   - md5: 0fa1d3058a0f29988204004e60e18f66
     size: 1902936064
-  name: Mana-Khemia - Gakuen no Renkinjutsushi-tachi (Japan) (Gust Best Price)
+  name: Mana-Khemia - Gakuen no Renkinjutsushitachi (Japan) (Gust Best Price)
   serial: SLPM-66994
   version: '1.00'
 - hashes:
@@ -34191,7 +34191,7 @@
 - hashes:
   - md5: 7991a66ff3fb85e2a7742c086d8e7d39
     size: 4388290560
-  name: Soulcalibur III (Japan) (En,Ja) (v2.00)
+  name: Soulcalibur III (Japan) (v2.00)
   serial: SLPS-25577
   version: '2.00'
 - hashes:
@@ -35202,7 +35202,7 @@
 - hashes:
   - md5: 1b128546978e625d441c31fea1ec677f
     size: 1423409152
-  name: Suzuki TT Superbikes - Real Road Racing Championship (USA)
+  name: Suzuki TT Superbikes - Real Road Racing Championship (USA, Canada)
   serial: SLUS-21863
   version: '1.00'
 - hashes:
@@ -36695,7 +36695,7 @@
 - hashes:
   - md5: 1db90ed6137453eacc6d6cbb3c59886e
     size: 533268960
-  name: Ford Racing - Off Road (USA)
+  name: Ford Racing - Off Road (USA, Canada)
   serial: SLUS-21696
   version: '1.00'
 - hashes:
@@ -36717,7 +36717,7 @@
     size: 36479520
   - md5: 40da8b0082b370acd6c420c23bf60665
     size: 65402064
-  name: Dance Factory (USA)
+  name: Dance Factory (USA, Canada)
   serial: SLUS-21296
   version: '1.01'
 - hashes:
@@ -36915,7 +36915,7 @@
 - hashes:
   - md5: c09386e5270c3ca959ca4620b4305419
     size: 4696997888
-  name: Stuntman - Ignition (USA)
+  name: Stuntman - Ignition (USA, Canada)
   serial: SLUS-21626
   version: '1.00'
 - hashes:
@@ -36928,7 +36928,6 @@
   - md5: 511028f2180cdb7535abf169d542ec27
     size: 4687003648
   name: TOCA Race Driver 2 (USA)
-  serial: SLUS-21039
   version: '1.01'
 - hashes:
   - md5: bee7a0f187916491658e98c3b5c1bab4
@@ -37323,7 +37322,7 @@
 - hashes:
   - md5: 39ee599622318c5d0ec8a32cd87816d5
     size: 908132352
-  name: Saka Tsuku 2002 - J.League Pro Soccer Club o Tsukurou! (Japan)
+  name: Sakatsuku 2002 - J.League Pro Soccer Club o Tsukurou! (Japan)
   serial: SLPM-65109
   version: '1.02'
 - hashes:
@@ -37456,14 +37455,14 @@
 - hashes:
   - md5: e87f567273a7fd37c1061659c96bd4ca
     size: 2602172416
-  name: Armored Core - Nexus (Japan) (Disc 1) (Evolution)
-  serial: SLPS-25338
+  name: Armored Core - Nexus (Japan, Asia) (Disc 1) (Evolution)
+  serial: SCAJ-20076
   version: '1.06'
 - hashes:
   - md5: 823bbb5583408b267f9368ea2964de54
     size: 4049731584
-  name: Armored Core - Nexus (Japan) (Disc 2) (Revolution)
-  serial: SLPS-25339
+  name: Armored Core - Nexus (Japan, Asia) (Disc 2) (Revolution)
+  serial: SCAJ-20077
   version: '1.06'
 - hashes:
   - md5: 9e6149d8bd693383db2e88c55c446a33
@@ -37522,8 +37521,8 @@
 - hashes:
   - md5: 328052372b670d54925908522d3c70ca
     size: 1956151296
-  name: Kaitou Sly Cooper (Japan)
-  serial: SCPS-15036
+  name: Kaitou Sly Cooper (Japan, Asia)
+  serial: SCAJ-20017
   version: '1.02'
 - hashes:
   - md5: 7c75f1eef3e221305e5dccc9cba18089
@@ -37534,7 +37533,7 @@
 - hashes:
   - md5: 41104c57da5cd8c71947df9145a3ce53
     size: 4352966656
-  name: Ar Tonelico II - Sekai ni Hibiku Shoujo-tachi no Metafalica (Japan)
+  name: Ar Tonelico II - Sekai ni Hibiku Shoujotachi no Metafalica (Japan)
   serial: SLPS-25819
   version: '1.03'
 - hashes:
@@ -37594,8 +37593,8 @@
 - hashes:
   - md5: b684898977107972d31ba3dfee591f31
     size: 4677795840
-  name: Sengoku Basara 2 - Heroes (Japan)
-  serial: SLPM-66848
+  name: Sengoku Basara 2 - Heroes (Japan, Korea)
+  serial: SLKA-25412
   version: '1.02'
 - hashes:
   - md5: 6e345fc2ed462c56252d78699c79ffe4
@@ -37971,7 +37970,7 @@
 - hashes:
   - md5: 0126e61637af85e99c09a01f87893f65
     size: 730637040
-  name: Simple 2000 Series Vol. 100 - The Otoko-tachi no Kijuu Houza (Japan)
+  name: Simple 2000 Series Vol. 100 - The Otokotachi no Kijuu Houza (Japan)
   serial: SLPS-20465
   version: '1.03'
 - hashes:
@@ -38123,7 +38122,7 @@
 - hashes:
   - md5: 450f380a525c19912baece9eab23dfb7
     size: 3060367360
-  name: Disney-Pixar Cars - Mater-National Championship (USA)
+  name: Disney-Pixar Cars - Mater-National Championship (USA, Canada)
   serial: SLUS-21637
   version: '1.00'
 - hashes:
@@ -38789,7 +38788,7 @@
 - hashes:
   - md5: 5e6626629dab67455f1a1c7739856726
     size: 4209115136
-  name: Disney-Pixar Cars - Race-O-Rama (USA)
+  name: Disney-Pixar Cars - Race-O-Rama (USA, Canada)
   serial: SLUS-21883
   version: '1.00'
 - hashes:
@@ -39167,8 +39166,8 @@
 - hashes:
   - md5: f3cddd03f558a2e867026000d835c522
     size: 4698767360
-  name: Sonic Heroes (Japan) (En,Ja,Fr,De,Es,It)
-  serial: SLPM-65431
+  name: Sonic Heroes (Japan, Asia) (En,Ja,Fr,De,Es,It)
+  serial: SLAJ-25027
   version: '1.01'
 - hashes:
   - md5: 4aa0376b7a7b2a2c487e9aa9b97435b8
@@ -39269,7 +39268,7 @@
 - hashes:
   - md5: f21fdddab3891f5b67ca91c39455c6d6
     size: 3872030720
-  name: Driver - Parallel Lines (USA)
+  name: Driver - Parallel Lines (USA, Canada)
   serial: SLUS-21271
   version: '1.01'
 - hashes:
@@ -39299,7 +39298,7 @@
 - hashes:
   - md5: c1772d38cabcd2c7e3b4f020415c27af
     size: 1249804288
-  name: Pinball Hall of Fame - The Williams Collection (USA)
+  name: Pinball Hall of Fame - The Williams Collection (USA, Canada)
   serial: SLUS-21589
   version: '1.00'
 - hashes:
@@ -39455,7 +39454,7 @@
 - hashes:
   - md5: aa26f6514cbb2d603e9fe62dd5081e32
     size: 562861824
-  name: Raging Bless - Gouma Mokushiroku (Asia)
+  name: Raging Bless - Gouma Mokushiroku (Japan, Asia)
   serial: SCPS-51011
   version: '1.02'
 - hashes:
@@ -39515,7 +39514,7 @@
 - hashes:
   - md5: dd9aae3d1482ce7325e2682b29615076
     size: 3215917056
-  name: Mahou Sensei Negima! 2-jikanme - Tatakau Otome-tachi! Mahora Daiundoukai Special!
+  name: Mahou Sensei Negima! 2-jikanme - Tatakau Otometachi! Mahora Daiundoukai Special!
     (Japan) (Kin-medal-ban)
   serial: SLPM-66062
   version: '1.02'
@@ -39582,8 +39581,8 @@
 - hashes:
   - md5: bfc956b0bf03d6531ddc23eb40c83a6c
     size: 3216310272
-  name: V-Rally 3 (Japan) (En,Ja,Fr,De,Es,It) (v1.02)
-  serial: SLPM-65191
+  name: V-Rally 3 (Japan, Asia) (En,Ja,Fr,De,Es,It) (v1.02)
+  serial: SCAJ-20008
   version: '1.02'
 - hashes:
   - md5: 090f2409427ae8f1df482994ee54b005
@@ -39888,7 +39887,7 @@
 - hashes:
   - md5: 27ec5406aff8bbefec955b1f45cc1416
     size: 1278738432
-  name: MTV Pimp My Ride - Street Racing (USA)
+  name: MTV Pimp My Ride - Street Racing (USA, Canada)
   serial: SLUS-21872
   version: '1.00'
 - hashes:
@@ -40767,7 +40766,7 @@
 - hashes:
   - md5: c889e28844b55a06a8c5b385aebbb14c
     size: 2777088000
-  name: Mana-Khemia 2 - Ochita Gakuen to Renkinjutsushi-tachi (Japan)
+  name: Mana-Khemia 2 - Ochita Gakuen to Renkinjutsushitachi (Japan)
   serial: SLPM-55005
   version: '1.01'
 - hashes:
@@ -41121,7 +41120,7 @@
 - hashes:
   - md5: b6db16f7159620c5434e2901b36a68b8
     size: 2366210048
-  name: Spartan - Total Warrior (Australia) (Demo)
+  name: Spartan - Total Warrior (Europe, Australia) (Demo)
   serial: SLED-53732
   version: '1.00'
 - hashes:
@@ -41609,7 +41608,7 @@
 - hashes:
   - md5: 41e6adf7c008320b659f0888dcd69a32
     size: 1858404352
-  name: Sengoku-hime 2 - En - Hyakka, Senran Tatsukaze no Gotoku (Japan)
+  name: Sengoku Hime 2 - En - Hyakka, Senran Tatsukaze no Gotoku (Japan)
   serial: SLPM-55277
   version: '1.03'
 - hashes:
@@ -41634,13 +41633,13 @@
 - hashes:
   - md5: 42b1a0c850eb9df78f1ffc308869166e
     size: 4133060608
-  name: Koi-hime Musou - Doki Otome Darake no Sangokushi Engi (Japan)
+  name: Koihime Musou - Doki Otome Darake no Sangokushi Engi (Japan)
   serial: SLPM-55067
   version: '1.02'
 - hashes:
   - md5: f54b17a4639e20f9b2322106a7c66b51
     size: 4032102400
-  name: Crimson Empire (Japan)
+  name: Crimson Empire - Circumstances to Serve a Noble (Japan)
   serial: SLPM-55285
   version: '1.04'
 - hashes:
@@ -41725,7 +41724,7 @@
 - hashes:
   - md5: 1113b1fe050f117aa93054389e1df7f7
     size: 3116302336
-  name: Strawberry Panic! (Japan)
+  name: Strawberry Panic! (Japan) (Shokai Genteiban)
   serial: SLPS-25611
   version: '1.02'
 - hashes:
@@ -41810,7 +41809,7 @@
 - hashes:
   - md5: 8c07cc334b5c296e371b8f23141fd3f0
     size: 4253253632
-  name: Akane-iro ni Somaru Saka - Parallel (Japan)
+  name: Akaneiro ni Somaru Saka - Parallel (Japan)
   serial: SLPM-55006
   version: '1.01'
 - hashes:
@@ -41864,7 +41863,7 @@
 - hashes:
   - md5: 95e01e2c5402beafb5a0318a40e0f438
     size: 1962573824
-  name: Gunslinger Girl. Volume.III (Japan)
+  name: Gunslinger Girl. Volume. III (Japan)
   serial: SLPS-25388
   version: '1.00'
 - hashes:
@@ -41876,7 +41875,7 @@
 - hashes:
   - md5: 779df971a8f798fd32830000f976b3fc
     size: 2265743360
-  name: Gunslinger Girl. Volume.I (Japan)
+  name: Gunslinger Girl. Volume. I (Japan)
   serial: SLPS-25343
   version: '1.00'
 - hashes:
@@ -42364,7 +42363,7 @@
     size: 2906259456
   name: Simple 2000 Series Vol. 122 - Onna no Ko Sen'you - The Ningyo-hime Monogatari
     - Mermaid Prism (Japan)
-  serial: SLPS-25833
+  serial: SLPS-25696
   version: '2.00'
 - hashes:
   - md5: a882e53b186d1d1fec506854fd5f7e5c
@@ -42865,7 +42864,7 @@
 - hashes:
   - md5: 9da0d43898580123e37fb421d9ae2f63
     size: 1944879104
-  name: Dabi Tsuku 3 - Derby-ba o Tsukurou! (Japan)
+  name: Dabitsuku 3 - Derby-ba o Tsukurou! (Japan)
   serial: SLPM-65420
   version: '1.01'
 - hashes:
@@ -42895,8 +42894,8 @@
 - hashes:
   - md5: f61c6bfb52ba356b670e1c8e56ae7b3f
     size: 3103686656
-  name: Shutokou Battle 01 (Japan)
-  serial: SLPM-65308
+  name: Shutokou Battle 01 (Japan, Asia)
+  serial: SLAJ-25018
   version: '1.04'
 - hashes:
   - md5: e5474a66fdd37293593f9fb0f680b820
@@ -42980,7 +42979,7 @@
 - hashes:
   - md5: 6b019eb4690af71eca0a16d0c1c6744e
     size: 1606418432
-  name: Gunslinger Girl. Volume.II (Japan)
+  name: Gunslinger Girl. Volume. II (Japan)
   serial: SLPS-25373
   version: '1.00'
 - hashes:
@@ -43052,8 +43051,8 @@
 - hashes:
   - md5: d68e578073c7371a06411abdf8bd69c3
     size: 2542043136
-  name: Sengoku Musou 2 - Empires (Japan)
-  serial: SLPM-66542
+  name: Sengoku Musou 2 - Empires (Japan, Korea)
+  serial: SLKA-25398
   version: '1.01'
 - hashes:
   - md5: 48f576f6a410030ef4c2477eb4a35552
@@ -43064,7 +43063,7 @@
 - hashes:
   - md5: edd38a9db05029361e937ee6beed269f
     size: 4694048768
-  name: Utawareru Mono - Chiri Yuku Mono e no Komori-uta (Japan) (Shokai Genteiban)
+  name: Utawarerumono - Chiri Yuku Mono e no Komoriuta (Japan) (Shokai Genteiban)
   serial: SLPS-25678
   version: '1.04'
 - hashes:
@@ -44238,7 +44237,7 @@
 - hashes:
   - md5: 34d981b3883eaeb95c82fbed14dcad26
     size: 3115188224
-  name: Harukanaru Toki no Naka de 3 (Japan) (History Box)
+  name: Harukanaru Toki no Naka de 3 (Japan) (SLPM-65849)
   serial: SLPM-65849
   version: '1.02'
 - hashes:
@@ -44292,7 +44291,7 @@
 - hashes:
   - md5: 2a35f25e50d8544f8fce0ccc366a3454
     size: 1255309312
-  name: Hoshi-iro no Okurimono (Japan) (Shokai Special Genteiban)
+  name: Hoshiiro no Okurimono (Japan) (Shokai Special Genteiban)
   serial: SLPM-66870
   version: '1.01'
 - hashes:
@@ -44568,7 +44567,7 @@
   - md5: c31ea4946dc857b1c86378df29578de0
     size: 1372618752
   name: Aa Megami-sama (Japan)
-  serial: SLPS-25894
+  serial: SLPS-25743
   version: '1.02'
 - hashes:
   - md5: 7c3329fc6a34a8c7a07d96556191ee11
@@ -44725,7 +44724,7 @@
 - hashes:
   - md5: ef707544a08eb18936f6b699e03d389e
     size: 4536107008
-  name: Kessen (Japan) (Super Value Set)
+  name: Kessen (Japan) (v2.10)
   serial: SLPM-65030
   version: '2.10'
 - hashes:
@@ -45455,12 +45454,12 @@
   - md5: 98b6bca21fdda67248a6a4843dfb1ed2
     size: 2293530624
   name: Final Fantasy XI - Online (Japan)
-  serial: SLPS-25200
+  serial: SLPS-25160
   version: '1.01'
 - hashes:
   - md5: 35a276e82e8a3734c5b72de9717acd64
     size: 629454000
-  name: Fish Eyes 3 - Kioku no Hahen-tachi (Japan)
+  name: Fish Eyes 3 - Kioku no Hahentachi (Japan)
   serial: SLPS-20291
   version: '1.01'
 - hashes:
@@ -45718,7 +45717,7 @@
 - hashes:
   - md5: 872b8c72690b048d75dc4fee688595cc
     size: 1273266176
-  name: After... Wasureenu Kizuna (Japan)
+  name: After... Wasureenu Kizuna (Japan) (Shokai Genteiban)
   serial: SLPM-65481
   version: '1.03'
 - hashes:
@@ -46043,8 +46042,8 @@
 - hashes:
   - md5: 534d16cf3013762847e8c48c11150783
     size: 1847754752
-  name: Jikkyou Powerful Major League 3 (Japan)
-  serial: SLPM-55062
+  name: Jikkyou Powerful Major League 3 (Japan, Asia)
+  serial: SLAJ-25109
   version: '1.01'
 - hashes:
   - md5: b69812eb4014a234a4653baa9966c368
@@ -46055,7 +46054,7 @@
 - hashes:
   - md5: e02a912f466227bb6d4c5494afa93070
     size: 3215917056
-  name: Mahou Sensei Negima! 2-jikanme - Tatakau Otome-tachi! Mahora Daiundoukai Special!
+  name: Mahou Sensei Negima! 2-jikanme - Tatakau Otometachi! Mahora Daiundoukai Special!
     (Japan) (Gin-medal-ban)
   serial: SLPM-66063
   version: '1.02'
@@ -46122,7 +46121,7 @@
 - hashes:
   - md5: a47d47328921974766a663313334eb20
     size: 4510023680
-  name: Fate-stay night - Realta Nua (Japan) (Extra Edition)
+  name: Fate-Stay Night - Realta Nua (Japan) (Extra Edition)
   serial: SLPM-66512
   version: '1.03'
 - hashes:
@@ -46416,7 +46415,7 @@
 - hashes:
   - md5: 4808771239e08991595f5ebc96661112
     size: 2963406848
-  name: Ever 17 - The Out of Infinity (Japan) (Infinity Plus)
+  name: Ever 17 - The Out of Infinity (Japan) (Ren'ai Game Selection)
   serial: SLPM-55086
   version: '1.00'
 - hashes:
@@ -46446,7 +46445,7 @@
 - hashes:
   - md5: 1c0d37e28e83283e068137b32b863287
     size: 3427991552
-  name: Remember11 - The Age of Infinity (Japan) (Infinity Plus)
+  name: Remember 11 - The Age of Infinity (Japan) (Infinity Plus)
   serial: SLPM-55087
   version: '1.00'
 - hashes:
@@ -46487,7 +46486,7 @@
 - hashes:
   - md5: ece42aa3df0c011647afd84926a02b6b
     size: 1262354432
-  name: Taiheiyou no Arashi - Senkan Yamato, Akatsuki ni Shutsugeki su! (Japan)
+  name: Taiheiyou no Arashi - Senkan Yamato, Akatsuki ni Shutsugeki Su! (Japan)
   serial: SLPS-25954
   version: '1.04'
 - hashes:
@@ -46511,7 +46510,7 @@
 - hashes:
   - md5: 4530ac3960a57d4b7e6549bc8428971a
     size: 1730183168
-  name: Kaze-iro Surf (Japan)
+  name: Kazeiro Surf (Japan)
   serial: SLPM-55167
   version: '1.01'
 - hashes:
@@ -46565,7 +46564,7 @@
 - hashes:
   - md5: 4cccd06a4d6d637752428c6ca144fda0
     size: 2370797568
-  name: Natsu-iro no Sunadokei (Japan)
+  name: Natsuiro no Sunadokei (Japan)
   serial: SLPM-65136
   version: '1.02'
 - hashes:
@@ -46973,7 +46972,7 @@
 - hashes:
   - md5: ebfb3f104b823076cbdf560c13711327
     size: 1256194048
-  name: EyeToy - Play (Korea)
+  name: EyeToy - Play (Korea) (v1.02)
   serial: SCKA-20017
   version: '1.02'
 - hashes:
@@ -47015,7 +47014,7 @@
 - hashes:
   - md5: b8b521a03c251955151456ff625406f3
     size: 2296709120
-  name: Bistro Cupid 2 (Japan) (Tokubetsu-ban)
+  name: Bistro Cupid 2 (Japan) (Tokubetsuban)
   serial: SLPM-65347
   version: '1.01'
 - hashes:
@@ -47082,7 +47081,7 @@
   - md5: b431e3e0ee10fcdb14d614a660680936
     size: 1273462784
   name: Sumomomo Momomo - Chijou Saikyou no Yome - Keishou Shimasho! Koi no Hanamuko
-    Soudatsu-sen!! (Japan)
+    Soudatsusen!! (Japan)
   serial: SLPS-25778
   version: '1.01'
 - hashes:
@@ -47106,8 +47105,8 @@
 - hashes:
   - md5: 2b84914c27562c8f34a997d729fb0687
     size: 1229389824
-  name: Samurai Spirits Zero (Japan)
-  serial: SLPS-25346
+  name: Samurai Spirits Zero (Japan, Asia)
+  serial: SCAJ-20092
   version: '1.02'
 - hashes:
   - md5: b34274984cb5828dabceeb07fc58cc69
@@ -47370,7 +47369,7 @@
 - hashes:
   - md5: 741475e9a43a794c25900d4360ae0aa7
     size: 2068414464
-  name: Zeonic Front - Kidou Senshi Gundam 0079 (Japan) (Tokubetsu-ban)
+  name: Zeonic Front - Kidou Senshi Gundam 0079 (Japan) (Tokubetsuban)
   serial: SLPM-68502
   version: '1.01'
 - hashes:
@@ -47714,7 +47713,7 @@
 - hashes:
   - md5: 43e520fb47eae8bfeb98f9675de341af
     size: 1646854144
-  name: Di Gi Charat Fantasy Excellent (Japan) (Standard-ban)
+  name: Di Gi Charat Fantasy Excellent (Japan)
   serial: SLPM-65396
   version: '1.02'
 - hashes:
@@ -47786,7 +47785,7 @@
 - hashes:
   - md5: 7a65c52c7fb335baf2884d60f7132475
     size: 3982557184
-  name: Moe Moe 2-Ji Taisen (Ryaku) 2 (Japan)
+  name: Moe Moe 2-ji Taisen (Ryaku) 2 (Japan)
   serial: SLPS-25955
   version: '1.01'
 - hashes:
@@ -48008,7 +48007,7 @@
 - hashes:
   - md5: 0642bfc7b2d3666254ed8ca2c21ff1a2
     size: 391459824
-  name: Simple 2000 Series Vol. 102 - The Hohei - Senjou no Inu-tachi (Japan)
+  name: Simple 2000 Series Vol. 102 - The Hohei - Senjou no Inutachi (Japan)
   serial: SLPS-20467
   version: '1.03'
 - hashes:
@@ -49407,7 +49406,7 @@
 - hashes:
   - md5: bf63ab07b0f71edfb76285eecd78cd9f
     size: 3564732416
-  name: Harukanaru Toki no Naka de 3 - Izayoiki (Japan) (Triple Pack)
+  name: Harukanaru Toki no Naka de 3 - Izayoiki (Japan) (Twin Pack)
   serial: SLPM-66127
   version: '1.03'
 - hashes:
@@ -49510,7 +49509,7 @@
 - hashes:
   - md5: a115aaf76be41435b5981857ee2fcb79
     size: 323665776
-  name: Tekkouki Mikazuki (Japan) (Taikenban)
+  name: Tekkouki Mikazuki (Japan) (Trial Edition)
   serial: SLPM-60143
   version: '1.00'
 - hashes:
@@ -49775,7 +49774,7 @@
 - hashes:
   - md5: e001771b2394d5d63028c4f907cb1503
     size: 1420460032
-  name: Winning Post 7 Maximum 2007 (Japan) (v1.00)
+  name: Winning Post 7 Maximum 2007 (Japan) (Premium Pack)
   serial: SLPM-66904
   version: '1.00'
 - hashes:
@@ -50362,7 +50361,7 @@
 - hashes:
   - md5: 7329a71f2f70f5e224cb52ecbdaaa175
     size: 4698767360
-  name: Devil May Cry - Trial Edition Ver. 2 (Japan) (Taikenban 1)
+  name: Devil May Cry - Trial Edition Ver. 2 (Japan) (Taikenban) (SLPM-61008)
   serial: SLPM-61008
   version: '1.10'
 - hashes:
@@ -50689,7 +50688,7 @@
 - hashes:
   - md5: b4003be9d2f07ca3e31648d3d91366fa
     size: 2980216832
-  name: Armored Core - Last Raven (Japan) (Champion Tokubetsu-ban)
+  name: Armored Core - Last Raven (Japan) (Champion Tokubetsuban)
   serial: SLPM-68520
   version: '1.01'
 - hashes:
@@ -50757,7 +50756,7 @@
 - hashes:
   - md5: 4cd80de89bb55821d877a01b54c992b1
     size: 1976401920
-  name: Dabi Tsuku 4 - Derby-ba o Tsukurou! (Japan)
+  name: Dabitsuku 4 - Derby-ba o Tsukurou! (Japan)
   serial: SLPM-65808
   version: '1.01'
 - hashes:
@@ -50829,7 +50828,7 @@
 - hashes:
   - md5: 57899c048e0abebccc780d065025cbe2
     size: 469929600
-  name: PlayStation BB Navigator - Version 0.10 (Prerelease) (Japan) (Disc 2) (SCPN-60103)
+  name: PlayStation BB Navigator - Version 0.10 - Prerelease (Japan) (Disc 2) (So-net)
   serial: SCPN-60103
 - hashes:
   - md5: 10c30143ba90a8450ce3271378a320eb
@@ -51606,7 +51605,7 @@
 - hashes:
   - md5: 0c756ca8645512f60d660bb1294aa22f
     size: 469929600
-  name: PlayStation BB Navigator - Version 0.10 (Prerelease) (Japan) (Disc 2) (SCPN-60111)
+  name: PlayStation BB Navigator - Version 0.10 - Prerelease (Japan) (Disc 2) (isao.net)
   serial: SCPN-60111
 - hashes:
   - md5: bebcf37750a7b9d2b64cee4c3b31d9ea
@@ -52676,13 +52675,13 @@
 - hashes:
   - md5: a519f419ccb960504f93d585eaa3bc2e
     size: 4369907712
-  name: A Visual Mix - Ayumi Hamasaki Dome Tour 2001 A (Japan) (Disc 1)
+  name: A Visual Mix - Ayumi Hamasaki Dome Tour 2001 A (Japan) (Disc 1) (SLPM-65086)
   serial: SLPM-65086
   version: '1.60'
 - hashes:
   - md5: 09467c657d4f4d361e703197b2be655d
     size: 4267835392
-  name: A Visual Mix - Ayumi Hamasaki Dome Tour 2001 A (Japan) (Disc 2)
+  name: A Visual Mix - Ayumi Hamasaki Dome Tour 2001 A (Japan) (Disc 2) (SLPM-65087)
   serial: SLPM-65087
   version: '1.60'
 - hashes:
@@ -53115,7 +53114,7 @@
   - md5: 7bdadbd850f580ae59c470bc401f79f2
     size: 4366565376
   name: Angel Profile (Japan)
-  serial: SLPM-66709
+  serial: SLPM-55085
   version: '1.01'
 - hashes:
   - md5: 44e58a290643b1bece1c21016a654095
@@ -53234,13 +53233,13 @@
 - hashes:
   - md5: e3005d2e8b42a0da54561839ff247018
     size: 1711472640
-  name: Iron Eagle Max (Europe) (En,Fr,De) (Beta) (2002-01-09)
+  name: Iron Eagle Max (Europe) (En,Fr,De) (Proto) (2002-01-09)
   serial: SLES-50652
   version: '1.00'
 - hashes:
   - md5: d0cffa3f30ba273ebf234537fd0384fc
     size: 237801312
-  name: Polaroid Pete (Europe) (Beta) (2002-01-09)
+  name: Polaroid Pete (Europe) (Proto) (2002-01-09)
   serial: SLES-50557
   version: '1.00'
 - hashes:
@@ -53876,7 +53875,7 @@
 - hashes:
   - md5: cb99074684fc9e79afaef979ca93aa54
     size: 1490190336
-  name: Gran Turismo 4 (Europe) (BMW 1 Series Virtual Drive)
+  name: Gran Turismo 4 (Europe) (En,Fr,De,Es,It) (BMW 1 Series Virtual Drive)
   serial: SCED-52681
   version: '1.00'
 - hashes:
@@ -54848,7 +54847,7 @@
 - hashes:
   - md5: e0b5108848447dcc3d7370515d9b096c
     size: 427525392
-  name: Sui Sui Sweet - Amai Koi no Mitsuke-kata (Japan)
+  name: Sui Sui Sweet - Amai Koi no Mitsukekata (Japan)
   serial: SLPM-62437
   version: '1.02'
 - hashes:
@@ -54890,7 +54889,7 @@
 - hashes:
   - md5: 396b4a2bf89b4c3c88951d83785f0634
     size: 730164288
-  name: Zettai Zetsumei Toshi 2 - Itetsuita Kioku-tachi (Japan) (Taikenban Type-B)
+  name: Zettai Zetsumei Toshi 2 - Itetsuita Kiokutachi (Japan) (Taikenban Type-B)
   serial: SLPM-60273
   version: '1.01'
 - hashes:
@@ -54974,7 +54973,7 @@
 - hashes:
   - md5: 6b5d9e6ce966a3f7feb17efd3cb6367b
     size: 1440612352
-  name: Princess Princess - Hime-tachi no Abunai Houkago (Japan)
+  name: Princess Princess - Himetachi no Abunai Houkago (Japan)
   serial: SLPS-25694
   version: '1.01'
 - hashes:
@@ -55476,7 +55475,7 @@
 - hashes:
   - md5: 93c0e74bd7a055ff2360916e147521fe
     size: 705783456
-  name: SX Superstar (USA) (Beta) (2003-04-21)
+  name: SX Superstar (USA) (Proto) (2003-04-21)
   serial: SLUS-20600
   version: '1.00'
 - hashes:
@@ -55548,7 +55547,7 @@
 - hashes:
   - md5: 8486da720897ae09a9e4fcb544314102
     size: 4413456384
-  name: Combat Elite - WWII Paratroopers (Europe) (Beta) (2004-05-12)
+  name: Combat Elite - WWII Paratroopers (Europe) (Proto) (2004-05-12)
   serial: SLES-52392
   version: '1.00'
 - hashes:
@@ -55632,8 +55631,8 @@
 - hashes:
   - md5: dd7676f98bfce355c91744aea3e6cee5
     size: 4562354176
-  name: MLB 2004 (Japan)
-  serial: SCPS-15068
+  name: MLB 2004 (Japan, Asia)
+  serial: SCAJ-20084
   version: '1.00'
 - hashes:
   - md5: dcb00fc4e79ea1210143a9aff085c466
@@ -56252,7 +56251,7 @@
 - hashes:
   - md5: 3354f4b4648ada0e5b28dd471be13bfc
     size: 594282192
-  name: Zettai Zetsumei Toshi 2 - Itetsuita Kioku-tachi (Japan) (Taikenban Type-A)
+  name: Zettai Zetsumei Toshi 2 - Itetsuita Kiokutachi (Japan) (Taikenban Type-A)
   serial: SLPM-60254
   version: '1.02'
 - hashes:
@@ -56276,7 +56275,7 @@
 - hashes:
   - md5: db714eb23d39bb15dc7cfd893b78c826
     size: 1230897152
-  name: Viewtiful Joe 2 - Black Film no Nazo (Japan) (Tokubetsu Taikenban)
+  name: Viewtiful Joe 2 - Black Film no Nazo (Japan) (Tokubetsu Taikenban) (2004-08-25)
   serial: SLPM-61094
   version: '1.00'
 - hashes:
@@ -56673,8 +56672,8 @@
 - hashes:
   - md5: b1a5324e502572590b5e6a7cb0028ed7
     size: 3534880768
-  name: King of Fighters 2002, The (Japan)
-  serial: SLPS-25347
+  name: King of Fighters 2002, The (Japan, Asia)
+  serial: SCAJ-20074
   version: '1.02'
 - hashes:
   - md5: 7316a553462cfe847fc921bc3f81d3fb
@@ -56727,7 +56726,7 @@
 - hashes:
   - md5: 63a42fc12168a9041c37e7a276c8b37e
     size: 806217728
-  name: Gravenville - Ghost Master Chronicles (USA) (Beta) (2004-05-07)
+  name: Gravenville - Ghost Master Chronicles (USA) (Proto) (2004-05-07)
   serial: SLUS-20466
   version: '1.00'
 - hashes:
@@ -57332,7 +57331,7 @@
 - hashes:
   - md5: 52ad37290e903826c72c2e1f0c3c3330
     size: 1228832768
-  name: Kappa no Kai-kata - How to Breed Kappas (Japan)
+  name: Kappa no Kaikata - How to Breed Kappas (Japan)
   serial: SLPM-65629
   version: '1.03'
 - hashes:
@@ -58098,7 +58097,7 @@
 - hashes:
   - md5: a5ad013a399d28a77a9be8f039aa2174
     size: 538375152
-  name: Simple 2000 Series Vol. 80 - The OneeChamploo - The Nee-chan Tokubetsu-hen
+  name: Simple 2000 Series Vol. 80 - The OneeChamploo - The Neechan Tokubetsu-hen
     (Japan)
   serial: SLPM-62638
   version: '1.00'
@@ -58388,7 +58387,7 @@
 - hashes:
   - md5: e18d8a352fbc3038800e8fb3faf3cf41
     size: 3937730560
-  name: Natural 2 - Duo - Sakura-iro no Kisetsu (Japan)
+  name: Natural 2 - Duo - Sakurairo no Kisetsu (Japan)
   serial: SLPM-65772
   version: '1.01'
 - hashes:
@@ -58703,7 +58702,7 @@
 - hashes:
   - md5: 895015bb02151c66c9dd94e695abd830
     size: 3962732544
-  name: San Guo Zhi Zhan Ji (Taiwan)
+  name: Sanguozhi Zhanji (Taiwan)
   serial: SLPM-65162
   version: '1.01'
 - hashes:
@@ -59402,7 +59401,7 @@
 - hashes:
   - md5: 3772f57c6eb63a065c4455918531c07a
     size: 3712548864
-  name: Pachi Para 14 - Kaze to Kumo to Super Umi in Okinawa (Japan)
+  name: Pachi Para 14 - Kaze to Kumo to Super Umi in Okinawa (Japan) (v1.02)
   serial: SLPS-25787
   version: '1.02'
 - hashes:
@@ -59432,13 +59431,13 @@
 - hashes:
   - md5: 8b2482bde3f4e88e4b2b8e896427017d
     size: 2199781376
-  name: Shoujo Yoshitsune-den (Japan) (Tokubetsu-ban)
+  name: Shoujo Yoshitsune-den (Japan) (Tokubetsuban)
   serial: SLPM-65363
   version: '1.01'
 - hashes:
   - md5: 68605d0f53e7218ec51602ed527882a5
     size: 1727889408
-  name: Shoujo Yoshitsune-den Ni - Toki o Koeru Chigiri (Japan) (Tokubetsu-ban)
+  name: Shoujo Yoshitsune-den Ni - Toki o Koeru Chigiri (Japan) (Tokubetsuban)
   serial: SLPM-65988
   version: '1.02'
 - hashes:
@@ -59588,13 +59587,13 @@
 - hashes:
   - md5: 70a50cd40910d76d23e436c5c236b0da
     size: 3389161472
-  name: Remember11 - The Age of Infinity (Japan)
+  name: Remember 11 - The Age of Infinity (Japan)
   serial: SLPM-65550
   version: '1.02'
 - hashes:
   - md5: 60e205af6a58b3e778812dffcabaf27d
     size: 3429826560
-  name: SuperLite 2000 Vol. 31 - Remember11 - The Age of Infinity (Japan)
+  name: SuperLite 2000 Vol. 31 - Remember 11 - The Age of Infinity (Japan)
   serial: SLPM-65994
   version: '1.00'
 - hashes:
@@ -60031,7 +60030,7 @@
   - md5: 754d58384122b49204c4a7aaaaf4268e
     size: 732081168
   name: Train Kit for A Ressha de Ikou 2001 (Japan)
-  serial: SLPS-20238
+  serial: SLPS-20166
   version: '1.20'
 - hashes:
   - md5: e232fec12937dc21ceae23eb9c7bea89
@@ -60054,7 +60053,7 @@
 - hashes:
   - md5: 81b5e0add3f2a6b466a3673f13df6d3a
     size: 751990848
-  name: Shin Contra (Korea) (En,Fr,De,Es,It)
+  name: Jin Hondura (Korea) (En,Fr,De,Es,It)
   serial: SLPM-64551
   version: '1.00'
 - hashes:
@@ -60127,13 +60126,13 @@
 - hashes:
   - md5: 4848aec0321cd6e9b202e553873ca9d9
     size: 4369907712
-  name: A Visual Mix - Ayumi Hamasaki Dome Tour 2001 A (Japan) (Disc 1) (Alt)
+  name: A Visual Mix - Ayumi Hamasaki Dome Tour 2001 A (Japan) (Disc 1) (SLPS-25071)
   serial: SLPS-25071
   version: '1.60'
 - hashes:
   - md5: c2f0ecc8263b26e6fbec640347c62202
     size: 4267835392
-  name: A Visual Mix - Ayumi Hamasaki Dome Tour 2001 A (Japan) (Disc 2) (Alt)
+  name: A Visual Mix - Ayumi Hamasaki Dome Tour 2001 A (Japan) (Disc 2) (SLPS-25072)
   serial: SLPS-25072
   version: '1.60'
 - hashes:
@@ -61074,7 +61073,7 @@
   - md5: 74575c4fe64ac8357acc102d4eed3c1c
     size: 2291007488
   name: Jet de Go! 2 (Japan)
-  serial: SLPM-74407
+  serial: SLPM-65108
   version: '1.03'
 - hashes:
   - md5: 9e863d32008d34d3871d63406b6363cc
@@ -61103,7 +61102,7 @@
 - hashes:
   - md5: a0d1def77c76258e8eb05167fe198933
     size: 3743776768
-  name: Kidou Senshi Gundam (Japan) (Tokubetsu-ban)
+  name: Kidou Senshi Gundam (Japan) (Tokubetsuban)
   serial: SLPM-68501
   version: '1.00'
 - hashes:
@@ -61859,7 +61858,7 @@
 - hashes:
   - md5: e1208d3b4712227b73dbd6c327bf2dd6
     size: 4694048768
-  name: Utawareru Mono - Chiri Yuku Mono e no Komori-uta (Japan)
+  name: Utawarerumono - Chiri Yuku Mono e no Komoriuta (Japan)
   serial: SLPS-25679
   version: '1.04'
 - hashes:
@@ -62049,7 +62048,7 @@
 - hashes:
   - md5: fde9b2e3fd3a5982af593f983e8b08cf
     size: 3389161472
-  name: Remember11 - The Age of Infinity (Japan) (Shokai Genteiban)
+  name: Remember 11 - The Age of Infinity (Japan) (Shokai Genteiban)
   serial: SLPM-65549
   version: '1.02'
 - hashes:
@@ -62483,7 +62482,7 @@
 - hashes:
   - md5: 4663d817b80f96793b94977fe39b3684
     size: 4658987008
-  name: Champions of Norrath - Realms of Everquest (USA) (Beta) (2003-10-29)
+  name: Champions of Norrath - Realms of EverQuest (USA) (Beta) (2003-10-29)
   serial: SLUS-29085
   version: '1.01'
 - hashes:
@@ -62519,7 +62518,7 @@
 - hashes:
   - md5: f92ea76021f7e93c50a6fb4ced61304d
     size: 1989869568
-  name: Gen Houzi Wan Ba! Shouwu Zuta Nao Fantian!! (Asia)
+  name: EyeToy - Gen Houzi Wan Ba! Shouwu Zuta Nao Fantian!! (Asia)
   serial: SCAJ-20101
   version: '1.00'
 - hashes:
@@ -63083,7 +63082,7 @@
 - hashes:
   - md5: e7e3d76fd197cb23f331a3c6bce97c68
     size: 2107899904
-  name: Sengoku-hime - Senran ni Mau Otome-tachi (Japan)
+  name: Sengoku Hime - Senran ni Mau Otometachi (Japan)
   serial: SLPM-55218
   version: '1.01'
 - hashes:
@@ -63342,7 +63341,7 @@
 - hashes:
   - md5: a840fb500e80cc45ac117a377c21da5d
     size: 744600864
-  name: Simple 2000 Series Vol. 101 - The OneeChampon - The Nee-chan 2 Tokubetsu-hen
+  name: Simple 2000 Series Vol. 101 - The OneeChampon - The Neechan 2 Tokubetsu-hen
     (Japan)
   serial: SLPS-20466
   version: '1.01'
@@ -63683,7 +63682,7 @@
 - hashes:
   - md5: 0578c15844eea3e6959ad0907582de84
     size: 3475636224
-  name: Moe Moe 2-Ji Taisen (Ryaku) Deluxe (Japan)
+  name: Moe Moe 2-ji Taisen (Ryaku) Deluxe (Japan)
   serial: SLPS-25977
   version: '1.01'
 - hashes:
@@ -63967,7 +63966,7 @@
 - hashes:
   - md5: 59a92f34b24c3c47438989a020c8b300
     size: 142009056
-  name: Max Drive (USA) (Unl)
+  name: Max Drive (USA) (Unl) (v1.33)
   version: 1.33 (American)
 - hashes:
   - md5: 824f4fef9621a9c3fd0ce41e20e54982
@@ -64530,7 +64529,7 @@
 - hashes:
   - md5: 674552415c8e2e14b4b434e069d81674
     size: 469929600
-  name: PlayStation BB Navigator - Version 0.10 (Prerelease) (Japan) (Disc 2) (SCPN-60110)
+  name: PlayStation BB Navigator - Version 0.10 - Prerelease (Japan) (Disc 2) (plala)
   serial: SCPN-60110
 - hashes:
   - md5: 566f62d61285d1532b8a0b0bf583572b
@@ -64547,7 +64546,7 @@
 - hashes:
   - md5: 62c6e843b8e4ab3a06c939701074c368
     size: 4672782336
-  name: Terminator 3 - Rise of the Machines (Asia)
+  name: Terminator 3 - Rise of the Machines (Japan, Asia)
   serial: SCAJ-20058
   version: '1.01'
 - hashes:
@@ -64957,7 +64956,7 @@
 - hashes:
   - md5: da17be1849a26e73a9ca47826ce62d01
     size: 4625367040
-  name: Moekan - Moe Musume Shima e Youkoso (Japan)
+  name: Moekan - Moekko-jima e Youkoso (Japan)
   serial: SLPM-65425
   version: '1.03'
 - hashes:
@@ -65065,7 +65064,7 @@
 - hashes:
   - md5: 7738d96c2cbb8a6098f4ff9f6b5e34de
     size: 4698767360
-  name: Canary - Kono Omoi o Uta ni Nosete (Japan) (New Best Collection)
+  name: Canary - Kono Omoi o Uta ni Nosete (Japan)
   serial: SLPS-25219
   version: '1.02'
 - hashes:
@@ -65616,7 +65615,7 @@
 - hashes:
   - md5: 9954ea07d64aacb4a9b31e21c3a0cd92
     size: 2973368320
-  name: Utau - Tumbling Dice - Watashitachi 3nin, A Ge Ru (Japan)
+  name: Utau - Tumbling Dice - Watashitachi 3-nin, A Ge Ru (Japan)
   serial: SLPM-65641
   version: '1.04'
 - hashes:
@@ -65725,7 +65724,7 @@
   - md5: 1af8c50ed3986b30265f20ca1776c714
     size: 507277008
   name: Honkakuteki Pachinko Jikki Kouryaku Series - Milky Bar & Killer Queen - Eikyuu
-    Hozon-ban (Japan)
+    Hozonban (Japan)
   serial: SLPM-62074
   version: '3.00'
 - hashes:
@@ -66336,7 +66335,7 @@
 - hashes:
   - md5: 3de4a0330623dd89de6d1bbf963b172c
     size: 4317872128
-  name: Buzz! The Hollywood Quiz (Europe, Australia) (Alt)
+  name: Buzz! The Hollywood Quiz (Europe, Australia) (Beta) (2007-08-30)
   serial: SCES-54844
   version: '1.00'
 - hashes:
@@ -67498,7 +67497,7 @@
 - hashes:
   - md5: 28b4abe4a273a9b62a8d40306c2c92d4
     size: 1255309312
-  name: Hoshi-iro no Okurimono (Japan)
+  name: Hoshiiro no Okurimono (Japan)
   serial: SLPM-66900
   version: '1.01'
 - hashes:
@@ -67703,7 +67702,7 @@
   - md5: 5c32a0ac8ea84fbf0faeb6b20c1a0d71
     size: 1273462784
   name: Sumomomo Momomo - Chijou Saikyou no Yome - Keishou Shimasho! Koi no Hanamuko
-    Soudatsu-sen!! (Japan) (Shokai Genteiban)
+    Soudatsusen!! (Japan) (Shokai Genteiban)
   serial: SLPS-25777
   version: '1.01'
 - hashes:
@@ -68077,7 +68076,7 @@
 - hashes:
   - md5: ecc583a0a585f7e491a1069832ab7292
     size: 423165952
-  name: Devil May Cry - Trial Edition (Japan) (Disc 2) (Taikenban)
+  name: Devil May Cry - Trial Edition (Japan) (Taikenban) (SLPM-65025)
   serial: SLPM-65025
   version: '1.00'
 - hashes:
@@ -68669,7 +68668,7 @@
 - hashes:
   - md5: f6d8b98b72d9e890c6ee3e051a53ab9a
     size: 761692848
-  name: CD avec les Codes Exclusifs et inedits de Harry Potter et la Chambre des Secrets
+  name: CD avec les codes exclusifs et inedits de Harry Potter et la Chambre des Secrets
     (France) (Unl)
   version: '1.30'
 - hashes:
@@ -68685,7 +68684,7 @@
 - hashes:
   - md5: 8b05a780a33223fa68e5f666a86766c4
     size: 718702992
-  name: CD avec les codes Action Replay exclusivement pour le Jeu Gran Turismo 4 (France)
+  name: CD avec les codes Action Replay exclusivement pour le jeu Gran Turismo 4 (France)
     (Unl)
   version: 1.00 beta (European)
 - hashes:
@@ -68834,14 +68833,9 @@
   serial: SLKA-25345
   version: '1.00'
 - hashes:
-  - md5: 2fb950a8fe1bae24cc62e09e51526c37
-    size: 5573115904
-  name: Gran Turismo 4 (Europe) (Beta) (2005-01-18)
-  serial: SCES-51719
-- hashes:
   - md5: fc5904cdf8c55e89de1191a326ed9ae1
     size: 761692848
-  name: CD avec les Codes Exclusifs et inedits de Grand Theft Auto - Vice City (France)
+  name: CD avec les codes exclusifs et inedits de Grand Theft Auto - Vice City (France)
     (Unl)
   version: '1.30'
 - hashes:
@@ -68874,7 +68868,7 @@
 - hashes:
   - md5: e78bbeb2bdd1042ce29ef5f8fc9c1a65
     size: 3937730560
-  name: Natural 2 - Duo - Sakura-iro no Kisetsu (Japan) (DX Pack)
+  name: Natural 2 - Duo - Sakurairo no Kisetsu (Japan) (DX Pack)
   serial: SLPM-65771
   version: '1.01'
 - hashes:
@@ -68923,7 +68917,7 @@
 - hashes:
   - md5: a2fc048c324333e04ead4cf73fe60df0
     size: 718702992
-  name: Action Replay Ultimate Cheats for Use with Medal Of Honor - Rising Sun (UK)
+  name: Action Replay Ultimate Cheats for Use with Medal of Honor - Rising Sun (UK)
     (Unl)
   version: 1.00 (European)
 - hashes:
@@ -69112,7 +69106,7 @@
 - hashes:
   - md5: 6f6837053d32f03f656811c3224c85de
     size: 1854668800
-  name: DreamWorks Bee Movie Game (USA, Canada) (En,Fr)
+  name: DreamWorks Bee Movie Game (Canada) (En,Fr)
   serial: SLUS-21695
   version: '1.01'
 - hashes:
@@ -69153,7 +69147,7 @@
 - hashes:
   - md5: 652ec663d6e576950a8b5e1b0f6029da
     size: 751993200
-  name: PS2 Seizou Kensa DISC3 CD-ROM Ver. 5.40 (EU ban) (Europe)
+  name: PS2 Seizou Kensa DISC3 CD-ROM Ver. 5.40 (EU-ban) (Europe)
   serial: PEPX-10011
   version: '5.40'
 - hashes:
@@ -69201,7 +69195,7 @@
 - hashes:
   - md5: 20765a44124ff87e1913b6896dbceb6c
     size: 1440612352
-  name: Princess Princess - Hime-tachi no Abunai Houkago (Japan) (Shokai Genteiban)
+  name: Princess Princess - Himetachi no Abunai Houkago (Japan) (Shokai Genteiban)
   serial: SLPS-25693
   version: '1.01'
 - hashes:
@@ -69878,13 +69872,13 @@
 - hashes:
   - md5: 91bb9e5ce63c9a39883a907da70b7907
     size: 761692848
-  name: CD avec les Codes Exclusifs et inedits de le Seigneur des Anneaux - Les Deux
+  name: CD avec les codes exclusifs et inedits de le Seigneur des Anneaux - Les Deux
     Tours (France) (Unl)
   version: '1.30'
 - hashes:
   - md5: 1fc5827dbaf25a0fb496289a899161c7
     size: 469929600
-  name: PlayStation BB Navigator - Version 0.10 (Prerelease) (Japan) (Disc 2) (SCPN-60109)
+  name: PlayStation BB Navigator - Version 0.10 - Prerelease (Japan) (Disc 2) (@nifty)
   serial: SCPN-60109
 - hashes:
   - md5: 874c2468efcdde4f71a974014b715aa8
@@ -70006,7 +70000,7 @@
 - hashes:
   - md5: 437f6733d442549c845153891eec1d23
     size: 469929600
-  name: PlayStation BB Navigator - Version 0.10 (Prerelease) (Japan) (Disc 2) (SCPN-60102)
+  name: PlayStation BB Navigator - Version 0.10 - Prerelease (Japan) (Disc 2) (NTT-BB)
   serial: SCPN-60102
 - hashes:
   - md5: 882fca4f156239a0c0844abfa37d23b3
@@ -70021,3 +70015,418 @@
     (v2.00)
   serial: SCES-51684
   version: '2.00'
+- hashes:
+  - md5: bdf008464a56c73f8566d8be87c549b7
+    size: 750130416
+  name: Thrustmaster - Cheatcode S - Special Sports Extremes (France) (Unl)
+  version: '1.00'
+- hashes:
+  - md5: fa48e9d8b4f80e68acdc8340ce5c97e6
+    size: 475148688
+  name: Need for Speed - Underground (Asia) (Demo)
+  serial: SLAJ-90501
+  version: '1.01'
+- hashes:
+  - md5: e44921317f64f091b2c4b4116f0cca96
+    size: 343841232
+  name: F1 2002 (Asia)
+  serial: SLPM-62243
+  version: '1.00'
+- hashes:
+  - md5: 7ced4bcb832a64f3f40f0f87cceab2b7
+    size: 36505392
+  name: European Game Collection (Japan)
+  serial: SLPM-62284
+  version: '1.04'
+- hashes:
+  - md5: f3521056ae9ea8d515cc7edbbbeb6f62
+    size: 3492052992
+  name: EyeToy - Saru EyeToy - Oosawagi! Ukkiuki Game Tenkomori!! (Japan) (EyeToy
+    Camera Doukonban)
+  serial: SCPS-15077
+  version: '1.00'
+- hashes:
+  - md5: b8055f4e9890124a0184dbf7c47fcc9d
+    size: 4649680896
+  name: Tenohira o, Taiyou ni - Eikyuu no Kizuna (Japan)
+  serial: SLPM-65560
+  version: '1.00'
+- hashes:
+  - md5: d07c2e8dae94bf0e38cf023d6b64c061
+    size: 1853751296
+  name: Cross Channel - To All People (Japan)
+  serial: SLPM-65547
+  version: '1.02'
+- hashes:
+  - md5: 40681df4f3a145c918fde1dad0a9a984
+    size: 718702992
+  name: Max Media Player (Europe) (Disc 1) (PS2 Media Disc) (Unl)
+  version: 1.00 (European)
+- hashes:
+  - md5: 9a7c6c093dcb665231adc13ad1d58f6d
+    size: 750130416
+  name: GameShark 2 - Video Game Enhancer - Version 4 (USA) (Unl)
+  version: '1.00'
+- hashes:
+  - md5: d726ddd18839233513d9ec9cc005e1c5
+    size: 4524376064
+  name: Ratchet & Clank 3 (Europe) (En,Fr,De,Es,It) (Beta) (2004-09-13)
+  serial: SCES-52456
+  version: '1.00'
+- hashes:
+  - md5: 2537fa1eeb9bffe2a2bc10b0d7844c2c
+    size: 703151568
+  name: Urban Reign (Japan) (Tentou Taikenban)
+  serial: SLPM-60272
+  version: '1.01'
+- hashes:
+  - md5: 5715ce8d3290116346757a00e3185e58
+    size: 4443308032
+  name: Smash Court Tennis - Pro Tournament 2 (Europe) (Beta) (2004-02-04)
+  serial: SCES-99999
+  version: '1.00'
+- hashes:
+  - md5: 66f9bc0aeff6cda15e64730e26da9c5d
+    size: 3705667584
+  name: Need for Speed - ProStreet (Korea)
+  serial: SLKA-25411
+  version: '1.00'
+- hashes:
+  - md5: 2e6a235c6c28d1b17a44b2bfdecf5d69
+    size: 4677795840
+  name: 007 - Quantum of Solace (Korea)
+  serial: SLKA-25442
+  version: '1.00'
+- hashes:
+  - md5: 24d9760fe44c209abc67bf284043736d
+    size: 1523187712
+  name: Grand Prix Challenge (Korea)
+  serial: SLKA-25054
+  version: '1.01'
+- hashes:
+  - md5: 61241cc899740fb1bfe85fdf91b8fd37
+    size: 4521426944
+  name: Jeonguk Mussang 2 (Korea)
+  serial: SLKA-25379
+  version: '1.00'
+- hashes:
+  - md5: 5a0c1d9e5026635e417c26677901b4b3
+    size: 4300275712
+  name: MVP Baseball 2005 (Asia)
+  serial: SLAJ-25064
+  version: '1.00'
+- hashes:
+  - md5: 00b3d5cd1480a1086e7ab6c7d3dec5f1
+    size: 4684513280
+  name: NBA Live 07 (Asia)
+  serial: SLAJ-25087
+  version: '1.00'
+- hashes:
+  - md5: 4e53977eeea427e72b89571a59e267d9
+    size: 314707008
+  name: Silent Scope 3 (Asia) (En,Ja)
+  serial: SLPM-62246
+  version: '1.01'
+- hashes:
+  - md5: eca998e090108c292ed2b1d2cd9d6228
+    size: 3781427200
+  name: NBA Street Vol. 2 (Asia)
+  serial: SLAJ-25009
+  version: '1.00'
+- hashes:
+  - md5: d361905f4d58387879af00c50ec56f9b
+    size: 4083318784
+  name: Godfather, The - The Game (Asia)
+  serial: SLAJ-25080
+  version: '1.00'
+- hashes:
+  - md5: 2bad17ff95efb131b145172484e9286e
+    size: 3523280896
+  name: SNK vs. Capcom - SVC Chaos (Korea)
+  serial: SLKA-25125
+  version: '1.00'
+- hashes:
+  - md5: fe3bae28e510648f8ce4a25e56b7ac9a
+    size: 469929600
+  name: PlayStation BB Navigator - Version 0.10 - Prerelease (Japan) (Disc 2) (BIGLOBE)
+  serial: SCPN-60108
+- hashes:
+  - md5: f0a6141388fb28af9bd5d4dc4e32302f
+    size: 2128019456
+  name: Suwanggi - Project Altered Beast (Korea)
+  serial: SLKA-25131
+  version: '1.00'
+- hashes:
+  - md5: 8208f5c7aaa48840507438d94d4261d6
+    size: 718702992
+  name: Action Replay Max (USA) (Unl) (v3.30)
+  version: 1.00 (American)
+- hashes:
+  - md5: 15d076fc93211c70ad56bd51413ef52b
+    size: 761692848
+  name: PSi2 15 (UK)
+  version: '1.30'
+- hashes:
+  - md5: 3356e4c129d62684ac9b9368b7883fd0
+    size: 2553446400
+  name: Natsuiro - Hoshikuzu no Memory (Japan) (Shokai Genteiban)
+  serial: SLPM-65785
+  version: '1.02'
+- hashes:
+  - md5: 66b53040d207422242034fc6ce9a1ca8
+    size: 1372618752
+  name: Aa Megami-sama (Japan) (Shokai Gentei Seisanban)
+  serial: SLPS-25742
+  version: '1.02'
+- hashes:
+  - md5: 1485a631cca822123ab11bf3b14e19cf
+    size: 1273266176
+  name: After... Wasureenu Kizuna (Japan)
+  serial: SLPM-65482
+  version: '1.03'
+- hashes:
+  - md5: 9da1a62486260465282ceb231c600ede
+    size: 1817313280
+  name: King of Fighters 2003, The (Japan) (SNK Best Collection)
+  serial: SLPS-25635
+  version: '1.01'
+- hashes:
+  - md5: 2233306f20a686d0457c5d04fdcb16c1
+    size: 4532994048
+  name: Densha de Go! Shinkansen - San'you Shinkansen-hen (Japan) (v1.06)
+  serial: SLPM-65039
+  version: '1.06'
+- hashes:
+  - md5: e99f30384ef56ffb46e26b006d2c5741
+    size: 4501209088
+  name: Grand Theft Auto - San Andreas (USA) (v3.00) (Rev 1)
+  serial: SLUS-20946
+  version: '3.00'
+- hashes:
+  - md5: 37f3a14848eb31af6bda7b1dc5d4e15f
+    size: 1249804288
+  name: Sega Classics Collection (Europe) (Beta) (2005-06-29)
+  serial: SCUS-00000
+  version: '1.00'
+- hashes:
+  - md5: 20cf0f3b2c9482eec471fe2c9221321f
+    size: 3235577856
+  name: Sonic Riders - Zero Gravity (USA) (Beta) (2007-09-01)
+  serial: SLUS-21642
+- hashes:
+  - md5: 50550b708923d40e1569f5eeac896a3d
+    size: 469929600
+  name: PlayStation BB Navigator - Version 0.10 - Prerelease (Japan) (Disc 2) (Yahoo!
+    BB)
+  serial: SCPN-60104
+- hashes:
+  - md5: 7813885a5d74dd7f8ee7baaa4676f805
+    size: 3712548864
+  name: Pachi Para 14 - Kaze to Kumo to Super Umi in Okinawa (Japan) (v2.00)
+  serial: SLPS-25787
+  version: '2.00'
+- hashes:
+  - md5: 5f6417733653223e9f969e6df8610af2
+    size: 469929600
+  name: PlayStation BB Navigator - Version 0.10 - Prerelease (Japan) (Disc 2) (OCN)
+  serial: SCPN-60107
+- hashes:
+  - md5: 48e5fe330f121766405aa68748e69027
+    size: 2315419648
+  name: Fast and the Furious, The (USA) (v3.00)
+  serial: SLUS-21449
+  version: '3.00'
+- hashes:
+  - md5: 2fb950a8fe1bae24cc62e09e51526c37
+    size: 5573115904
+  name: Gran Turismo 4 (Europe) (Beta) (2005-01-18)
+  serial: SCES-51719
+  version: '1.00'
+- hashes:
+  - md5: f291c9072d32efdbd8c453898314b3f9
+    size: 4691591168
+  name: Mercenaries 2 - L'enfer des Favelas (Canada)
+  serial: SLUS-21792
+  version: '1.01'
+- hashes:
+  - md5: f8dc4216dc522a34292416be1d1474ad
+    size: 718702992
+  name: Action Replay Ultimate Cheats for Use with Driver 3 (UK)
+  version: '1.00'
+- hashes:
+  - md5: 1db217a37cc0446cc858254fc173cb14
+    size: 2662989824
+  name: Need for Speed - Underground 2 (Asia)
+  serial: SLAJ-25054
+  version: '1.00'
+- hashes:
+  - md5: 77dd57bb4f14603bc0e140b3c24b3e25
+    size: 2614853632
+  name: This Is Football 2005 (Scandinavia) (Sv,No,Da,Fi) (Demo)
+  serial: SCED-52791
+  version: '1.00'
+- hashes:
+  - md5: cc1b447d23f0df40c6bca102f0a55059
+    size: 4266098688
+  name: Culdcept II Expansion (Korea)
+  serial: SLKA-25077
+  version: '1.03'
+- hashes:
+  - md5: 385c88bcc780410fb8dab9f936540848
+    size: 761692848
+  name: X-Mem - Logiciel d'Expansion de Memoire (France) (Unl)
+  version: '1.30'
+- hashes:
+  - md5: 93f8dd5c9ec6ee7aa30b7229679c998e
+    size: 4223905792
+  name: Lara Croft Tomb Raider - Anniversary (Australia) (Beta) (2007-04-10)
+  serial: SLES-54674
+- hashes:
+  - md5: 5151cacfe5086db6676ca22fb600da33
+    size: 1236369408
+  name: Forbidden Siren 2 (Europe) (En,Fr,De,Es,It) (Demo)
+  serial: SCED-54190
+  version: '1.00'
+- hashes:
+  - md5: 4d21eb8326949d687fe52a335a75361a
+    size: 1230176256
+  name: SingStar (Europe) (Demo) (2004-04-16)
+  serial: SCED-52461
+  version: '1.00'
+- hashes:
+  - md5: 3207e0711aeab7afe6f87ad99b0883cd
+    size: 1228832768
+  name: Wild Arms - The 4th Detonator (Japan) (Tentou Senkou Taikenban)
+  serial: PCPX-96654
+  version: '1.00'
+- hashes:
+  - md5: 298e3310b0c27e012dc5c7a70f6431cd
+    size: 122939040
+  name: Max Drive (USA) (Unl) (v1.36)
+  version: 1.36 (American)
+- hashes:
+  - md5: a0894147a8468ea69a3a17a748a98294
+    size: 4641947648
+  name: Uo - 7-tsu no Mizu to Densetsu no Nushi (Japan) (Taikenban)
+  serial: PCPX-96645
+  version: '1.00'
+- hashes:
+  - md5: 0f2fd87da708bde5c8433ae66c0469e6
+    size: 578500272
+  name: Taito Legends (Korea)
+  serial: SLKA-15056
+  version: '1.00'
+- hashes:
+  - md5: e2bd2ed485bf069c1d8201c4b43e69c5
+    size: 750130416
+  name: GameShark - GSLite (USA) (Unl)
+- hashes:
+  - md5: 6583a783dd35f543bca98888a4576a94
+    size: 422795520
+  name: Fantastic Four (USA) (Beta) (2003-08-29)
+- hashes:
+  - md5: 0382ae76c43c7865e865210b59d7461e
+    size: 150109344
+  name: Yamasa Digi World 2 LCD Edition DX - Time Cross, Qlogos, Trigger Zone (Japan)
+  serial: SLPS-20156
+  version: '1.05'
+- hashes:
+  - md5: 6c06e0bfeba802910c35924d307ee1fe
+    size: 1228832768
+  name: Viewtiful Joe 2 - Black Film no Nazo (Japan) (Tokubetsu Taikenban) (2004-11-19)
+  serial: SLPM-61108
+  version: '1.00'
+- hashes:
+  - md5: feed03fae5e6f57ed9f48ea8bd3465c5
+    size: 8539897856
+  name: PS2 Flying Bulbs Disc DVD-D Nisou Ver 2.00 (UC-ban) (USA)
+  serial: PUPX-19005
+  version: '2.00'
+- hashes:
+  - md5: dd722b611fb48b6d87f5007a67b3c7ec
+    size: 505651776
+  name: Kao no Nai Tsuki - Select Story (Japan)
+  serial: SLPM-62784
+  version: '1.00'
+- hashes:
+  - md5: 895ea42ed9ce80b7ec0a049c8546789f
+    size: 1811513344
+  name: Sonic Gems Collection (Korea)
+  serial: SLKA-25308
+  version: '1.00'
+- hashes:
+  - md5: 6497ea98e57dad99da4fb3d612cd6034
+    size: 1810956288
+  name: Summer Heat Beach Volleyball (Korea)
+  serial: SLKA-25210
+  version: '1.01'
+- hashes:
+  - md5: 197e8d99b6e6743fc8c4b85699ba4687
+    size: 1549434880
+  name: SNK Arcade Classics Vol. 1 (Korea)
+  serial: SLKA-25424
+  version: '1.00'
+- hashes:
+  - md5: e67b3d15d354b954fa8cbce3f9ee1d3f
+    size: 2041774080
+  name: Obscure II (Korea)
+  serial: SCKA-20114
+  version: '1.00'
+- hashes:
+  - md5: 0142e7e1f98f3016a7e727d911a23f42
+    size: 632509248
+  name: Aliens Versus Predator - Extinction (Korea)
+  serial: SLKA-15020
+  version: '1.00'
+- hashes:
+  - md5: 5640f6d7923be93758e7817acf7e61cd
+    size: 3502374912
+  name: Sega Rally 2006 (Korea)
+  serial: SLKA-25362
+  version: '1.01'
+- hashes:
+  - md5: d1879950bbea023d317c5b3d8fa0275a
+    size: 693282576
+  name: Sega Rally Championship (Korea)
+  serial: SLKA-15059
+  version: '1.00'
+- hashes:
+  - md5: 1850caf4c158e9fd594a16e96e47b389
+    size: 761692848
+  name: Play Cheats Vol. 06 (UK) (En,Fr,De,It) (Unl)
+- hashes:
+  - md5: ee0cd39ee0a5f3607ef1da7aca915eed
+    size: 1733951488
+  name: White Clarity - And, the Tears Became You (Japan)
+  serial: SLPM-66215
+  version: '1.01'
+- hashes:
+  - md5: d5ed42e04f43bbcc37765fb799a30988
+    size: 2626977792
+  name: Metal Slug 6 (Korea)
+  serial: SLKA-25393
+  version: '1.00'
+- hashes:
+  - md5: f3a1a257227aeda67a241f35878b4605
+    size: 2604269568
+  name: Metal Slug Complete (Korea)
+  serial: SLKA-25333
+  version: '1.01'
+- hashes:
+  - md5: b642373178c51b7d645503b11e6f0627
+    size: 4278059008
+  name: Berserk - Cheonnyeonjegug-ui Mae Pyeon - Seongmajeongi-ui Jang (Korea)
+  serial: SLKA-25213
+  version: '1.00'
+- hashes:
+  - md5: d655021c900831d146bcf56bc344f151
+    size: 3384377344
+  name: Dororo (Korea)
+  serial: SLKA-25225
+  version: '1.00'
+- hashes:
+  - md5: 7c6ddfebc353eadfe57891e07a0ec023
+    size: 1235714048
+  name: EyeToy - Play (Korea) (v2.01)
+  serial: SCKA-20017
+  version: '2.01'

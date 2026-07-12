@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -16,7 +16,12 @@ struct WindowInfo
 		X11,
 		Wayland,
 		MacOS,
-        Android
+		Android,
+		// Vulkan VK_KHR_display direct-to-monitor (no compositor / no GBM
+		// intermediate). Frontend supplies no native window handle; the
+		// renderer enumerates displays itself. surface_width/surface_height
+		// carry the requested mode (0 = pick the display's preferred mode).
+		VulkanDirect
 	};
 
 	/// The type of the surface. Surfaceless indicates it will not be displayed on screen at all.

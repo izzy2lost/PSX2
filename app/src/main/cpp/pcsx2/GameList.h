@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -106,6 +106,7 @@ namespace GameList
 
 	const char* EntryTypeToString(EntryType type, bool translate);
 	const char* RegionToString(Region region, bool translate);
+	const char* RegionToFlagFilename(Region region);
 	const char* EntryCompatibilityRatingToString(CompatibilityRating rating, bool translate);
 
 	/// Fills in boot parameters (iso or elf) based on the game list entry.
@@ -145,7 +146,7 @@ namespace GameList
 	std::string FormatTimestamp(std::time_t timestamp);
 
 	/// Formats a timespan to something human readable (e.g. 1h2m3s or 1 hour).
-	std::string FormatTimespan(std::time_t timespan, bool long_format = false);
+	std::string FormatTimespan(const std::time_t timespan, const bool long_format = false);
 
 	std::string GetCoverImagePathForEntry(const Entry* entry);
 	std::string GetNewCoverImagePathForEntry(const Entry* entry, const char* new_filename, bool use_serial = false);

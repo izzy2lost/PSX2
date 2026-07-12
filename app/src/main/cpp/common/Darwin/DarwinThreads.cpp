@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "common/Threading.h"
@@ -34,9 +34,9 @@ __forceinline void Threading::SpinWait()
 {
 	// If this doesn't compile you can just comment it out (it only serves as a
 	// performance hint and isn't required).
-#if defined(_M_X86)
+#if defined(ARCH_X86)
 	__asm__("pause");
-#elif defined(_M_ARM64)
+#elif defined(ARCH_ARM64)
 	__asm__ __volatile__("isb");
 #endif
 }

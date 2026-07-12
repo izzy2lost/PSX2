@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "GS/GSCapture.h"
@@ -10,7 +10,7 @@
 #include "SPU2/spu2.h"
 #include "Host.h"
 #include "Host/AudioStream.h"
-#include "IconsFontAwesome5.h"
+#include "IconsFontAwesome.h"
 #include "common/Assertions.h"
 #include "common/Console.h"
 #include "common/BitUtils.h"
@@ -212,7 +212,7 @@ namespace GSCapture
 	static u32 s_frames_encode_consume_pos = 0;
 
 	// NOTE: So this doesn't need locking, we allocate it once, and leave it.
-	static std::unique_ptr<s16[]> s_audio_buffer;
+	static std::unique_ptr<float[]> s_audio_buffer;
 	static std::atomic<u32> s_audio_buffer_size{0};
 	static u32 s_audio_buffer_write_pos = 0;
 	alignas(__cachelinesize) static u32 s_audio_buffer_read_pos = 0;
@@ -491,11 +491,27 @@ bool GSCapture::BeginCapture(float fps, GSVector2i recommendedResolution, float 
 			}
 		}
 
+		if (GSConfig.EnableVideoCaptureParameters)
+		{
+			res = wrap_av_dict_parse_string(&s_video_codec_arguments, GSConfig.VideoCaptureParameters.c_str(), "=", ":", 0);
+			if (res < 0)
+			{
+				LogAVError(res, "av_dict_parse_string() for video failed: ");
+				InternalEndCapture(lock);
+				return false;
+			}
+		}
+
 		if (hwconfig)
 		{
-			Console.WriteLn(Color_StrongGreen, fmt::format("Trying to use {} hardware device for video encoding.",
-												   wrap_av_hwdevice_get_type_name(hwconfig->device_type)));
-			res = wrap_av_hwdevice_ctx_create(&s_video_hw_context, hwconfig->device_type, nullptr, nullptr, 0);
+			const char* device = nullptr;
+			if (AVDictionaryEntry* dev = wrap_av_dict_get(s_video_codec_arguments, "vaapi_device", nullptr, 0))
+				device = dev->value;
+			if (AVDictionaryEntry* dev = wrap_av_dict_get(s_video_codec_arguments, "hwaccel_device", nullptr, 0))
+				device = dev->value;
+			Console.WriteLnFmt(Color_StrongGreen, "Trying to use {}:{} for video encoding.",
+			                   wrap_av_hwdevice_get_type_name(hwconfig->device_type), device ? device : "default");
+			res = wrap_av_hwdevice_ctx_create(&s_video_hw_context, hwconfig->device_type, device, nullptr, 0);
 			if (res < 0)
 			{
 				LogAVError(res, "av_hwdevice_ctx_create() failed: ");
@@ -536,17 +552,6 @@ bool GSCapture::BeginCapture(float fps, GSVector2i recommendedResolution, float 
 				Host::AddIconOSDMessage("GSCaptureHWError", ICON_FA_CAMERA,
 					"Failed to create hardware encoder, using software encoding.", Host::OSD_ERROR_DURATION);
 				hwconfig = nullptr;
-			}
-		}
-
-		if (GSConfig.EnableVideoCaptureParameters)
-		{
-			res = wrap_av_dict_parse_string(&s_video_codec_arguments, GSConfig.VideoCaptureParameters.c_str(), "=", ":", 0);
-			if (res < 0)
-			{
-				LogAVError(res, "av_dict_parse_string() for video failed: ");
-				InternalEndCapture(lock);
-				return false;
 			}
 		}
 
@@ -638,7 +643,7 @@ bool GSCapture::BeginCapture(float fps, GSVector2i recommendedResolution, float 
 		s_audio_buffer_write_pos = 0;
 		s_audio_buffer_size.store(0, std::memory_order_release);
 		if (!s_audio_buffer)
-			s_audio_buffer = std::make_unique<s16[]>(AUDIO_BUFFER_SIZE * AUDIO_CHANNELS);
+			s_audio_buffer = std::make_unique<float[]>(AUDIO_BUFFER_SIZE * AUDIO_CHANNELS);
 
 		const AVCodec* acodec = nullptr;
 		if (!GSConfig.AudioCaptureCodec.empty())
@@ -670,7 +675,7 @@ bool GSCapture::BeginCapture(float fps, GSVector2i recommendedResolution, float 
 		const s32 sample_rate = SPU2::GetConsoleSampleRate();
 		s_audio_codec_context->codec_type = AVMEDIA_TYPE_AUDIO;
 		s_audio_codec_context->bit_rate = GSConfig.AudioCaptureBitrate * 1000;
-		s_audio_codec_context->sample_fmt = AV_SAMPLE_FMT_S16;
+		s_audio_codec_context->sample_fmt = AV_SAMPLE_FMT_FLT;
 		s_audio_codec_context->sample_rate = sample_rate;
 		s_audio_codec_context->time_base = {1, sample_rate};
 #if LIBAVUTIL_VERSION_MAJOR < 57
@@ -691,7 +696,7 @@ bool GSCapture::BeginCapture(float fps, GSVector2i recommendedResolution, float 
 		}
 		if (!supports_format)
 		{
-			Console.WriteLn(fmt::format("Audio codec '{}' does not support S16 samples, using default.", acodec->name));
+			Console.WriteLn(fmt::format("Audio codec '{}' does not support float samples, using default.", acodec->name));
 			s_audio_codec_context->sample_fmt = acodec->sample_fmts[0];
 			s_swr_context = wrap_swr_alloc();
 			if (!s_swr_context)
@@ -709,7 +714,7 @@ bool GSCapture::BeginCapture(float fps, GSVector2i recommendedResolution, float 
 
 			wrap_av_opt_set_int(s_swr_context, "in_channel_count", AUDIO_CHANNELS, 0);
 			wrap_av_opt_set_int(s_swr_context, "in_sample_rate", sample_rate, 0);
-			wrap_av_opt_set_sample_fmt(s_swr_context, "in_sample_fmt", AV_SAMPLE_FMT_S16, 0);
+			wrap_av_opt_set_sample_fmt(s_swr_context, "in_sample_fmt", AV_SAMPLE_FMT_FLT, 0);
 
 			wrap_av_opt_set_int(s_swr_context, "out_channel_count", AUDIO_CHANNELS, 0);
 			wrap_av_opt_set_int(s_swr_context, "out_sample_rate", sample_rate, 0);
@@ -1083,7 +1088,7 @@ bool GSCapture::ReceivePackets(AVCodecContext* codec_context, AVStream* stream, 
 	return true;
 }
 
-void GSCapture::DeliverAudioPacket(const s16* frames)
+void GSCapture::DeliverAudioPacket(const float* frames)
 {
 	// Since this gets called from the EE thread, we might race here after capture stops, and send a few too many samples
 	// late. We don't really want to be grabbing the lock on the EE thread, so instead, we'll just YOLO push the frames
@@ -1106,7 +1111,7 @@ void GSCapture::DeliverAudioPacket(const s16* frames)
 
 	// Since the buffer size is aligned to the SndOut packet size, we should always have space for at least one full packet.
 	pxAssert((AUDIO_BUFFER_SIZE - s_audio_buffer_write_pos) >= num_frames);
-	std::memcpy(s_audio_buffer.get() + (s_audio_buffer_write_pos * AUDIO_CHANNELS), frames, sizeof(s16) * AUDIO_CHANNELS * num_frames);
+	std::memcpy(s_audio_buffer.get() + (s_audio_buffer_write_pos * AUDIO_CHANNELS), frames, sizeof(float) * AUDIO_CHANNELS * num_frames);
 	s_audio_buffer_write_pos = (s_audio_buffer_write_pos + num_frames) % AUDIO_BUFFER_SIZE;
 
 	const u32 buffer_size = s_audio_buffer_size.fetch_add(num_frames, std::memory_order_release) + num_frames;
@@ -1156,8 +1161,8 @@ bool GSCapture::ProcessAudioPackets(s64 video_pts)
 					const u8* input = reinterpret_cast<u8*>(&s_audio_buffer[s_audio_buffer_read_pos * AUDIO_CHANNELS + i]);
 					for (u32 j = 0; j < this_batch; j++)
 					{
-						std::memcpy(output, input, sizeof(s16));
-						input += sizeof(s16) * AUDIO_CHANNELS;
+						std::memcpy(output, input, sizeof(float));
+						input += sizeof(float) * AUDIO_CHANNELS;
 						output += s_audio_frame_bps;
 					}
 				}
@@ -1166,7 +1171,7 @@ bool GSCapture::ProcessAudioPackets(s64 video_pts)
 			{
 				// Direct copy - optimal.
 				std::memcpy(s_converted_audio_frame->data[0] + s_audio_frame_pos * s_audio_frame_bps * AUDIO_CHANNELS,
-					&s_audio_buffer[s_audio_buffer_read_pos * AUDIO_CHANNELS], this_batch * sizeof(s16) * AUDIO_CHANNELS);
+					&s_audio_buffer[s_audio_buffer_read_pos * AUDIO_CHANNELS], this_batch * sizeof(float) * AUDIO_CHANNELS);
 			}
 		}
 		else
@@ -1384,12 +1389,12 @@ TinyString GSCapture::GetElapsedTime()
 	if (s_video_stream)
 	{
 		seconds = (s_next_video_pts * static_cast<s64>(s_video_codec_context->time_base.num)) /
-				  static_cast<s64>(s_video_codec_context->time_base.den);
+		          static_cast<s64>(s_video_codec_context->time_base.den);
 	}
 	else if (s_audio_stream)
 	{
 		seconds = (s_next_audio_pts * static_cast<s64>(s_audio_codec_context->time_base.num)) /
-				  static_cast<s64>(s_audio_codec_context->time_base.den);
+		          static_cast<s64>(s_audio_codec_context->time_base.den);
 	}
 	else
 	{

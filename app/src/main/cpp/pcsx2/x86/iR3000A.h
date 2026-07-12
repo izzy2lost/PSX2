@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -41,7 +41,7 @@ extern u32 g_iopCyclePenalty;
 void psxSaveBranchState();
 void psxLoadBranchState();
 
-extern void psxSetBranchReg(u32 reg);
+extern void psxSetBranchReg();
 extern void psxSetBranchImm(u32 imm);
 extern void psxRecompileNextInstruction(bool delayslot, bool swapped_delayslot);
 

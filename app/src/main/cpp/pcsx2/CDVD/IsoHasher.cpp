@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "CDVD/CDVDcommon.h"
@@ -7,7 +7,6 @@
 
 #include "common/Error.h"
 #include "common/MD5Digest.h"
-#include "common/StringUtil.h"
 
 #include "fmt/format.h"
 
@@ -38,6 +37,10 @@ std::string_view IsoHasher::GetTrackTypeString(u32 type)
 bool IsoHasher::Open(std::string iso_path, Error* error)
 {
 	Close();
+
+	m_is_locked = cdvdLock(error);
+	if (!m_is_locked)
+		return false;
 
 	CDVDsys_SetFile(CDVD_SourceType::Iso, std::move(iso_path));
 	CDVDsys_ChangeSource(CDVD_SourceType::Iso);
@@ -103,6 +106,12 @@ bool IsoHasher::Open(std::string iso_path, Error* error)
 
 void IsoHasher::Close()
 {
+	if (!m_is_locked)
+		return;
+
+	cdvdUnlock();
+	m_is_locked = false;
+
 	if (!m_is_open)
 		return;
 
@@ -149,7 +158,8 @@ bool IsoHasher::ComputeTrackHash(Track& track, ProgressCallback* callback)
 	std::vector<u8> sector_buffer(sector_size);
 
 	const u32 update_interval = std::max<u32>(track.sectors / 100u, 1u);
-	callback->SetFormattedStatusText("Computing hash for track %u...", track.number);
+	callback->SetStatusText(
+		fmt::format(TRANSLATE_FS("CDVD", "Calculating checksum for track {}..."), track.number).c_str());
 	callback->SetProgressRange(track.sectors);
 
 	MD5Digest md5;

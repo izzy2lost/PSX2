@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "common/Console.h"
@@ -105,14 +105,25 @@ __ri void Log::WriteToConsole(LOGLEVEL level, ConsoleColors color, std::string_v
 
 	static constexpr size_t BUFFER_SIZE = 512;
 
+#ifdef _WIN32
+	constexpr bool supports_color_codes = true;
+#else
+	const int fd = (level <= LOGLEVEL_WARNING) ? STDERR_FILENO : STDOUT_FILENO;
+	const bool supports_color_codes = static_cast<bool>(isatty(fd));
+#endif
+
 	SmallStackString<BUFFER_SIZE> buffer;
-	buffer.reserve(32 + message.length());
-	buffer.append(s_ansi_color_codes[color]);
+	buffer.reserve(static_cast<u32>(32 + message.length()));
+	if (supports_color_codes)
+		buffer.append(s_ansi_color_codes[color]);
 
 	if (s_log_timestamps)
 		buffer.append_format(TIMESTAMP_FORMAT_STRING, Log::GetCurrentMessageTime());
 
 	buffer.append(message);
+
+	if (supports_color_codes)
+		buffer.append(s_ansi_color_codes[Color_Default]);
 	buffer.append('\n');
 
 #ifdef _WIN32
@@ -141,7 +152,6 @@ cleanup:
 	if (wmessage_buf != wbuf)
 		std::free(wmessage_buf);
 #else
-	const int fd = (level <= LOGLEVEL_WARNING) ? STDERR_FILENO : STDOUT_FILENO;
 	write(fd, buffer.data(), buffer.length());
 #endif
 
@@ -166,7 +176,7 @@ void Log::SetConsoleOutputLevel(LOGLEVEL level)
 	if (was_enabled == now_enabled)
 		return;
 
-		// Worst that happens here is we write to a bad handle..
+	// Worst that happens here is we write to a bad handle..
 
 #if defined(_WIN32)
 	static constexpr auto enable_virtual_terminal_processing = [](HANDLE hConsole) {
@@ -344,7 +354,7 @@ bool Log::SetFileOutputLevel(LOGLEVEL level, std::string path)
 
 	const bool was_enabled = (s_file_level > LOGLEVEL_NONE);
 	const bool new_enabled = (level > LOGLEVEL_NONE && !path.empty());
-	if (was_enabled != new_enabled || (new_enabled && path == s_file_path))
+	if (was_enabled != new_enabled || (new_enabled && path != s_file_path))
 	{
 		if (new_enabled)
 		{

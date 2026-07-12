@@ -1,14 +1,12 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
 
-#if !defined(__ANDROID__)
 using namespace x86Emitter;
-#endif
 
-typedef a64::VRegister xmm;
-typedef a64::Register x32;
+typedef xRegisterSSE xmm;
+typedef xRegister32 x32;
 
 struct microVU;
 
@@ -16,7 +14,45 @@ struct microVU;
 // Global Variables
 //------------------------------------------------------------------
 
-//alignas(32) static constexpr struct mVU_Globals mVUglob;
+struct mVU_Globals
+{
+#define __four(val) { val, val, val, val }
+	u32   absclip [4] = __four(0x7fffffff);
+	u32   signbit [4] = __four(0x80000000);
+	u32   minvals [4] = __four(0xff7fffff);
+	u32   maxvals [4] = __four(0x7f7fffff);
+	u32   exponent[4] = __four(0x7f800000);
+	u32   one     [4] = __four(0x3f800000);
+	u32   Pi4     [4] = __four(0x3f490fdb);
+	u32   T1      [4] = __four(0x3f7ffff5);
+	u32   T5      [4] = __four(0xbeaaa61c);
+	u32   T2      [4] = __four(0x3e4c40a6);
+	u32   T3      [4] = __four(0xbe0e6c63);
+	u32   T4      [4] = __four(0x3dc577df);
+	u32   T6      [4] = __four(0xbd6501c4);
+	u32   T7      [4] = __four(0x3cb31652);
+	u32   T8      [4] = __four(0xbb84d7e7);
+	u32   S2      [4] = __four(0xbe2aaaa4);
+	u32   S3      [4] = __four(0x3c08873e);
+	u32   S4      [4] = __four(0xb94fb21f);
+	u32   S5      [4] = __four(0x362e9c14);
+	u32   E1      [4] = __four(0x3e7fffa8);
+	u32   E2      [4] = __four(0x3d0007f4);
+	u32   E3      [4] = __four(0x3b29d3ff);
+	u32   E4      [4] = __four(0x3933e553);
+	u32   E5      [4] = __four(0x36b63510);
+	u32   E6      [4] = __four(0x353961ac);
+	u32   I32MAXF [4] = __four(0x4effffff);
+	float FTOI_4  [4] = __four(16.0);
+	float FTOI_12 [4] = __four(4096.0);
+	float FTOI_15 [4] = __four(32768.0);
+	float ITOF_4  [4] = __four(0.0625f);
+	float ITOF_12 [4] = __four(0.000244140625);
+	float ITOF_15 [4] = __four(0.000030517578125);
+#undef __four
+};
+
+alignas(32) static constexpr struct mVU_Globals mVUglob;
 
 static const uint _Ibit_ = 1 << 31;
 static const uint _Ebit_ = 1 << 30;
@@ -89,26 +125,26 @@ static const char branchSTR[16][8] = {
 #define offsetSS    ((_X) ? (0) : ((_Y) ? (4) : ((_Z) ? 8 : 12)))
 #define offsetReg   ((_X) ? (0) : ((_Y) ? (1) : ((_Z) ? 2 :  3)))
 
-#define xmmT1  a64::q0 // Used for regAlloc
-#define xmmT2  a64::q1 // Used for regAlloc
-#define xmmT3  a64::q2 // Used for regAlloc
-#define xmmT4  a64::q3 // Used for regAlloc
-#define xmmT5  a64::q4 // Used for regAlloc
-#define xmmT6  a64::q5 // Used for regAlloc
-#define xmmT7  a64::q6 // Used for regAlloc
-#define xmmPQ  a64::q15 // Holds the Value and Backup Values of P and Q regs
+#define xmmT1  xmm0 // Used for regAlloc
+#define xmmT2  xmm1 // Used for regAlloc
+#define xmmT3  xmm2 // Used for regAlloc
+#define xmmT4  xmm3 // Used for regAlloc
+#define xmmT5  xmm4 // Used for regAlloc
+#define xmmT6  xmm5 // Used for regAlloc
+#define xmmT7  xmm6 // Used for regAlloc
+#define xmmPQ  xmm15 // Holds the Value and Backup Values of P and Q regs
 
-#define gprT1  a64::w0 // eax - Temp Reg
-#define gprT2  a64::w1 // ecx - Temp Reg
-#define gprT1q a64::x0 // eax - Temp Reg
-#define gprT2q a64::x1 // ecx - Temp Reg
-#define gprT1b a64::w0  // Low 16-bit of gprT1 (eax)
-#define gprT2b a64::w1  // Low 16-bit of gprT2 (ecx)
+#define gprT1  eax // eax - Temp Reg
+#define gprT2  ecx // ecx - Temp Reg
+#define gprT1q rax // eax - Temp Reg
+#define gprT2q rcx // ecx - Temp Reg
+#define gprT1b ax  // Low 16-bit of gprT1 (eax)
+#define gprT2b cx  // Low 16-bit of gprT2 (ecx)
 
-#define gprF0  a64::w3 // Status Flag 0
-#define gprF1 a64::w12 // Status Flag 1
-#define gprF2 a64::w13 // Status Flag 2
-#define gprF3 a64::w14 // Status Flag 3
+#define gprF0 r12d // Status Flag 0
+#define gprF1 r13d // Status Flag 1
+#define gprF2 r14d // Status Flag 2
+#define gprF3 r15d // Status Flag 3
 
 // Function Params
 #define mP microVU& mVU, int recPass
@@ -295,5 +331,5 @@ static constexpr bool doWholeProgCompare = false;
 // Most blocks do not read status flags, so this is a big speedup.
 
 extern void mVUmergeRegs(const xmm& dest, const xmm& src, int xyzw, bool modXYZW = false);
-extern void mVUsaveReg(const xmm& reg, const a64::MemOperand& ptr, int xyzw, bool modXYZW);
-extern void mVUloadReg(const xmm& reg, const a64::MemOperand& ptr, int xyzw);
+extern void mVUsaveReg(const xmm& reg, xAddressVoid ptr, int xyzw, bool modXYZW);
+extern void mVUloadReg(const xmm& reg, xAddressVoid ptr, int xyzw);

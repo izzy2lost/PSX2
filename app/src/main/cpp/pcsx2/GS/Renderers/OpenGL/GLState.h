@@ -1,11 +1,11 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
 
 #include "GS/GSVector.h"
 
-#include "glad.h"
+#include "glad/gl.h"
 
 class GSTextureOGL;
 
@@ -39,9 +39,17 @@ namespace GLState
 	extern GLuint ps_ss; // sampler
 
 	extern GSTextureOGL* rt; // render target
+	extern GSTextureOGL* ds_as_rt; // Depth-Stencil as color
 	extern GSTextureOGL* ds; // Depth-Stencil
-	extern GLuint tex_unit[8]; // shader input texture
-	extern GLuint64 tex_handle[8]; // shader input texture
 
+	extern u32 draw_buffers; // Number of color attachments to framebuffer.
+
+	extern bool rt_written; // Render Target written
+	extern bool ds_as_rt_written; // Depth Stencil as RT written
+	extern bool ds_written; // Depth Stencil written
+
+	extern GLuint tex_unit[8]; // shader input texture
+
+	extern u32 UpdateDrawBuffers();
 	extern void Clear();
 } // namespace GLState

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -35,7 +35,7 @@ static const u32
 	HW_SIO_BAUD			= 0x1f80104e,
 
     HW_RAM_SIZE         = 0x1f801060,
-	HW_IREG				= 0x1f801070,
+	HW_ISTAT			= 0x1f801070,
 	HW_IMASK			= 0x1f801074,
 	HW_ICTRL			= 0x1f801078,
 
@@ -64,14 +64,14 @@ static const u32
 
 	// SIO2 is a DMA interface for the SIO.
 
-	HW_SIO2_DATAIN		= 0x1F808260,
-	HW_SIO2_FIFO		= 0x1f808264,
+	HW_SIO2_TX		    = 0x1F808260,
+	HW_SIO2_RX		    = 0x1f808264,
 	HW_SIO2_CTRL		= 0x1f808268,
-	HW_SIO2_RECV1		= 0x1f80826c,
-	HW_SIO2_RECV2		= 0x1f808270,
-	HW_SIO2_RECV3		= 0x1f808274,
-	HW_SIO2_8278        = 0x1F808278, // May as well add defs
-	HW_SIO2_827C        = 0x1F80827C, // for these 2...
+	HW_SIO2_CMD_STAT	= 0x1f80826c,
+	HW_SIO2_PORT_STAT   = 0x1f808270,
+	HW_SIO2_FIFO_STAT	= 0x1f808274,
+	HW_SIO2_FIFO_TX     = 0x1F808278, // May as well add defs
+	HW_SIO2_FIFO_RX     = 0x1F80827C, // for these 2...
 	HW_SIO2_INTR		= 0x1f808280;
 
 enum DMAMadrAddresses
@@ -316,7 +316,7 @@ enum IopEventId
 extern void PSX_INT( IopEventId n, s32 ecycle);
 extern int psxRemainingCycles(IopEventId n);
 
-extern void psxSetNextBranch( u32 startCycle, s32 delta );
+extern void psxSetNextBranch( u64 startCycle, s32 delta );
 extern void psxSetNextBranchDelta( s32 delta );
 
 extern void psxHwReset();

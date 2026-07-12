@@ -1,9 +1,12 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
 
 #include "vtlb.h"
+#include "MemoryTypes.h"
+#include "common/BitUtils.h"
+#include "common/MemoryInterface.h"
 
 // This is a table of default virtual map addresses for ps2vm components.  These locations
 // are provided and used to assist in debugging and possibly hacking; as it makes it possible
@@ -22,13 +25,15 @@ namespace HostMemoryMap
 	// Main
 	//////////////////////////////////////////////////////////////////////////
 
-	// PS2 main memory, SPR, and ROMs (approximately 138.5MB, but we round up to 139MB for simplicity).
+	// PS2 main memory, SPR, and ROMs (approximately 143MB).
+	// Needs to be big enough to fit the EEVM_MemoryAllocMess struct
 	static constexpr u32 EEmemOffset = 0x00000000;
-	static constexpr u32 EEmemSize = 0x8B00000;
+	static constexpr u32 EEmemSize = Common::AlignUp(sizeof(EEVM_MemoryAllocMess), _1mb);
 
-	// IOP main memory (2MB + 64K + 256b, rounded up to 3MB for simplicity).
+	// IOP main memory (approximately 3MB).
+	// Needs to be big enough to fit the IopVM_MemoryAllocMess struct
 	static constexpr u32 IOPmemOffset = EEmemOffset + EEmemSize;
-	static constexpr u32 IOPmemSize = 0x300000;
+	static constexpr u32 IOPmemSize = Common::AlignUp(sizeof(IopVM_MemoryAllocMess), _1mb);
 
 	// VU0 and VU1 memory (40KB, rounded up to 1MB for simplicity).
 	static constexpr u32 VUmemOffset = IOPmemOffset + IOPmemSize;
@@ -93,6 +98,12 @@ namespace HostMemoryMap
 
 namespace SysMemory
 {
+	/// Reserve the host memory map (and, on arm64, the constant-VA arena) early,
+	/// before other allocations could squat on the fixed base. Idempotent — a
+	/// later Allocate() reuses the same reservation. Used by headless runners and
+	/// SDL frontends that need the deterministic arena claimed before any
+	/// heap/mmap could squat on the fixed base.
+	void ReserveMemory();
 	bool Allocate();
 	void Reset();
 	void Release();
@@ -185,3 +196,23 @@ static __fi void memWrite128(u32 mem, const mem128_t& val) { vtlb_memWrite128(me
 
 extern void ba0W16(u32 mem, u16 value);
 extern u16 ba0R16(u32 mem);
+
+class EEMemoryInterface final : public MemoryInterface
+{
+public:
+	u8 Read8(u32 address, bool* valid = nullptr) override;
+	u16 Read16(u32 address, bool* valid = nullptr) override;
+	u32 Read32(u32 address, bool* valid = nullptr) override;
+	u64 Read64(u32 address, bool* valid = nullptr) override;
+	u128 Read128(u32 address, bool* valid = nullptr) override;
+	bool ReadBytes(u32 address, void* dest, u32 size) override;
+
+	bool Write8(u32 address, u8 value) override;
+	bool Write16(u32 address, u16 value) override;
+	bool Write32(u32 address, u32 value) override;
+	bool Write64(u32 address, u64 value) override;
+	bool Write128(u32 address, u128 value) override;
+	bool WriteBytes(u32 address, void* src, u32 size) override;
+
+	bool CompareBytes(u32 address, void* src, u32 size) override;
+};

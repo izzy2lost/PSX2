@@ -1,13 +1,11 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Common.h"
 #include "R5900OpcodeTables.h"
 #include "x86/iR5900.h"
 
-#if !defined(__ANDROID__)
 using namespace x86Emitter;
-#endif
 
 namespace R5900::Dynarec::OpcodeImpl
 {
@@ -56,10 +54,8 @@ void recJAL()
 	}
 	else
 	{
-//		xMOV(ptr32[&cpuRegs.GPR.r[31].UL[0]], pc + 4);
-        armStore(PTR_CPU(cpuRegs.GPR.r[31].UL[0]), pc + 4);
-//		xMOV(ptr32[&cpuRegs.GPR.r[31].UL[1]], 0);
-        armStore(PTR_CPU(cpuRegs.GPR.r[31].UL[1]), 0);
+		xMOV(ptr32[&cpuRegs.GPR.r[31].UL[0]], pc + 4);
+		xMOV(ptr32[&cpuRegs.GPR.r[31].UL[1]], 0);
 	}
 
 	recompileNextInstruction(true, false);
@@ -79,7 +75,48 @@ void recJR()
 {
 	EE::Profiler.EmitOp(eeOpcode::JR);
 
-	SetBranchReg(_Rs_);
+	const bool swap = EmuConfig.Gamefixes.GoemonTlbHack ? false : TrySwapDelaySlot(_Rs_, 0, 0, true);
+	if (!swap)
+	{
+		const int wbreg = _allocX86reg(X86TYPE_PCWRITEBACK, 0, MODE_WRITE | MODE_CALLEESAVED);
+		_eeMoveGPRtoR(xRegister32(wbreg), _Rs_);
+
+		if (EmuConfig.Gamefixes.GoemonTlbHack)
+		{
+			xMOV(ecx, xRegister32(wbreg));
+			vtlb_DynV2P();
+			xMOV(xRegister32(wbreg), eax);
+		}
+
+		recompileNextInstruction(true, false);
+
+		// the next instruction may have flushed the register.. so reload it if so.
+		if (x86regs[wbreg].inuse && x86regs[wbreg].type == X86TYPE_PCWRITEBACK)
+		{
+			xMOV(eax, xRegister32(wbreg));
+			x86regs[wbreg].inuse = 0;
+		}
+		else
+		{
+			xMOV(eax, ptr[&cpuRegs.pcWriteback]);
+		}
+	}
+	else
+	{
+		if (GPR_IS_DIRTY_CONST(_Rs_) || _hasX86reg(X86TYPE_GPR, _Rs_, 0))
+		{
+			const int x86reg = _allocX86reg(X86TYPE_GPR, _Rs_, MODE_READ);
+			xMOV(eax, xRegister32(x86reg));
+		}
+		else
+		{
+			_eeMoveGPRtoR(eax, _Rs_);
+		}
+	}
+
+
+	// Target passed in eax
+	SetBranchReg();
 }
 
 ////////////////////////////////////////////////////
@@ -90,37 +127,18 @@ void recJALR()
 	const u32 newpc = pc + 4;
 	const bool swap = (EmuConfig.Gamefixes.GoemonTlbHack || _Rd_ == _Rs_) ? false : TrySwapDelaySlot(_Rs_, 0, _Rd_, true);
 
-	// uncomment when there are NO instructions that need to call interpreter
-	//	int mmreg;
-	//	if (GPR_IS_CONST1(_Rs_))
-	//		xMOV(ptr32[&cpuRegs.pc], g_cpuConstRegs[_Rs_].UL[0]);
-	//	else
-	//	{
-	//		int mmreg;
-	//
-	//		if ((mmreg = _checkXMMreg(XMMTYPE_GPRREG, _Rs_, MODE_READ)) >= 0)
-	//		{
-	//			xMOVSS(ptr[&cpuRegs.pc], xRegisterSSE(mmreg));
-	//		}
-	//		else {
-	//			xMOV(eax, ptr[(void*)((int)&cpuRegs.GPR.r[_Rs_].UL[0])]);
-	//			xMOV(ptr[&cpuRegs.pc], eax);
-	//		}
-	//	}
 
 	int wbreg = -1;
 	if (!swap)
 	{
 		wbreg = _allocX86reg(X86TYPE_PCWRITEBACK, 0, MODE_WRITE | MODE_CALLEESAVED);
-		_eeMoveGPRtoR(a64::WRegister(wbreg), _Rs_);
+		_eeMoveGPRtoR(xRegister32(wbreg), _Rs_);
 
 		if (EmuConfig.Gamefixes.GoemonTlbHack)
 		{
-//			xMOV(ecx, xRegister32(wbreg));
-            armAsm->Mov(ECX, a64::WRegister(wbreg));
+			xMOV(ecx, xRegister32(wbreg));
 			vtlb_DynV2P();
-//			xMOV(xRegister32(wbreg), eax);
-            armAsm->Mov(a64::WRegister(wbreg), EAX);
+			xMOV(xRegister32(wbreg), eax);
 		}
 	}
 
@@ -134,8 +152,7 @@ void recJALR()
 		}
 		else
 		{
-//			xWriteImm64ToMem(&cpuRegs.GPR.r[_Rd_].UD[0], rax, newpc);
-            armStore64(PTR_CPU(cpuRegs.GPR.r[_Rd_].UD[0]), newpc);
+			xWriteImm64ToMem(&cpuRegs.GPR.r[_Rd_].UD[0], rax, newpc);
 		}
 	}
 
@@ -146,16 +163,12 @@ void recJALR()
 		// the next instruction may have flushed the register.. so reload it if so.
 		if (x86regs[wbreg].inuse && x86regs[wbreg].type == X86TYPE_PCWRITEBACK)
 		{
-//			xMOV(ptr[&cpuRegs.pc], xRegister32(wbreg));
-            armStore(PTR_CPU(cpuRegs.pc), a64::WRegister(wbreg));
+			xMOV(eax, xRegister32(wbreg));
 			x86regs[wbreg].inuse = 0;
 		}
 		else
 		{
-//			xMOV(eax, ptr[&cpuRegs.pcWriteback]);
-            armLoad(EAX, PTR_CPU(cpuRegs.pcWriteback));
-//			xMOV(ptr[&cpuRegs.pc], eax);
-            armStore(PTR_CPU(cpuRegs.pc), EAX);
+			xMOV(eax, ptr[&cpuRegs.pcWriteback]);
 		}
 	}
 	else
@@ -163,16 +176,16 @@ void recJALR()
 		if (GPR_IS_DIRTY_CONST(_Rs_) || _hasX86reg(X86TYPE_GPR, _Rs_, 0))
 		{
 			const int x86reg = _allocX86reg(X86TYPE_GPR, _Rs_, MODE_READ);
-//			xMOV(ptr32[&cpuRegs.pc], xRegister32(x86reg));
-            armStore(PTR_CPU(cpuRegs.pc), a64::WRegister(x86reg));
+			xMOV(eax, xRegister32(x86reg));
 		}
 		else
 		{
-            _eeMoveGPRtoM(PTR_CPU(cpuRegs.pc), _Rs_);
+			_eeMoveGPRtoR(eax, _Rs_);
 		}
 	}
 
-	SetBranchReg(0xffffffff);
+	// Target passed in eax
+	SetBranchReg();
 }
 
 #endif

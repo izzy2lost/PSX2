@@ -1,6 +1,7 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
+#include "IconsPromptFont.h"
 #include "USB/qemu-usb/qusb.h"
 #include "USB/qemu-usb/USBinternal.h"
 #include "USB/usb-printer/usb-printer.h"
@@ -13,7 +14,7 @@
 #include "fmt/format.h"
 #include "StateWrapper.h"
 #include "Host.h"
-#include "IconsFontAwesome5.h"
+#include "IconsFontAwesome.h"
 
 namespace usb_printer
 {
@@ -88,13 +89,13 @@ namespace usb_printer
 		s->print_file = FileSystem::OpenCFile(s->print_filename.c_str(), "wb");
 		if (!s->print_file)
 		{
-			Host::AddIconOSDMessage("USBPrinterOpen", ICON_FA_EXCLAMATION_TRIANGLE,
+			Host::AddIconOSDMessage("USBPrinterOpen", ICON_FA_TRIANGLE_EXCLAMATION,
 				fmt::format(TRANSLATE_FS("USB", "Failed to open '{}' for printing."), s->print_filename),
 				Host::OSD_ERROR_DURATION);
 			return;
 		}
 
-		Host::AddIconOSDMessage("USBPrinterOpen", ICON_FA_SAVE,
+		Host::AddIconOSDMessage("USBPrinterOpen", ICON_FA_FLOPPY_DISK,
 			fmt::format(TRANSLATE_FS("USB", "Printer saving to '{}'..."), Path::GetFileName(s->print_filename)),
 			Host::OSD_INFO_DURATION);
 
@@ -329,6 +330,11 @@ namespace usb_printer
 	const char* PrinterDevice::TypeName() const
 	{
 		return "printer";
+	}
+
+	const char* PrinterDevice::IconName() const
+	{
+		return ICON_PF_PRINTER;
 	}
 
 	bool PrinterDevice::Freeze(USBDevice* dev, StateWrapper& sw) const

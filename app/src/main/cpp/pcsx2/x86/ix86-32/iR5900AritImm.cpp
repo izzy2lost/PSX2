@@ -1,13 +1,11 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Common.h"
 #include "R5900OpcodeTables.h"
 #include "x86/iR5900.h"
 
-#if !defined(__ANDROID__)
 using namespace x86Emitter;
-#endif
 
 namespace R5900::Dynarec::OpcodeImpl
 {
@@ -35,26 +33,18 @@ REC_FUNC_DEL(SLTIU, _Rt_);
 
 static void recMoveStoT(int info)
 {
-	if (info & PROCESS_EE_S) {
-//        xMOV(xRegister32(EEREC_T), xRegister32(EEREC_S));
-        armAsm->Mov(a64::WRegister(EEREC_T), a64::WRegister(EEREC_S));
-    }
-	else {
-//        xMOV(xRegister32(EEREC_T), ptr32[&cpuRegs.GPR.r[_Rs_].UL[0]]);
-        armLoad(a64::WRegister(EEREC_T), PTR_CPU(cpuRegs.GPR.r[_Rs_].UL[0]));
-    }
+	if (info & PROCESS_EE_S)
+		xMOV(xRegister32(EEREC_T), xRegister32(EEREC_S));
+	else
+		xMOV(xRegister32(EEREC_T), ptr32[&cpuRegs.GPR.r[_Rs_].UL[0]]);
 }
 
 static void recMoveStoT64(int info)
 {
-	if (info & PROCESS_EE_S) {
-//        xMOV(xRegister64(EEREC_T), xRegister64(EEREC_S));
-        armAsm->Mov(a64::XRegister(EEREC_T), a64::XRegister(EEREC_S));
-    }
-	else {
-//        xMOV(xRegister64(EEREC_T), ptr64[&cpuRegs.GPR.r[_Rs_].UD[0]]);
-        armLoad(a64::XRegister(EEREC_T), PTR_CPU(cpuRegs.GPR.r[_Rs_].UD[0]));
-    }
+	if (info & PROCESS_EE_S)
+		xMOV(xRegister64(EEREC_T), xRegister64(EEREC_S));
+	else
+		xMOV(xRegister64(EEREC_T), ptr64[&cpuRegs.GPR.r[_Rs_].UD[0]]);
 }
 
 //// ADDI
@@ -67,10 +57,8 @@ static void recADDI_(int info)
 {
 	pxAssert(!(info & PROCESS_EE_XMM));
 	recMoveStoT(info);
-//	xADD(xRegister32(EEREC_T), _Imm_);
-    armAsm->Add(a64::WRegister(EEREC_T), a64::WRegister(EEREC_T), _Imm_);
-//	xMOVSX(xRegister64(EEREC_T), xRegister32(EEREC_T));
-    armAsm->Sxtw(a64::XRegister(EEREC_T), a64::WRegister(EEREC_T));
+	xADD(xRegister32(EEREC_T), _Imm_);
+	xMOVSX(xRegister64(EEREC_T), xRegister32(EEREC_T));
 }
 
 EERECOMPILE_CODEX(eeRecompileCodeRC1, ADDI, XMMINFO_WRITET | XMMINFO_READS);
@@ -91,8 +79,7 @@ static void recDADDI_(int info)
 {
 	pxAssert(!(info & PROCESS_EE_XMM));
 	recMoveStoT64(info);
-//	xADD(xRegister64(EEREC_T), _Imm_);
-    armAsm->Add(a64::XRegister(EEREC_T), a64::XRegister(EEREC_T), _Imm_);
+	xADD(xRegister64(EEREC_T), _Imm_);
 }
 
 EERECOMPILE_CODEX(eeRecompileCodeRC1, DADDI, XMMINFO_WRITET | XMMINFO_READS | XMMINFO_64BITOP);
@@ -114,25 +101,19 @@ static void recSLTIU_(int info)
 	pxAssert(!(info & PROCESS_EE_XMM));
 
 	// TODO(Stenzek): this can be made to suck less by turning Rs into a temp and reallocating Rt.
-	const a64::WRegister dreg((_Rt_ == _Rs_) ? _allocX86reg(X86TYPE_TEMP, 0, 0) : EEREC_T);
-//	xXOR(dreg, dreg);
-    armAsm->Eor(dreg, dreg, dreg);
+	const xRegister32 dreg((_Rt_ == _Rs_) ? _allocX86reg(X86TYPE_TEMP, 0, 0) : EEREC_T);
+	xXOR(dreg, dreg);
 
-	if (info & PROCESS_EE_S) {
-//        xCMP(xRegister64(EEREC_S), _Imm_);
-        armAsm->Cmp(a64::XRegister(EEREC_S), _Imm_);
-    }
-	else {
-//        xCMP(ptr64[&cpuRegs.GPR.r[_Rs_].UD[0]], _Imm_);
-        armAsm->Cmp(armLoad64(PTR_CPU(cpuRegs.GPR.r[_Rs_].UD[0])), _Imm_);
-    }
+	if (info & PROCESS_EE_S)
+		xCMP(xRegister64(EEREC_S), _Imm_);
+	else
+		xCMP(ptr64[&cpuRegs.GPR.r[_Rs_].UD[0]], _Imm_);
 
-//	xSETB(xRegister8(dreg));
-    armAsm->Cset(dreg, a64::Condition::cc);
+	xSETB(xRegister8(dreg));
 
-	if (dreg.GetCode() != EEREC_T)
+	if (dreg.GetId() != EEREC_T)
 	{
-		std::swap(x86regs[dreg.GetCode()], x86regs[EEREC_T]);
+		std::swap(x86regs[dreg.GetId()], x86regs[EEREC_T]);
 		_freeX86reg(EEREC_T);
 	}
 }
@@ -147,25 +128,19 @@ static void recSLTI_const()
 
 static void recSLTI_(int info)
 {
-	const a64::WRegister dreg((_Rt_ == _Rs_) ? _allocX86reg(X86TYPE_TEMP, 0, 0) : EEREC_T);
-//	xXOR(dreg, dreg);
-    armAsm->Eor(dreg, dreg, dreg);
+	const xRegister32 dreg((_Rt_ == _Rs_) ? _allocX86reg(X86TYPE_TEMP, 0, 0) : EEREC_T);
+	xXOR(dreg, dreg);
 
-	if (info & PROCESS_EE_S) {
-//        xCMP(xRegister64(EEREC_S), _Imm_);
-        armAsm->Cmp(a64::XRegister(EEREC_S), _Imm_);
-    }
-	else {
-//        xCMP(ptr64[&cpuRegs.GPR.r[_Rs_].UD[0]], _Imm_);
-        armAsm->Cmp(armLoad64(PTR_CPU(cpuRegs.GPR.r[_Rs_].UD[0])), _Imm_);
-    }
+	if (info & PROCESS_EE_S)
+		xCMP(xRegister64(EEREC_S), _Imm_);
+	else
+		xCMP(ptr64[&cpuRegs.GPR.r[_Rs_].UD[0]], _Imm_);
 
-//	xSETL(xRegister8(dreg));
-    armAsm->Cset(dreg, a64::Condition::lt);
+	xSETL(xRegister8(dreg));
 
-	if (dreg.GetCode() != EEREC_T)
+	if (dreg.GetId() != EEREC_T)
 	{
-		std::swap(x86regs[dreg.GetCode()], x86regs[EEREC_T]);
+		std::swap(x86regs[dreg.GetId()], x86regs[EEREC_T]);
 		_freeX86reg(EEREC_T);
 	}
 }
@@ -190,39 +165,23 @@ enum class LogicalOp
 
 static void recLogicalOpI(int info, LogicalOp op)
 {
-//	xImpl_G1Logic bad{};
-//	const xImpl_G1Logic& xOP = op == LogicalOp::AND ? xAND : op == LogicalOp::OR ? xOR :
-//														 op == LogicalOp::XOR    ? xXOR :
-//                                                                                   bad;
-//	pxAssert(&xOP != &bad);
+	xImpl_G1Logic* bad = nullptr;
+	const xImpl_G1Logic& xOP = op == LogicalOp::AND ? xAND
+	                         : op == LogicalOp::OR  ? xOR
+	                         : op == LogicalOp::XOR ? xXOR
+	                         : *bad;
+	pxAssert(&xOP != bad);
 
 	if (_ImmU_ != 0)
 	{
 		recMoveStoT64(info);
-//		xOP(xRegister64(EEREC_T), _ImmU_);
-
-        auto reg64 = a64::XRegister(EEREC_T);
-
-        switch (op)
-        {
-            case LogicalOp::AND:
-                armAsm->And(reg64, reg64, _ImmU_);
-                break;
-            case LogicalOp::OR:
-                armAsm->Orr(reg64, reg64, _ImmU_);
-                break;
-            case LogicalOp::XOR:
-                armAsm->Eor(reg64, reg64, _ImmU_);
-                break;
-        }
+		xOP(xRegister64(EEREC_T), _ImmU_);
 	}
 	else
 	{
 		if (op == LogicalOp::AND)
 		{
-//			xXOR(xRegister32(EEREC_T), xRegister32(EEREC_T));
-            auto reg32 = a64::WRegister(EEREC_T);
-            armAsm->Eor(reg32, reg32, reg32);
+			xXOR(xRegister32(EEREC_T), xRegister32(EEREC_T));
 		}
 		else
 		{

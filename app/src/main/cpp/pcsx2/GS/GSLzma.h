@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -120,13 +120,6 @@ namespace GSDumpTypes
 #undef DEF_GIFReg
 	// clang-format on
 
-	template <typename Output, typename Input, typename std::enable_if<sizeof(Input) == sizeof(Output), bool>::type = true>
-	static constexpr Output BitCast(Input input)
-	{
-		Output output;
-		memcpy(&output, &input, sizeof(input));
-		return output;
-	}
 	template <typename Output = u32>
 	static constexpr Output GetBits(u64 value, u32 shift, u32 numbits)
 	{

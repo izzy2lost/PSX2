@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -14,16 +14,7 @@
 #include <string_view>
 #include <vector>
 
-// Work around us defining _M_ARM64 but fast_float thinking that it means MSVC.
-#if defined(_M_ARM64) && !defined(_WIN32)
-#define HAD_M_ARM64 _M_ARM64
-#undef _M_ARM64
-#endif
 #include "fast_float/fast_float.h"
-#if defined(HAD_M_ARM64) && !defined(_WIN32)
-#define _M_ARM64 HAD_M_ARM64
-#undef HAD_M_ARM64
-#endif
 
 // Older versions of libstdc++ are missing support for from_chars() with floats, and was only recently
 // merged in libc++. So, just fall back to stringstream (yuck!) on everywhere except MSVC.
@@ -75,7 +66,8 @@ namespace StringUtil
 	}
 
 	/// Wrapper around std::from_chars
-	template <typename T, std::enable_if_t<std::is_integral<T>::value, bool> = true>
+	template <typename T>
+		requires std::is_integral_v<T>
 	inline std::optional<T> FromChars(const std::string_view str, int base = 10)
 	{
 		T value;
@@ -86,7 +78,8 @@ namespace StringUtil
 
 		return value;
 	}
-	template <typename T, std::enable_if_t<std::is_integral<T>::value, bool> = true>
+	template <typename T>
+		requires std::is_integral_v<T>
 	inline std::optional<T> FromChars(const std::string_view str, int base, std::string_view* endptr)
 	{
 		T value;
@@ -103,7 +96,8 @@ namespace StringUtil
 		return value;
 	}
 
-	template <typename T, std::enable_if_t<std::is_floating_point<T>::value, bool> = true>
+	template <typename T>
+		requires std::is_floating_point_v<T>
 	inline std::optional<T> FromChars(const std::string_view str)
 	{
 		T value;
@@ -114,7 +108,8 @@ namespace StringUtil
 
 		return value;
 	}
-	template <typename T, std::enable_if_t<std::is_floating_point<T>::value, bool> = true>
+	template <typename T>
+		requires std::is_floating_point_v<T>
 	inline std::optional<T> FromChars(const std::string_view str, std::string_view* endptr)
 	{
 		T value;
@@ -132,7 +127,8 @@ namespace StringUtil
 	}
 
 	/// Wrapper around std::to_chars
-	template <typename T, std::enable_if_t<std::is_integral<T>::value, bool> = true>
+	template <typename T>
+		requires std::is_integral_v<T>
 	inline std::string ToChars(T value, int base = 10)
 	{
 		// to_chars() requires macOS 10.15+.
@@ -154,7 +150,8 @@ namespace StringUtil
 #endif
 	}
 
-	template <typename T, std::enable_if_t<std::is_floating_point<T>::value, bool> = true>
+	template <typename T>
+		requires std::is_floating_point_v<T>
 	inline std::string ToChars(T value)
 	{
 		// No to_chars() in older versions of libstdc++/libc++.

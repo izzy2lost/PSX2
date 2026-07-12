@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "InputRecordingLogger.h"
@@ -6,7 +6,7 @@
 #include "DebugTools/Debug.h"
 #include "common/Console.h"
 #include "IconsPromptFont.h"
-#include "IconsFontAwesome5.h"
+#include "IconsFontAwesome.h"
 #include "GS.h"
 #include "Host.h"
 

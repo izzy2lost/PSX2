@@ -1,10 +1,9 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
 
 #include "common/Pcsx2Defs.h"
-#include "common/VectorIntrin.h"
 
 // For multiple-isa compilation
 #ifdef MULTI_ISA_UNSHARED_COMPILATION
@@ -45,9 +44,10 @@
 struct ProcessorFeatures
 {
 #ifdef _M_X86
-	enum class VectorISA { SSE4, AVX, AVX2 };
+	enum class VectorISA { SSE4, AVX, AVX2, AVX512F };
 	VectorISA vectorISA;
 	bool hasFMA;
+	bool hasBMI2;
 	bool hasSlowGather;
 #endif
 };

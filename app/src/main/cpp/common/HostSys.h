@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -91,23 +91,14 @@ static __fi PageProtectionMode PageAccess_Any()
 // --------------------------------------------------------------------------------------
 namespace HostSys
 {
-	// Maps a block of memory for use as a recompiled code buffer.
-	// Returns NULL on allocation failure.
-	extern void* Mmap(void* base, size_t size, const PageProtectionMode& mode);
-
-	// Unmaps a block allocated by SysMmap
-	extern void Munmap(void* base, size_t size);
-
 	extern void MemProtect(void* baseaddr, size_t size, const PageProtectionMode& mode);
 
 	extern std::string GetFileMappingName(const char* prefix);
 	extern void* CreateSharedMemory(const char* name, size_t size);
 	extern void DestroySharedMemory(void* ptr);
-	extern void* MapSharedMemory(void* handle, size_t offset, void* baseaddr, size_t size, const PageProtectionMode& mode);
-	extern void UnmapSharedMemory(void* baseaddr, size_t size);
 
 	/// JIT write protect for Apple Silicon. Needs to be called prior to writing to any RWX pages.
-#if !defined(__APPLE__) || !defined(_M_ARM64)
+#if !defined(__APPLE__) || !defined(ARCH_ARM64)
 	// clang-format -off
 	[[maybe_unused]] __fi static void BeginCodeWrite() {}
 	[[maybe_unused]] __fi static void EndCodeWrite() {}
@@ -119,7 +110,7 @@ namespace HostSys
 
 	/// Flushes the instruction cache on the host for the specified range.
 	/// Only needed on ARM64, X86 has coherent D/I cache.
-#ifdef _M_X86
+#ifdef ARCH_X86
 	[[maybe_unused]] __fi static void FlushInstructionCache(void* address, u32 size) {}
 #else
 	void FlushInstructionCache(void* address, u32 size);
@@ -142,12 +133,18 @@ namespace PageFaultHandler
 
 	HandlerResult HandlePageFault(void* exception_pc, void* fault_address, bool is_write);
 	bool Install(Error* error = nullptr);
+	bool InstallSecondaryThread();
 } // namespace PageFaultHandler
 
 class SharedMemoryMappingArea
 {
 public:
-	static std::unique_ptr<SharedMemoryMappingArea> Create(size_t size);
+	// fixed_base_hint: when non-zero, the area is placed at that VA (256MB-stride
+	// fallback slots, then kernel placement) so the reserved region — and any JIT
+	// code mapped inside it — lands at the same address every run, which a caller
+	// can rely on for address-stable code caching. Zero = kernel-chosen placement
+	// (the default).
+	static std::unique_ptr<SharedMemoryMappingArea> Create(size_t size, bool jit = false, uptr fixed_base_hint = 0);
 
 	~SharedMemoryMappingArea();
 
@@ -159,7 +156,7 @@ public:
 	__fi u8* PagePointer(size_t page) const { return m_base_ptr + __pagesize * page; }
 
 	u8* Map(void* file_handle, size_t file_offset, void* map_base, size_t map_size, const PageProtectionMode& mode);
-	bool Unmap(void* map_base, size_t map_size);
+	bool Unmap(void* map_base, size_t map_size, bool is_file = true);
 
 private:
 	SharedMemoryMappingArea(u8* base_ptr, size_t size, size_t num_pages);
@@ -191,6 +188,16 @@ extern const u32 SPIN_TIME_NS;
 [[noreturn]] void AbortWithMessage(const char* msg);
 
 extern std::string GetOSVersionString();
+
+struct CPUInfo {
+	std::string name;
+	u32 num_big_cores;
+	u32 num_small_cores;
+	u32 num_threads;
+	u32 num_clusters;
+};
+
+const CPUInfo& GetCPUInfo();
 
 namespace Common
 {

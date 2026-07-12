@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "GS/GS.h"
@@ -30,38 +30,12 @@
 namespace {
 struct GSUtilMaps
 {
-	u8 PrimClassField[8] = {};
-	u8 VertexCountField[8] = {};
-	u8 ClassVertexCountField[4] = {};
 	u32 CompatibleBitsField[64][2] = {};
 	u32 SharedBitsField[64][2] = {};
 	u32 SwizzleField[64][2] = {};
 
 	constexpr GSUtilMaps()
 	{
-		PrimClassField[GS_POINTLIST] = GS_POINT_CLASS;
-		PrimClassField[GS_LINELIST] = GS_LINE_CLASS;
-		PrimClassField[GS_LINESTRIP] = GS_LINE_CLASS;
-		PrimClassField[GS_TRIANGLELIST] = GS_TRIANGLE_CLASS;
-		PrimClassField[GS_TRIANGLESTRIP] = GS_TRIANGLE_CLASS;
-		PrimClassField[GS_TRIANGLEFAN] = GS_TRIANGLE_CLASS;
-		PrimClassField[GS_SPRITE] = GS_SPRITE_CLASS;
-		PrimClassField[GS_INVALID] = GS_INVALID_CLASS;
-
-		VertexCountField[GS_POINTLIST] = 1;
-		VertexCountField[GS_LINELIST] = 2;
-		VertexCountField[GS_LINESTRIP] = 2;
-		VertexCountField[GS_TRIANGLELIST] = 3;
-		VertexCountField[GS_TRIANGLESTRIP] = 3;
-		VertexCountField[GS_TRIANGLEFAN] = 3;
-		VertexCountField[GS_SPRITE] = 2;
-		VertexCountField[GS_INVALID] = 1;
-
-		ClassVertexCountField[GS_POINT_CLASS] = 1;
-		ClassVertexCountField[GS_LINE_CLASS] = 2;
-		ClassVertexCountField[GS_TRIANGLE_CLASS] = 3;
-		ClassVertexCountField[GS_SPRITE_CLASS] = 2;
-
 		for (int i = 0; i < 64; i++)
 		{
 			CompatibleBitsField[i][i >> 5] |= 1U << (i & 0x1f);
@@ -125,19 +99,120 @@ const char* GSUtil::GetAFAILName(u32 afail)
 	return (afail < std::size(names)) ? names[afail] : "";
 }
 
-GS_PRIM_CLASS GSUtil::GetPrimClass(u32 prim)
+const char* GSUtil::GetWMName(u32 wm)
 {
-	return (GS_PRIM_CLASS)s_maps.PrimClassField[prim];
+	static constexpr const char* names[] = {"REPEAT", "CLAMP", "REGION_CLAMP", "REGION_REPEAT"};
+	return (wm < std::size(names)) ? names[wm] : "";
 }
 
-int GSUtil::GetVertexCount(u32 prim)
+const char* GSUtil::GetZTSTName(u32 ztst)
 {
-	return s_maps.VertexCountField[prim];
+	static constexpr const char* names[] = {
+		"NEVER", "ALWAYS", "GEQUAL", "GREATER"};
+	return (ztst < std::size(names)) ? names[ztst] : "";
 }
 
-int GSUtil::GetClassVertexCount(u32 primclass)
+const char* GSUtil::GetPrimName(u32 prim)
 {
-	return s_maps.ClassVertexCountField[primclass];
+	static constexpr const char* names[] = {
+		"POINT", "LINE", "LINESTRIP", "TRIANGLE", "TRIANGLESTRIP", "TRIANGLEFAN", "SPRITE", "INVALID"};
+	return (prim < std::size(names)) ? names[prim] : "";
+}
+
+const char* GSUtil::GetPrimClassName(u32 primclass)
+{
+	static constexpr const char* names[] = {
+		"POINT", "LINE", "TRIANGLE", "SPRITE", "INVALID"};
+	return (primclass < std::size(names)) ? names[primclass] : "";
+}
+
+const char* GSUtil::GetMMAGName(u32 mmag)
+{
+	static constexpr const char* names[] = {"NEAREST", "LINEAR"};
+	return (mmag < std::size(names)) ? names[mmag] : "";
+}
+
+const char* GSUtil::GetMMINName(u32 mmin)
+{
+	static constexpr const char* names[8] = {"NEAREST", "LINEAR", "NEAREST_MIPMAP_NEAREST", "NEAREST_MIPMAP_LINEAR",
+		"LINEAR_MIPMAP_NEAREST", "LINEAR_MIPMAP_LINEAR"};
+	return (mmin < std::size(names)) ? names[mmin] : "";
+}
+
+const char* GSUtil::GetMTBAName(u32 mtba)
+{
+	static constexpr const char* names[] = {"MIPTBP1", "AUTO"};
+	return (mtba < std::size(names)) ? names[mtba] : "";
+}
+
+const char* GSUtil::GetLCMName(u32 lcm)
+{
+	static constexpr const char* names[] = {"Formula", "K"};
+	return (lcm < std::size(names)) ? names[lcm] : "";
+}
+
+const char* GSUtil::GetSCANMSKName(u32 scanmsk)
+{
+	static constexpr const char* names[] = {"Normal", "Reserved", "Even prohibited", "Odd prohibited"};
+	return (scanmsk < std::size(names)) ? names[scanmsk] : "";
+}
+
+const char* GSUtil::GetDATMName(u32 datm)
+{
+	static constexpr const char* names[] = {"0 pass", "1 pass"};
+	return (datm < std::size(names)) ? names[datm] : "";
+}
+
+const char* GSUtil::GetTFXName(u32 tfx)
+{
+	static constexpr const char* names[] = {"MODULATE", "DECAL", "HIGHLIGHT", "HIGHLIGHT2"};
+	return (tfx < std::size(names)) ? names[tfx] : "";
+}
+
+const char* GSUtil::GetTCCName(u32 tcc)
+{
+	static constexpr const char* names[] = {"RGB", "RGBA"};
+	return (tcc < std::size(names)) ? names[tcc] : "";
+}
+
+const char* GSUtil::GetACName(u32 ac)
+{
+	static constexpr const char* names[] = {"PRMODE", "PRIM"};
+	return (ac < std::size(names)) ? names[ac] : "";
+}
+
+const char* GSUtil::GetPerfMonCounterName(GSPerfMon::counter_t counter, bool hw)
+{
+	if (hw)
+	{
+		static constexpr const char* names_hw[GSPerfMon::CounterLastHW] = {
+			"Prim",
+			"Draw",
+			"DrawCalls",
+			"Readbacks",
+			"Swizzle",
+			"Unswizzle",
+			"TextureCopies",
+			"TextureUploads",
+			"Barriers",
+			"RenderPasses"
+		};
+		return counter < std::size(names_hw) ? names_hw[counter] : "";
+	}
+	else
+	{
+		static constexpr const char* names_sw[GSPerfMon::CounterLastSW] = {
+			"Prim",
+			"Draw",
+			"DrawCalls",
+			"Readbacks",
+			"Swizzle",
+			"Unswizzle",
+			"Fillrate",
+			"SyncPoint"
+		};
+		return counter < std::size(names_sw) ? names_sw[counter] : "";
+	}
 }
 
 const u32* GSUtil::HasSharedBitsPtr(u32 dpsm)
@@ -212,7 +287,7 @@ GSRendererType GSUtil::GetPreferredRenderer()
 #if defined(__APPLE__)
 		// Mac: Prefer Metal hardware.
 		preferred_renderer = GSRendererType::Metal;
-#elif defined(_WIN32) && defined(_M_ARM64)
+#elif defined(_WIN32) && defined(ARCH_ARM64)
 		// Default to DX12 on Windows-on-ARM.
 		preferred_renderer = GSRendererType::DX12;
 #elif defined(_WIN32)
@@ -280,7 +355,7 @@ GSRendererType GSUtil::GetPreferredRenderer()
 	return preferred_renderer;
 }
 
-const char* psm_str(int psm)
+const char* GSUtil::GetPSMName(int psm)
 {
 	switch (psm)
 	{
@@ -308,4 +383,28 @@ const char* psm_str(int psm)
 		default:break;
 	}
 	return "BAD_PSM";
+}
+
+bool GSUtil::IsValidPSM(int psm)
+{
+	switch (psm)
+	{
+		case PSMCT32:
+		case PSMCT24:
+		case PSMCT16:
+		case PSMCT16S:
+		case PSMT8:
+		case PSMT4:
+		case PSMT8H:
+		case PSMT4HL:
+		case PSMT4HH:
+		case PSMZ32:
+		case PSMZ24:
+		case PSMZ16:
+		case PSMZ16S:
+		case PSGPU24:
+			return true;
+		default:
+			return false;
+	}
 }

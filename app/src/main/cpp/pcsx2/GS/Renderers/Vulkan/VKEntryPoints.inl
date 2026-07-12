@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 // Expands the VULKAN_ENTRY_POINT macro for each function when this file is included.
@@ -244,5 +244,8 @@ VULKAN_DEVICE_ENTRY_POINT(vkCmdPushDescriptorSetKHR, false)
 
 // VK_EXT_swapchain_maintenance1
 VULKAN_DEVICE_ENTRY_POINT(vkReleaseSwapchainImagesEXT, false)
+
+// VK_KHR_swapchain_maintenance1
+VULKAN_DEVICE_ENTRY_POINT(vkReleaseSwapchainImagesKHR, false)
 
 #endif // VULKAN_DEVICE_ENTRY_POINT

@@ -22,6 +22,10 @@ target_compile_features(PCSX2_FLAGS INTERFACE cxx_std_20)
 target_compile_definitions(PCSX2_FLAGS INTERFACE "${PCSX2_DEFS}")
 target_compile_options(PCSX2_FLAGS INTERFACE "${PCSX2_WARNINGS}")
 
+if(ENABLE_RECOMPILER_TEST_HOOKS)
+	target_compile_definitions(PCSX2_FLAGS INTERFACE PCSX2_RECOMPILER_TESTS)
+endif()
+
 # Check that people use the good file
 if(NOT TOP_CMAKE_WAS_SOURCED)
 	message(FATAL_ERROR "
@@ -142,7 +146,11 @@ set(pcsx2Sources
 	VU0microInterp.cpp
 	VU1micro.cpp
 	VU1microInterp.cpp
+	VU1Trace.cpp
 	VUflags.cpp
+	vu_capture.cpp
+	microVU_Divtrace.cpp
+	ee_divtrace.cpp
 	VUmicroMem.cpp
 	VUops.cpp
 )
@@ -204,10 +212,14 @@ set(pcsx2Headers
 	SupportURLs.h
 	StateWrapper.h
 	Vif_Dma.h
+	vu_capture.h
+	microVU_Divtrace.h
+	ee_divtrace.h
 	Vif.h
 	Vif_Unpack.h
 	VMManager.h
 	vtlb.h
+	VU1Trace.h
 	VUflags.h
 	VUmicro.h
 	VUops.h)
@@ -256,7 +268,6 @@ set(pcsx2SPU2Sources
 	SPU2/ADSR.cpp
 	SPU2/Debug.cpp
 	SPU2/Dma.cpp
-	SPU2/Mixer.cpp
 	SPU2/spu2.cpp
 	SPU2/ReadInput.cpp
 	SPU2/RegTable.cpp
@@ -267,6 +278,7 @@ set(pcsx2SPU2Sources
 )
 
 set(pcsx2SPU2SourcesUnshared
+	SPU2/Mixer.cpp
 	SPU2/ReverbResample.cpp
 )
 
@@ -479,12 +491,12 @@ set(pcsx2GSSourcesUnshared
 	GS/Renderers/SW/GSRendererSW.cpp
 )
 
-if(_M_X86)
+if(ARCH_X86)
 	list(APPEND pcsx2GSSourcesUnshared
 		GS/Renderers/SW/GSDrawScanlineCodeGenerator.all.cpp
 		GS/Renderers/SW/GSSetupPrimCodeGenerator.all.cpp
 	)
-elseif(_M_ARM64)
+elseif(ARCH_ARM64)
 	list(APPEND pcsx2GSSourcesUnshared
 		GS/Renderers/SW/GSDrawScanlineCodeGenerator.arm64.cpp
 		GS/Renderers/SW/GSSetupPrimCodeGenerator.arm64.cpp
@@ -496,6 +508,7 @@ set(pcsx2GSSources
 	GS/GSCapture.cpp
 	GS/GSClut.cpp
 	GS/GSDrawingContext.cpp
+	GS/GSDrawingEnvironment.cpp
 	GS/GSDump.cpp
 	GS/GSLocalMemory.cpp
 	GS/GSLzma.cpp
@@ -552,6 +565,7 @@ set(pcsx2GSHeaders
 	GS/Renderers/Common/GSFastList.h
 	GS/Renderers/Common/GSFunctionMap.h
 	GS/Renderers/Common/GSRenderer.h
+	GS/Renderers/Common/GSShaderEnums.h
 	GS/Renderers/Common/GSTexture.h
 	GS/Renderers/Common/GSVertex.h
 	GS/Renderers/Common/GSVertexTrace.h
@@ -572,14 +586,14 @@ set(pcsx2GSHeaders
 	GS/Renderers/SW/GSVertexSW.h
 	)
 
-if(_M_X86)
+if(ARCH_X86)
 	list(APPEND pcsx2GSHeaders
 		GS/GSVector4.h
 		GS/GSVector4i.h
 		GS/GSVector8.h
 		GS/GSVector8i.h
 	)
-elseif(_M_ARM64)
+elseif(ARCH_ARM64)
 	list(APPEND pcsx2GSHeaders
 		GS/GSVector4_arm64.h
 		GS/GSVector4i_arm64.h
@@ -723,6 +737,13 @@ elseif(LINUX)
 	list(APPEND pcsx2USBHeaders
 		USB/usb-eyetoy/cam-linux.h
 	)
+elseif(APPLE)
+	list(APPEND pcsx2USBSources
+		USB/usb-eyetoy/cam-macos.mm
+	)
+	list(APPEND pcsx2USBHeaders
+		USB/usb-eyetoy/cam-macos.h
+	)
 else()
 	list(APPEND pcsx2USBSources
 		USB/usb-eyetoy/cam-noop.cpp
@@ -752,7 +773,7 @@ set(pcsx2IPUHeaders
 	IPU/yuv2rgb.h
 )
 
-if(DISABLE_ADVANCE_SIMD)
+if(DISABLE_ADVANCE_SIMD AND ARCH_X86)
 	target_compile_definitions(PCSX2 PUBLIC MULTI_ISA_SHARED_COMPILATION)
 	if(USE_GCC)
 		target_link_options(PCSX2_FLAGS INTERFACE -Wno-odr)
@@ -844,6 +865,7 @@ set(pcsx2HostHeaders
 
 set(pcsx2ImGuiSources
 	ImGui/FullscreenUI.cpp
+	ImGui/FullscreenUI_Settings.cpp
 	ImGui/ImGuiFullscreen.cpp
 	ImGui/ImGuiManager.cpp
 	ImGui/ImGuiOverlays.cpp
@@ -851,6 +873,7 @@ set(pcsx2ImGuiSources
 
 set(pcsx2ImGuiHeaders
 	ImGui/FullscreenUI.h
+	ImGui/FullscreenUI_Internal.h
 	ImGui/ImGuiAnimated.h
 	ImGui/ImGuiFullscreen.h
 	ImGui/ImGuiManager.h
@@ -1054,14 +1077,47 @@ set(pcsx2x86Headers
 
 # ARM64
 set(pcsx2arm64Sources
+	arm64/AsmHelpers.cpp
+	arm64/iCore-arm64.cpp
+	arm64/iR3000A-arm64.cpp
+	arm64/iR3000Atables-arm64.cpp
+	arm64/iR5900-arm64.cpp
+	arm64/iR5900Templates-arm64.cpp
+	x86/BaseblockEx.cpp  # arch-neutral baseblock manager, shared with the x86 build
+	arm64/iR5900Arit-arm64.cpp
+	arm64/iR5900AritImm-arm64.cpp
+	arm64/iR5900Branch-arm64.cpp
+	arm64/iR5900Jump-arm64.cpp
+	arm64/iR5900LoadStore-arm64.cpp
+	arm64/recVTLB-arm64.cpp
+	arm64/iR5900Move-arm64.cpp
+	arm64/iR5900MultDiv-arm64.cpp
+	arm64/iR5900Shift-arm64.cpp
+	arm64/iR5900Misc-arm64.cpp
+	arm64/iCOP2-arm64.cpp
+	arm64/iCOP0-arm64.cpp
+	arm64/iFPU-arm64.cpp
+	arm64/iFPUd-arm64.cpp
+	arm64/iMMI-arm64.cpp
 	arm64/Vif_Dynarec.cpp
 	arm64/Vif_UnpackNEON.cpp
-	arm64/VixlHelpers.cpp
-#	arm64/RecStubs.cpp
+	arm64/RecStubs.cpp
+	arm64/microVU-arm64.cpp
+	x86/iR5900Analysis.cpp  # arch-neutral EE instruction-liveness analysis, shared with the x86 build
 	)
 
 set(pcsx2arm64Headers
-	arm64/VixlHelpers.h
+	arm64/AsmHelpers.h
+	arm64/iCore-arm64.h
+	arm64/iR3000A-arm64.h
+	arm64/iR5900-arm64.h
+	arm64/iR5900Analysis.h
+	arm64/microVU-arm64.h
+	arm64/microVU_Persist-arm64.h
+	arm64/microVU_Persist-arm64.inl
+	arm64/microVU_ProgCache-arm64.h
+	arm64/microVU_ProgCache-arm64.inl
+	arm64/microVU_Misc-arm64.h
 )
 
 # These ones benefit a lot from LTO
@@ -1076,13 +1132,13 @@ set(pcsx2LTOSources
 	${pcsx2GSHeaders}
 )
 
-#if(_M_X86)
+if(ARCH_X86)
 	list(APPEND pcsx2LTOSources ${pcsx2x86Sources} ${pcsx2x86Headers})
-#	target_link_libraries(PCSX2_FLAGS INTERFACE zydis)
-#elseif(_M_ARM64)
+	target_link_libraries(PCSX2_FLAGS INTERFACE zydis)
+elseif(ARCH_ARM64)
 	list(APPEND pcsx2LTOSources ${pcsx2arm64Sources} ${pcsx2arm64Headers})
 	target_link_libraries(PCSX2_FLAGS INTERFACE vixl)
-#endif()
+endif()
 
 if(LTO_PCSX2_CORE)
 	add_library(PCSX2_LTO ${pcsx2LTOSources})
@@ -1164,7 +1220,6 @@ target_link_libraries(PCSX2_FLAGS INTERFACE
 	common
 	imgui
 	fmt::fmt
-	rapidyaml::rapidyaml
 	libchdr
 	libzip::zip
 	cpuinfo
@@ -1173,6 +1228,7 @@ target_link_libraries(PCSX2_FLAGS INTERFACE
 	discord-rpc
 	simpleini
 	freesurround
+	Freetype::Freetype
 	SDL3::SDL3
 	ZLIB::ZLIB
 	LZ4::LZ4
@@ -1226,27 +1282,43 @@ else()
 endif()
 
 # additonal include directories
-if(_M_X86)
+if(ARCH_X86)
 	target_include_directories(PCSX2_FLAGS INTERFACE "${CMAKE_SOURCE_DIR}/3rdparty/xbyak")
 	target_compile_definitions(PCSX2_FLAGS INTERFACE XBYAK_NO_EXCEPTION)
 endif()
 
+target_include_directories(PCSX2_FLAGS INTERFACE
+	"${CMAKE_CURRENT_SOURCE_DIR}"
+	"${CMAKE_BINARY_DIR}/pcsx2"
+	"${CMAKE_BINARY_DIR}/common/include"
+)
 if(ANDROID)
 	target_include_directories(PCSX2_FLAGS INTERFACE
-		"${CMAKE_CURRENT_SOURCE_DIR}"
-		"${CMAKE_BINARY_DIR}/pcsx2"
-		"${CMAKE_BINARY_DIR}/common/include"
 		"${CMAKE_SOURCE_DIR}/3rdparty/libjpeg"
 		"${CMAKE_SOURCE_DIR}/3rdparty/shaderc/include"
 		"${CMAKE_SOURCE_DIR}/3rdparty/ffmpeg/include"
 	)
 else()
-	target_include_directories(PCSX2_FLAGS INTERFACE
-		"${CMAKE_CURRENT_SOURCE_DIR}"
-		"${CMAKE_BINARY_DIR}/pcsx2"
-		"${CMAKE_BINARY_DIR}/common/include"
-		"${FFMPEG_INCLUDE_DIRS}"
-	)
+	target_include_directories(PCSX2_FLAGS INTERFACE "${FFMPEG_INCLUDE_DIRS}")
+endif()
+
+set_source_files_properties(PrecompiledHeader.cpp PROPERTIES HEADER_FILE_ONLY TRUE)
+
+# VUops.cpp (VU interp) and FPU.cpp (EE COP1 interp) must produce bit-exact
+# results matching PS2 hardware (which has no FMA). The project-wide
+# -ffp-contract=fast is fine on x86 (no FMA emitted without -mfma) but on aarch64
+# it lets the compiler contract `acc + fs * ft` to `fmadd` (single-rounded),
+# breaking bit-exactness vs the recompilers (separate fmul + fadd). In VUops.cpp
+# this would produce 1-ULP MADDA divergences. FPU.cpp has the identical hazard in
+# MADDA_S/MSUBA_S (`_FAValf_ += fs*ft` / `-= fs*ft` are single-expression
+# accumulates that fuse on aarch64 while the EE FPU rec emits two roundings) — a
+# +1-ULP float drift vs the rec.
+if(NOT MSVC)
+	set_source_files_properties(VUops.cpp FPU.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
+endif()
+if(COMMAND target_precompile_headers)
+	message("Using precompiled headers.")
+	target_precompile_headers(PCSX2_FLAGS INTERFACE PrecompiledHeader.h)
 endif()
 
 set_source_files_properties(PrecompiledHeader.cpp PROPERTIES HEADER_FILE_ONLY TRUE)
@@ -1291,11 +1363,15 @@ if (APPLE)
 	find_library(IOKIT_LIBRARY IOKit)
 	find_library(METAL_LIBRARY Metal)
 	find_library(QUARTZCORE_LIBRARY QuartzCore)
+	find_library(AVFOUNDATION_LIBRARY AVFoundation)
+	find_library(COREMEDIA_LIBRARY CoreMedia)
 	target_link_libraries(PCSX2_FLAGS INTERFACE
 		${APPKIT_LIBRARY}
 		${IOKIT_LIBRARY}
 		${METAL_LIBRARY}
 		${QUARTZCORE_LIBRARY}
+		${AVFOUNDATION_LIBRARY}
+		${COREMEDIA_LIBRARY}
 	)
 endif()
 
@@ -1310,6 +1386,9 @@ function(setup_main_executable target)
 			continue()
 		endif()
 		if (NOT WIN32 AND "${path}" MATCHES "/dx11/") # Don't include unneccessary stuff
+			continue()
+		endif()
+		if (NOT BUNDLE_EMOJI_FONT AND "${path}" MATCHES "fonts/Twemoji")
 			continue()
 		endif()
 		pcsx2_resource(${target} ${path} ${CMAKE_SOURCE_DIR}/bin/resources/)
@@ -1343,17 +1422,36 @@ function(setup_main_executable target)
 
 		# Copy dependency libraries.
 		set(DEPS_BINDIR "${CMAKE_SOURCE_DIR}/deps/bin")
-		set(DEPS_TO_COPY freetype.dll harfbuzz.dll jpeg62.dll libpng16.dll libsharpyuv.dll libwebp.dll lz4.dll SDL3.dll shaderc_shared.dll zlib1.dll zstd.dll plutovg.dll plutosvg.dll)
-		set(DEPS_TO_COPY
-			$<IF:$<CONFIG:Debug>,kddockwidgets-qt6d.dll,kddockwidgets-qt6.dll>
-			${DEPS_TO_COPY}
-		)
+		set(DEPS_TO_COPY freetype.dll harfbuzz.dll jpeg62.dll libpng16.dll libsharpyuv.dll libwebp.dll libwebpdemux.dll libwebpmux.dll lz4.dll SDL3.dll shaderc_shared.dll z.dll zstd.dll plutovg.dll plutosvg.dll)
+		if(ENABLE_QT_DEBUGGER)
+			set(DEPS_TO_COPY
+				$<IF:$<CONFIG:Debug>,kddockwidgets-qt6d.dll,kddockwidgets-qt6.dll>
+				${DEPS_TO_COPY}
+			)
+		endif()
 		foreach(DEP_TO_COPY ${DEPS_TO_COPY})
 			install(FILES "${DEPS_BINDIR}/${DEP_TO_COPY}" DESTINATION "${CMAKE_SOURCE_DIR}/bin")
 		endforeach()
 
+		set(OPT_DEPS_TO_COPY avcodec-62.dll avformat-62.dll avutil-60.dll swresample-6.dll swscale-9.dll)
+		foreach(OPT_DEP_TO_COPY ${OPT_DEPS_TO_COPY})
+			install(FILES "${DEPS_BINDIR}/${OPT_DEP_TO_COPY}" DESTINATION "${CMAKE_SOURCE_DIR}/bin" OPTIONAL)
+		endforeach()
+
+		set(SYMBOLS_TO_COPY ${DEPS_TO_COPY} ${OPT_DEPS_TO_COPY})
+		list(TRANSFORM SYMBOLS_TO_COPY REPLACE "[.]dll" ".pdb")
+		foreach(SYMBOL_TO_COPY ${SYMBOLS_TO_COPY})
+			install(FILES "${DEPS_BINDIR}/${SYMBOL_TO_COPY}" DESTINATION "${CMAKE_SOURCE_DIR}/bin" OPTIONAL)
+		endforeach()
+
+		set(AGILITY_DIR "${CMAKE_SOURCE_DIR}/deps/bin/D3D12")
+		set(AGILITY_DEPS_TO_COPY D3D12Core.dll d3d12SDKLayers.dll)
+		foreach(AGILITY_DEP_TO_COPY ${AGILITY_DEPS_TO_COPY})
+			install(FILES "${DEPS_BINDIR}/D3D12/${AGILITY_DEP_TO_COPY}" DESTINATION "${CMAKE_SOURCE_DIR}/bin/D3D12" OPTIONAL)
+		endforeach()
+
 		get_target_property(WINDEPLOYQT_EXE Qt6::windeployqt IMPORTED_LOCATION)
-		install(CODE "execute_process(COMMAND \"${WINDEPLOYQT_EXE}\" \"${CMAKE_SOURCE_DIR}/bin/$<TARGET_FILE_NAME:${target}>\" --plugindir \"${CMAKE_SOURCE_DIR}/bin/QtPlugins\" --no-compiler-runtime --no-system-d3d-compiler --no-system-dxc-compiler --no-translations COMMAND_ERROR_IS_FATAL ANY)")
+		install(CODE "execute_process(COMMAND \"${WINDEPLOYQT_EXE}\" \"${CMAKE_SOURCE_DIR}/bin/$<TARGET_FILE_NAME:${target}>\" --plugindir \"${CMAKE_SOURCE_DIR}/bin/QtPlugins\" --pdb --no-compiler-runtime --no-system-d3d-compiler --no-system-dxc-compiler --no-translations --no-network COMMAND_ERROR_IS_FATAL ANY)")
 		install(CODE "file(WRITE \"${CMAKE_SOURCE_DIR}/bin/qt.conf\" \"[Paths]\\nPlugins = ./QtPlugins\")")
 	endif()
 
@@ -1453,7 +1551,8 @@ function(setup_main_executable target)
 	endif()
 
 	if(ENABLE_SETCAP AND UNIX AND NOT APPLE)
-		message(WARNING "Networking capabilities enabled, building will require temporary root elevation.")
+		message(WARNING "Networking capabilities enabled on the main executable, building will require temporary root elevation.")
+		message(WARNING "File capabilities can disable LD_PRELOAD-based integrations such as the Steam overlay and Steam Input.")
 		add_custom_target(
 			pcsx2-enable-setcap
 			ALL

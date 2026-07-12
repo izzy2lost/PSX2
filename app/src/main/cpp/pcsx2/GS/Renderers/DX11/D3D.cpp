@@ -1,13 +1,14 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Config.h"
+#include "GS/GSShaderCompileIndicator.h"
 #include "GS/Renderers/Common/GSDevice.h"
 #include "GS/Renderers/DX11/D3D.h"
 #include "GS/GSExtra.h"
 #include "Host.h"
 
-#ifdef _M_X86
+#ifdef ARCH_X86
 #include "GS/Renderers/Vulkan/GSDeviceVK.h"
 #endif
 
@@ -15,12 +16,11 @@
 #include "common/StringUtil.h"
 #include "common/Path.h"
 
-#include "IconsFontAwesome5.h"
+#include "IconsFontAwesome.h"
 
-#include <appmodel.h>
 #include <array>
 #include <d3d11.h>
-#include <d3d12.h>
+#include <directx/d3d12.h>
 #include <d3dcompiler.h>
 #include <fstream>
 
@@ -123,17 +123,18 @@ std::vector<GSAdapterInfo> D3D::GetAdapterInfo(IDXGIFactory5* factory)
 	return adapters;
 }
 
-bool D3D::GetRequestedExclusiveFullscreenModeDesc(IDXGIFactory5* factory, const RECT& window_rect, u32 width,
+bool D3D::GetRequestedExclusiveFullscreenModeDesc(IDXGIFactory5* factory, HWND window_hwnd, u32 width,
 	u32 height, float refresh_rate, DXGI_FORMAT format, DXGI_MODE_DESC* fullscreen_mode, IDXGIOutput** output)
 {
 	// We need to find which monitor the window is located on.
-	const GSVector4i client_rc_vec = GSVector4i::load<false>(&window_rect);
+	// DXGI seems to use the nearest monitor if the window is out of bounds.
+	const auto* monitor = MonitorFromWindow(window_hwnd, MONITOR_DEFAULTTONEAREST);
 
-	// The window might be on a different adapter to which we are rendering.. so we have to enumerate them all.
+	// The monitor might be on a different adapter to which we are rendering.. so we have to enumerate them all.
 	HRESULT hr;
-	wil::com_ptr_nothrow<IDXGIOutput> first_output, intersecting_output;
+	wil::com_ptr_nothrow<IDXGIOutput> first_output, monitor_output;
 
-	for (u32 adapter_index = 0; !intersecting_output; adapter_index++)
+	for (u32 adapter_index = 0; !monitor_output; adapter_index++)
 	{
 		wil::com_ptr_nothrow<IDXGIAdapter1> adapter;
 		hr = factory->EnumAdapters1(adapter_index, adapter.put());
@@ -152,10 +153,9 @@ bool D3D::GetRequestedExclusiveFullscreenModeDesc(IDXGIFactory5* factory, const 
 			else if (FAILED(hr) || FAILED(this_output->GetDesc(&output_desc)))
 				continue;
 
-			const GSVector4i output_rc = GSVector4i::load<false>(&output_desc.DesktopCoordinates);
-			if (!client_rc_vec.rintersect(output_rc).rempty())
+			if (output_desc.Monitor == monitor)
 			{
-				intersecting_output = std::move(this_output);
+				monitor_output = std::move(this_output);
 				break;
 			}
 
@@ -165,7 +165,7 @@ bool D3D::GetRequestedExclusiveFullscreenModeDesc(IDXGIFactory5* factory, const 
 		}
 	}
 
-	if (!intersecting_output)
+	if (!monitor_output)
 	{
 		if (!first_output)
 		{
@@ -174,7 +174,7 @@ bool D3D::GetRequestedExclusiveFullscreenModeDesc(IDXGIFactory5* factory, const 
 		}
 
 		Console.Warning("No DXGI output found for window, using first.");
-		intersecting_output = std::move(first_output);
+		monitor_output = std::move(first_output);
 	}
 
 	DXGI_MODE_DESC request_mode = {};
@@ -184,15 +184,15 @@ bool D3D::GetRequestedExclusiveFullscreenModeDesc(IDXGIFactory5* factory, const 
 	request_mode.RefreshRate.Numerator = static_cast<UINT>(std::floor(refresh_rate * 1000.0f));
 	request_mode.RefreshRate.Denominator = 1000u;
 
-	if (FAILED(hr = intersecting_output->FindClosestMatchingMode(&request_mode, fullscreen_mode, nullptr)) ||
+	if (FAILED(hr = monitor_output->FindClosestMatchingMode(&request_mode, fullscreen_mode, nullptr)) ||
 		request_mode.Format != format)
 	{
 		ERROR_LOG("Failed to find closest matching mode, hr={:08X}", static_cast<unsigned>(hr));
 		return false;
 	}
 
-	*output = intersecting_output.get();
-	intersecting_output->AddRef();
+	*output = monitor_output.get();
+	monitor_output->AddRef();
 	return true;
 }
 
@@ -382,34 +382,12 @@ GSRendererType D3D::GetPreferredRenderer()
 		return device;
 	};
 #ifdef ENABLE_VULKAN
-	static constexpr auto check_for_mapping_layers = []() {
-		PCWSTR familyName = L"Microsoft.D3DMappingLayers_8wekyb3d8bbwe";
-		UINT32 numPackages = 0, bufferLength = 0;
-		const DWORD error = GetPackagesByPackageFamily(familyName, &numPackages, nullptr, &bufferLength, nullptr);
-		if (error == ERROR_INSUFFICIENT_BUFFER || numPackages > 0)
-		{
-			Host::AddIconOSDMessage("VKDriverUnsupported", ICON_FA_TV,
-				TRANSLATE_STR("GS",
-					"Your system has the \"OpenCL, OpenGL, and Vulkan Compatibility Pack\" installed.\n"
-					"This Vulkan driver crashes PCSX2 on some GPUs.\n"
-					"To use the Vulkan renderer, you should remove this app package."),
-				Host::OSD_WARNING_DURATION);
-			return true;
-		}
-
-		return false;
-	};
 	static constexpr auto check_vulkan_supported = []() {
-		// Don't try to enumerate Vulkan devices if the DX12 Vulkan driver is present.
-		// It crashes on AMD GPUs.
-		if (check_for_mapping_layers())
-			return false;
-
 		if (!GSDeviceVK::EnumerateGPUs().empty())
 			return true;
 
 		Host::AddIconOSDMessage("VKDriverUnsupported", ICON_FA_TV, TRANSLATE_STR("GS",
-			"The Vulkan renderer was automatically selected, but no compatible devices were found.\n"
+			"The Vulkan graphics API was automatically selected, but no compatible devices were found.\n"
 			"       You should update all graphics drivers in your system, including any integrated GPUs\n"
 			"       to use the Vulkan renderer."), Host::OSD_WARNING_DURATION);
 		return false;
@@ -426,7 +404,8 @@ GSRendererType D3D::GetPreferredRenderer()
 			if (!feature_level.has_value())
 				return GSRendererType::DX11;
 			else if (feature_level == D3D_FEATURE_LEVEL_12_0)
-				return check_vulkan_supported() ? GSRendererType::VK : GSRendererType::OGL;
+				//return check_vulkan_supported() ? GSRendererType::VK : GSRendererType::OGL;
+				return GSRendererType::DX12;
 			else if (feature_level == D3D_FEATURE_LEVEL_11_0)
 				return GSRendererType::OGL;
 			else
@@ -439,7 +418,10 @@ GSRendererType D3D::GetPreferredRenderer()
 			if (!feature_level.has_value())
 				return GSRendererType::DX11;
 			else if (feature_level == D3D_FEATURE_LEVEL_12_0)
-				return check_vulkan_supported() ? GSRendererType::VK : GSRendererType::DX11;
+				//return check_vulkan_supported() ? GSRendererType::VK : GSRendererType::DX12;
+				return GSRendererType::DX12;
+			else if (feature_level == D3D_FEATURE_LEVEL_11_1)
+				return GSRendererType::DX12;
 			else
 				return GSRendererType::DX11;
 		}
@@ -476,7 +458,7 @@ GSRendererType D3D::GetPreferredRenderer()
 		default:
 		{
 			// Default is D3D11, but prefer DX12 on ARM (better drivers).
-#ifdef _M_ARM64
+#ifdef ARCH_ARM64
 			return GSRendererType::DX12;
 #else
 			return GSRendererType::DX11;
@@ -485,28 +467,54 @@ GSRendererType D3D::GetPreferredRenderer()
 	}
 }
 
-wil::com_ptr_nothrow<ID3DBlob> D3D::CompileShader(D3D::ShaderType type, D3D_FEATURE_LEVEL feature_level, bool debug,
+const char* D3D::ShaderModelToCacheString(D3D::ShaderModel shader_model)
+{
+	switch (shader_model)
+	{
+		case ShaderModel::SM40:
+			return "sm40";
+		case ShaderModel::SM41:
+			return "sm41";
+		case ShaderModel::SM50:
+			return "sm50";
+		case ShaderModel::SM51:
+			return "sm51";
+		default:
+			return "unk";
+	}
+}
+
+wil::com_ptr_nothrow<ID3DBlob> D3D::CompileShader(D3D::ShaderType type, D3D::ShaderModel shader_model, bool debug,
 	const std::string_view code, const D3D_SHADER_MACRO* macros /* = nullptr */,
 	const char* entry_point /* = "main" */)
 {
+	const GSShaderCompileIndicator::CompileTimer compile_timer;
+
 	const char* target;
-	switch (feature_level)
+	switch (shader_model)
 	{
-		case D3D_FEATURE_LEVEL_10_0:
+		case ShaderModel::SM40:
 		{
 			static constexpr std::array<const char*, 4> targets = {{"vs_4_0", "ps_4_0", "cs_4_0"}};
 			target = targets[static_cast<int>(type)];
 		}
 		break;
 
-		case D3D_FEATURE_LEVEL_11_0:
+		case ShaderModel::SM41:
+		{
+			static constexpr std::array<const char*, 4> targets = {{"vs_4_1", "ps_4_1", "cs_4_1"}};
+			target = targets[static_cast<int>(type)];
+		}
+		break;
+
+		case ShaderModel::SM50:
 		{
 			static constexpr std::array<const char*, 4> targets = {{"vs_5_0", "ps_5_0", "cs_5_0"}};
 			target = targets[static_cast<int>(type)];
 		}
 		break;
 
-		case D3D_FEATURE_LEVEL_11_1:
+		case ShaderModel::SM51:
 		default:
 		{
 			static constexpr std::array<const char*, 4> targets = {{"vs_5_1", "ps_5_1", "cs_5_1"}};

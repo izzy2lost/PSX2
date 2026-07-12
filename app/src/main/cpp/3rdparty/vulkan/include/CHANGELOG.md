@@ -1,3 +1,37 @@
+# 3.4.0 (2026-??-??)
+
+- Added member `VmaAllocationCreateInfo::minAlignment` (#523).
+  - Remember to always fully initialize structures with zeros and don't rely on their specific `sizeof` to ensure backward compatibility!
+  - Function `vmaCreateBufferWithAlignment` is now deprecated.
+- Improvements for external memory export & import (#503):
+  - Added functions `vmaCreateDedicatedBuffer`, `vmaCreateDedicatedImage`, `vmaAllocateDedicatedMemory` offering extra parameter `void* pMemoryAllocateNext`.
+  - Added function `vmaGetMemoryWin32Handle2` offering extra parameter `VkExternalMemoryHandleTypeFlagBits handleType`.
+- Added `VMA_VERSION` macro with library version number (#507).
+- Improvements in the algorithm choosing memory type when `VMA_MEMORY_USAGE_AUTO*` is used (#520).
+- Fixes for compatibility with C++20 modules on Clang 21 and GCC15 (#513, #514).
+- Other fixes and improvements, including compatibility with various platforms and compilers, improvements in documentation, sample application, and tests.
+
+# 3.3.0 (2025-05-12)
+
+Additions to the library API:
+
+- Added function `vmaImportVulkanFunctionsFromVolk`, useful for loading pointers to Vulkan functions with [volk library](https://github.com/zeux/volk).
+
+Other changes:
+
+- Added macro `VMA_DEBUG_DONT_EXCEED_HEAP_SIZE_WITH_ALLOCATION_SIZE` with default value 1.
+- Changed macro `VMA_DEBUG_DONT_EXCEED_MAX_MEMORY_ALLOCATION_COUNT` default value from 0 to 1.
+- Added documentation chapter "Frequently asked questions".
+- Other fixes and improvements, including compatibility with various platforms and compilers.
+
+# 3.2.1 (2025-02-05)
+
+Changes:
+
+- Fixed an assert in `vmaCreateAllocator` function incorrectly failing when Vulkan version 1.4 is used (#457).
+- Fix for importing function `vkGetPhysicalDeviceMemoryProperties2` / `vkGetPhysicalDeviceMemoryProperties2KHR` when `VMA_DYNAMIC_VULKAN_FUNCTIONS` macro is enabled (#410).
+- Other minor fixes and improvements...
+
 # 3.2.0 (2024-12-30)
 
 Additions to the library API:

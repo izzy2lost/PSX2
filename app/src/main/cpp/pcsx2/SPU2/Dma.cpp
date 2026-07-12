@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "SPU2/defs.h"
@@ -8,6 +8,8 @@
 #include "R3000A.h"
 #include "IopHw.h"
 #include "Config.h"
+
+static constexpr int CYCLES_PER_WORD = 24;
 
 #ifdef PCSX2_DEVBUILD
 
@@ -163,7 +165,7 @@ void V_Core::StartADMAWrite(u16* pMem, u32 sz)
 	if ((AutoDMACtrl & (Index + 1)) == 0)
 	{
 		ActiveTSA = 0x2000 + (Index << 10);
-		DMAICounter = size * 4;
+		DMAICounter = size * CYCLES_PER_WORD;
 		LastClock = psxRegs.cycle;
 	}
 	else if (size >= 256)
@@ -191,7 +193,7 @@ void V_Core::StartADMAWrite(u16* pMem, u32 sz)
 		if (SPU2::MsgToConsole())
 			SPU2::ConLog("ADMA%c Error Size of %x too small\n", GetDmaIndexChar(), size);
 		InputDataLeft = 0;
-		DMAICounter = size * 4;
+		DMAICounter = size * CYCLES_PER_WORD;
 		LastClock = psxRegs.cycle;
 	}
 }
@@ -248,7 +250,7 @@ void V_Core::FinishDMAwrite()
 		DMA7LogWrite(DMAPtr, ReadSize << 1);
 #endif
 
-	u32 buff1end = ActiveTSA + std::min(ReadSize, (u32)0x100 + std::abs(DMAICounter / 4));
+	u32 buff1end = ActiveTSA + std::min(ReadSize, (u32)0x100 + std::abs(DMAICounter / CYCLES_PER_WORD));
 	u32 buff2end = 0;
 	if (buff1end > 0x100000)
 	{
@@ -343,18 +345,9 @@ void V_Core::FinishDMAwrite()
 	DMAPtr += TDA - ActiveTSA;
 	ReadSize -= TDA - ActiveTSA;
 
-	DMAICounter = (DMAICounter - ReadSize) * 4;
+	DMAICounter = (DMAICounter - ReadSize) * CYCLES_PER_WORD;
 
-	if (((psxCounters[6].startCycle + psxCounters[6].deltaCycles) - psxRegs.cycle) > (u32)DMAICounter)
-	{
-		psxCounters[6].startCycle = psxRegs.cycle;
-		psxCounters[6].deltaCycles = DMAICounter;
-
-		psxNextDeltaCounter -= (psxRegs.cycle - psxNextStartCounter);
-		psxNextStartCounter = psxRegs.cycle;
-		if (psxCounters[6].deltaCycles < psxNextDeltaCounter)
-			psxNextDeltaCounter = psxCounters[6].deltaCycles;
-	}
+	CounterUpdate(DMAICounter);
 
 	ActiveTSA = TDA;
 	ActiveTSA &= 0xfffff;
@@ -363,7 +356,7 @@ void V_Core::FinishDMAwrite()
 
 void V_Core::FinishDMAread()
 {
-	u32 buff1end = ActiveTSA + std::min(ReadSize, (u32)0x100 + std::abs(DMAICounter / 4));
+	u32 buff1end = ActiveTSA + std::min(ReadSize, (u32)0x100 + std::abs(DMAICounter / CYCLES_PER_WORD));
 	u32 buff2end = 0;
 
 	if (buff1end > 0x100000)
@@ -435,20 +428,11 @@ void V_Core::FinishDMAread()
 
 	// DMA Reads are done AFTER the delay, so to get the timing right we need to scheule one last DMA to catch IRQ's
 	if (ReadSize)
-		DMAICounter = std::min(ReadSize, (u32)0x100) * 4;
+		DMAICounter = std::min(ReadSize, (u32)0x100) * CYCLES_PER_WORD;
 	else
-		DMAICounter = 4;
+		DMAICounter = CYCLES_PER_WORD;
 
-	if (((psxCounters[6].startCycle + psxCounters[6].deltaCycles) - psxRegs.cycle) > (u32)DMAICounter)
-	{
-		psxCounters[6].startCycle = psxRegs.cycle;
-		psxCounters[6].deltaCycles = DMAICounter;
-
-		psxNextDeltaCounter -= (psxRegs.cycle - psxNextStartCounter);
-		psxNextStartCounter = psxRegs.cycle;
-		if (psxCounters[6].deltaCycles < psxNextDeltaCounter)
-			psxNextDeltaCounter = psxCounters[6].deltaCycles;
-	}
+	CounterUpdate(DMAICounter);
 
 	ActiveTSA = TDA;
 	ActiveTSA &= 0xfffff;
@@ -464,22 +448,13 @@ void V_Core::DoDMAread(u16* pMem, u32 size)
 	ReadSize = size;
 	IsDMARead = true;
 	LastClock = psxRegs.cycle;
-	DMAICounter = std::min(ReadSize, (u32)0x100) * 4;
+	DMAICounter = (std::min(ReadSize, (u32)0x100) * CYCLES_PER_WORD);
 	Regs.STATX &= ~0x80;
 	Regs.STATX |= 0x400;
 	//Regs.ATTR |= 0x30;
 	TADR = MADR + (size << 1);
 
-	if (((psxCounters[6].startCycle + psxCounters[6].deltaCycles) - psxRegs.cycle) > (u32)DMAICounter)
-	{
-		psxCounters[6].startCycle = psxRegs.cycle;
-		psxCounters[6].deltaCycles = DMAICounter;
-
-		psxNextDeltaCounter -= (psxRegs.cycle - psxNextStartCounter);
-		psxNextStartCounter = psxRegs.cycle;
-		if (psxCounters[6].deltaCycles < psxNextDeltaCounter)
-			psxNextDeltaCounter = psxCounters[6].deltaCycles;
-	}
+	CounterUpdate(DMAICounter);
 
 	if (SPU2::MsgDMA())
 	{
@@ -497,7 +472,7 @@ void V_Core::DoDMAwrite(u16* pMem, u32 size)
 	{
 		Regs.STATX &= ~0x80;
 		//Regs.ATTR |= 0x30;
-		DMAICounter = 1 * 4;
+		DMAICounter = 1 * CYCLES_PER_WORD;
 		LastClock = psxRegs.cycle;
 		return;
 	}

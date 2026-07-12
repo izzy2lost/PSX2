@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Common.h"
@@ -8,6 +8,14 @@
 #include "MTVU.h"
 
 Gif_Unit gifUnit;
+
+#ifdef PCSX2_RECOMPILER_TESTS
+namespace gif_test_hooks
+{
+	std::vector<u8>* g_path1_sink = nullptr;
+	bool g_force_path1_busy = false;
+}
+#endif
 
 // Returns true on stalling SIGNAL
 bool Gif_HandlerAD(u8* pMem)

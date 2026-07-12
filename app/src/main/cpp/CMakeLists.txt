@@ -47,7 +47,10 @@ add_subdirectory(common)
 
 # make pcsx2
 add_subdirectory(pcsx2)
-#add_subdirectory(pcsx2-qt)
+
+if(ENABLE_QT_UI)
+	add_subdirectory(pcsx2-qt)
+endif()
 
 # Updater is Windows only for now.
 if (WIN32)
@@ -62,10 +65,35 @@ endif()
 
 # gsrunner
 if(ENABLE_GSRUNNER)
-	if (NOT WIN32)
-		message(WARNING "GSRunner is only supported on Windows and may not build on your system")
-	endif()
 	add_subdirectory(pcsx2-gsrunner)
+endif()
+
+# eerunner — headless EE (R5900) JIT-vs-interpreter divergence localizer.
+# Built on demand (`--target pcsx2-eerunner`); EXCLUDE_FROM_ALL otherwise.
+if(ENABLE_EERUNNER AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/pcsx2-eerunner/CMakeLists.txt")
+	add_subdirectory(pcsx2-eerunner)
+elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/pcsx2-eerunner/CMakeLists.txt")
+	add_subdirectory(pcsx2-eerunner EXCLUDE_FROM_ALL)
+endif()
+
+# vurunner — headless VU microprogram replayer for codegen iteration. Needs
+# the recompiler test hooks since it shares the harness's plumbing.
+if(ENABLE_VURUNNER AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/pcsx2-vurunner/CMakeLists.txt")
+	if(NOT ENABLE_RECOMPILER_TEST_HOOKS)
+		message(FATAL_ERROR "ENABLE_VURUNNER requires ENABLE_RECOMPILER_TEST_HOOKS=ON.")
+	endif()
+	add_subdirectory(pcsx2-vurunner)
+elseif(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/pcsx2-vurunner/CMakeLists.txt")
+	add_subdirectory(pcsx2-vurunner EXCLUDE_FROM_ALL)
+endif()
+
+# SDL3 / kmsdrm frontend (handheld target)
+if(UNIX AND NOT APPLE AND EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/pcsx2-sdl/CMakeLists.txt")
+	if(ENABLE_SDL_FRONTEND)
+		add_subdirectory(pcsx2-sdl)
+	else()
+		add_subdirectory(pcsx2-sdl EXCLUDE_FROM_ALL)
+	endif()
 endif()
 
 #-------------------------------------------------------------------------------
@@ -79,17 +107,6 @@ No support will be provided, continue at your own risk.
 *********************************************************")
 endif()
 
-#if(_M_ARM64)
-#	message(WARNING "
-#*************** UNSUPPORTED CONFIGURATION ***************
-#
-#Apple Silicon support in PCSX2 is INCOMPLETE. There are
-#currently no EE/VU/IOP recompilers, and games will run
-#VERY slow. There is no date for completion yet, you
-#should set -DCMAKE_OSX_ARCHITECTURES=x86_64 for now,
-#unless you want to work on the recompilers.
-#
-#We also ask that you read https://dont-ship.it/.
-#
-#*********************************************************")
-#endif()
+if(ARCH_ARM64)
+	message(STATUS "ARM64 build: EE, IOP, and VU0/VU1 recompilers are all available.")
+endif()

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "BuildVersion.h"
@@ -26,6 +26,7 @@ namespace Host
 		const std::string_view context, const std::string_view msg);
 
 	static std::mutex s_settings_mutex;
+	static std::mutex s_secrets_settings_mutex;
 	static LayeredSettingsInterface s_layered_settings_interface;
 
 	static constexpr u32 TRANSLATION_STRING_CACHE_SIZE = 4 * 1024 * 1024;
@@ -71,7 +72,7 @@ std::pair<const char*, u32> Host::LookupTranslationString(const std::string_view
 
 add_string:
 	s_translation_string_mutex.unlock_shared();
-	s_translation_string_mutex.lock();
+	std::lock_guard lock(s_translation_string_mutex);
 
 	if (s_translation_string_cache.empty()) [[unlikely]]
 	{
@@ -110,7 +111,6 @@ add_string:
 
 	ret.first = &s_translation_string_cache[insert_pos];
 	ret.second = static_cast<u32>(len);
-	s_translation_string_mutex.unlock();
 	return ret;
 }
 
@@ -132,10 +132,9 @@ std::string Host::TranslateToString(const std::string_view context, const std::s
 
 void Host::ClearTranslationCache()
 {
-	s_translation_string_mutex.lock();
+	std::lock_guard lock(s_translation_string_mutex);
 	s_translation_string_map.clear();
 	s_translation_string_cache_pos = 0;
-	s_translation_string_mutex.unlock();
 }
 
 void Host::ReportFormattedInfoAsync(const std::string_view title, const char* format, ...)
@@ -156,24 +155,29 @@ void Host::ReportFormattedErrorAsync(const std::string_view title, const char* f
 	ReportErrorAsync(title, message);
 }
 
-bool Host::ConfirmFormattedMessage(const std::string_view title, const char* format, ...)
-{
-	std::va_list ap;
-	va_start(ap, format);
-	std::string message = StringUtil::StdStringFromFormatV(format, ap);
-	va_end(ap);
-
-	return ConfirmMessage(title, message);
-}
-
 std::string Host::GetHTTPUserAgent()
 {
 	return fmt::format("PCSX2 {} ({})", BuildVersion::GitRev, GetOSVersionString());
 }
 
+std::string Host::GetAchievementsUserAgent()
+{
+	// RetroAchievements identifies the client by the leading Name/Version token of this
+	// User-Agent. Report yaps2 with a stable dotted version (from the release tag, not the
+	// -N-g<hash> snapshot rev) instead of impersonating PCSX2. yaps2 is not a RA-registered
+	// hardcore client, so unlocks are softcore-only (also enforced in Achievements.cpp).
+	return fmt::format("yaps2/{}.{}.{} ({})", BuildVersion::GitTagHi, BuildVersion::GitTagMid,
+		BuildVersion::GitTagLo, GetOSVersionString());
+}
+
 std::unique_lock<std::mutex> Host::GetSettingsLock()
 {
 	return std::unique_lock<std::mutex>(s_settings_mutex);
+}
+
+std::unique_lock<std::mutex> Host::GetSecretsSettingsLock()
+{
+	return std::unique_lock<std::mutex>(s_secrets_settings_mutex);
 }
 
 SettingsInterface* Host::GetSettingsInterface()
@@ -364,6 +368,11 @@ SettingsInterface* Host::Internal::GetBaseSettingsLayer()
 	return s_layered_settings_interface.GetLayer(LayeredSettingsInterface::LAYER_BASE);
 }
 
+SettingsInterface* Host::Internal::GetSecretsSettingsLayer()
+{
+	return s_layered_settings_interface.GetLayer(LayeredSettingsInterface::LAYER_SECRETS);
+}
+
 SettingsInterface* Host::Internal::GetGameSettingsLayer()
 {
 	return s_layered_settings_interface.GetLayer(LayeredSettingsInterface::LAYER_GAME);
@@ -377,8 +386,15 @@ SettingsInterface* Host::Internal::GetInputSettingsLayer()
 void Host::Internal::SetBaseSettingsLayer(SettingsInterface* sif)
 {
 	pxAssertRel(s_layered_settings_interface.GetLayer(LayeredSettingsInterface::LAYER_BASE) == nullptr,
-		"Base layer has not been set");
+		"Base layer has already been set");
 	s_layered_settings_interface.SetLayer(LayeredSettingsInterface::LAYER_BASE, sif);
+}
+
+void Host::Internal::SetSecretsSettingsLayer(SettingsInterface* sif)
+{
+	pxAssertRel(s_layered_settings_interface.GetLayer(LayeredSettingsInterface::LAYER_SECRETS) == nullptr,
+		"Secrets layer has already been set");
+	s_layered_settings_interface.SetLayer(LayeredSettingsInterface::LAYER_SECRETS, sif);
 }
 
 void Host::Internal::SetGameSettingsLayer(SettingsInterface* sif, std::unique_lock<std::mutex>& settings_lock)

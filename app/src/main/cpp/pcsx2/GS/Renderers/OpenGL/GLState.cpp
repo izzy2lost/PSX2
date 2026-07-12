@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "GLState.h"
@@ -35,9 +35,22 @@ namespace GLState
 	GLuint ps_ss;
 
 	GSTextureOGL* rt = nullptr;
+	GSTextureOGL* ds_as_rt = nullptr;
 	GSTextureOGL* ds = nullptr;
+
+	bool rt_written;
+	bool ds_as_rt_written;
+	bool ds_written;
+
+	u32 draw_buffers;
+
 	GLuint tex_unit[8];
-	GLuint64 tex_handle[8];
+
+	u32 UpdateDrawBuffers()
+	{
+		draw_buffers = ds_as_rt ? 2 : 1;
+		return draw_buffers;
+	}
 
 	void Clear()
 	{
@@ -66,8 +79,15 @@ namespace GLState
 		ps_ss = 0;
 
 		rt = nullptr;
+		ds_as_rt = nullptr;
 		ds = nullptr;
+
+		rt_written = false;
+		ds_as_rt_written = false;
+		ds_written = false;
+
+		draw_buffers = 0;
+
 		std::fill(std::begin(tex_unit), std::end(tex_unit), 0);
-		std::fill(std::begin(tex_handle), std::end(tex_handle), 0);
 	}
 } // namespace GLState

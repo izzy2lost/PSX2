@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "SPU2/spu2.h"
@@ -24,14 +24,19 @@ namespace SPU2
 	static void InternalReset(bool psxmode);
 } // namespace SPU2
 
-u32 lClocks = 0;
+u64 lClocks = 0;
 
 static bool s_audio_capture_active = false;
 static bool s_psxmode = false;
+static bool s_output_muted = false;
 
 static std::unique_ptr<AudioStream> s_output_stream;
-static std::array<s16, AudioStream::CHUNK_SIZE * 2> s_current_chunk;
+static std::array<float, AudioStream::CHUNK_SIZE * 2> s_current_chunk;
 static u32 s_current_chunk_pos;
+static u32 s_standard_volume = 0;
+static u32 s_fast_forward_volume = 0;
+
+float DCFilterIn[2], DCFilterOut[2];
 
 u32 SPU2::GetConsoleSampleRate()
 {
@@ -97,8 +102,17 @@ void SPU2writeDMA7Mem(u16* pMem, u32 size)
 
 void SPU2::CreateOutputStream()
 {
-	// Persist volume through stream recreates.
-	const u32 volume = s_output_stream ? s_output_stream->GetOutputVolume() : GetResetVolume();
+	// Initialize volume and mute settings on new session.
+	if (!s_output_stream)
+	{
+		s_standard_volume = EmuConfig.SPU2.StandardVolume;
+		s_fast_forward_volume = EmuConfig.SPU2.FastForwardVolume;
+		s_output_muted = EmuConfig.SPU2.OutputMuted;
+	}
+	// Else persist volume through stream recreates.
+	else if (!s_output_muted)
+		SPU2::SaveOutputVolume();
+
 	const u32 sample_rate = GetConsoleSampleRate();
 	s_output_stream.reset();
 
@@ -137,7 +151,7 @@ void SPU2::CreateOutputStream()
 		}
 	}
 
-	s_output_stream->SetOutputVolume(volume);
+	SPU2::UpdateOutputVolume();
 	s_output_stream->SetNominalRate(GetNominalRate());
 	s_output_stream->SetPaused(VMManager::GetState() == VMState::Paused);
 }
@@ -159,26 +173,64 @@ void SPU2::UpdateSampleRate()
 
 u32 SPU2::GetOutputVolume()
 {
-	return s_output_stream->GetOutputVolume();
+	return s_output_stream ? s_output_stream->GetOutputVolume() : 0;
 }
 
 void SPU2::SetOutputVolume(u32 volume)
 {
-	s_output_stream->SetOutputVolume(volume);
-}
+	if (VMManager::GetTargetSpeed() == 1.0f)
+		s_standard_volume = volume;
+	else
+		s_fast_forward_volume = volume;
 
-u32 SPU2::GetResetVolume()
-{
-	return EmuConfig.SPU2.OutputMuted ? 0 :
-										((VMManager::GetTargetSpeed() != 1.0f) ?
-												EmuConfig.SPU2.FastForwardVolume :
-												EmuConfig.SPU2.OutputVolume);
+	if (s_output_stream)
+		SPU2::UpdateOutputVolume();
 }
 
 float SPU2::GetNominalRate()
 {
 	// Adjust nominal rate when syncing to host.
 	return VMManager::IsTargetSpeedAdjustedToHost() ? VMManager::GetTargetSpeed() : 1.0f;
+}
+
+bool SPU2::SetOutputMuted(const bool muted)
+{
+	// User setting takes precedence. Unmute not guaranteed by design.
+	if (!s_output_stream || (!muted && EmuConfig.SPU2.OutputMuted))
+		return false;
+
+	if (muted == s_output_muted)
+		return true;
+
+	if (muted)
+		SPU2::SaveOutputVolume();
+
+	s_output_muted = muted;
+	SPU2::UpdateOutputVolume();
+	return true;
+}
+
+bool SPU2::IsOutputMuted()
+{
+	return s_output_muted;
+}
+
+void SPU2::UpdateOutputVolume()
+{
+	s_output_stream->SetOutputVolume(s_output_muted ?
+										 0 : (VMManager::GetTargetSpeed() == 1.0f ?
+										 	s_standard_volume : s_fast_forward_volume));
+}
+
+void SPU2::SaveOutputVolume()
+{
+	if (!s_output_muted)
+	{
+		if (VMManager::GetTargetSpeed() == 1.0f)
+			s_standard_volume = GetOutputVolume();
+		else
+			s_fast_forward_volume = GetOutputVolume();
+	}
 }
 
 void SPU2::SetOutputPaused(bool paused)
@@ -198,6 +250,10 @@ bool SPU2::IsAudioCaptureActive()
 
 void SPU2::InternalReset(bool psxmode)
 {
+	spu2Mix = MULTI_ISA_SELECT(spu2Mix);
+	ReverbDownsample = MULTI_ISA_SELECT(ReverbDownsample);
+	ReverbUpsample = MULTI_ISA_SELECT(ReverbUpsample);
+
 	s_current_chunk_pos = 0;
 	s_psxmode = psxmode;
 	if (!s_psxmode)
@@ -206,6 +262,9 @@ void SPU2::InternalReset(bool psxmode)
 		memset(_spu2mem, 0, 0x200000);
 		memset(_spu2mem + 0x2800, 7, 0x10); // from BIOS reversal. Locks the voices so they don't run free.
 		memset(_spu2mem + 0xe870, 7, 0x10); // Loop which gets left over by the BIOS, Megaman X7 relies on it being there.
+
+		memset(DCFilterIn, 0, sizeof(DCFilterIn));
+		memset(DCFilterOut, 0, sizeof(DCFilterOut));
 
 		Spdif.Info = 0; // Reset IRQ Status if it got set in a previously run game
 
@@ -233,8 +292,20 @@ void SPU2::OnTargetSpeedChanged()
 
 	s_output_stream->SetNominalRate(GetNominalRate());
 
-	if (EmuConfig.SPU2.OutputVolume != EmuConfig.SPU2.FastForwardVolume && !EmuConfig.SPU2.OutputMuted)
-		s_output_stream->SetOutputVolume(GetResetVolume());
+	// Flipped save as speed has already changed.
+	if (!s_output_muted)
+	{
+		if (VMManager::GetTargetSpeed() == 1.0f)
+		{
+			s_fast_forward_volume = GetOutputVolume();
+			s_output_stream->SetOutputVolume(s_standard_volume);
+		}
+		else
+		{
+			s_standard_volume = GetOutputVolume();
+			s_output_stream->SetOutputVolume(s_fast_forward_volume);
+		}
+	}
 }
 
 bool SPU2::Open()
@@ -285,32 +356,44 @@ bool SPU2::IsRunningPSXMode()
 void SPU2::CheckForConfigChanges(const Pcsx2Config& old_config)
 {
 	const Pcsx2Config::SPU2Options& opts = EmuConfig.SPU2;
-	const Pcsx2Config::SPU2Options& oldopts = old_config.SPU2;
+	const Pcsx2Config::SPU2Options& old_opts = old_config.SPU2;
 
 	// No need to reinit for volume change.
-	if ((opts.OutputVolume != oldopts.OutputVolume && VMManager::GetTargetSpeed() == 1.0f) ||
-		(opts.FastForwardVolume != oldopts.FastForwardVolume && VMManager::GetTargetSpeed() != 1.0f) ||
-		opts.OutputMuted != oldopts.OutputMuted)
+	if (opts.OutputMuted != old_opts.OutputMuted)
+		SPU2::SetOutputMuted(opts.OutputMuted);
+
+	bool volume_settings_changed = false;
+	if (opts.StandardVolume != old_opts.StandardVolume)
 	{
-		SetOutputVolume(GetResetVolume());
+		s_standard_volume = opts.StandardVolume;
+		volume_settings_changed = true;
 	}
 
+	if (opts.FastForwardVolume != old_opts.FastForwardVolume)
+	{
+		s_fast_forward_volume = opts.FastForwardVolume;
+		volume_settings_changed = true;
+	}
+
+	if (volume_settings_changed)
+		SPU2::UpdateOutputVolume();
+
 	// Things which require re-initialzing the output.
-	if (opts.Backend != oldopts.Backend ||
-		opts.StreamParameters != oldopts.StreamParameters ||
-		opts.DriverName != oldopts.DriverName ||
-		opts.DeviceName != oldopts.DeviceName)
+	if (opts.Backend != old_opts.Backend ||
+		opts.StreamParameters != old_opts.StreamParameters ||
+		opts.DriverName != old_opts.DriverName ||
+		opts.DeviceName != old_opts.DeviceName)
 	{
 		CreateOutputStream();
 	}
-	else if (opts.IsTimeStretchEnabled() != oldopts.IsTimeStretchEnabled())
+	else if (opts.IsTimeStretchEnabled() != old_opts.IsTimeStretchEnabled())
 	{
 		s_output_stream->SetStretchEnabled(opts.IsTimeStretchEnabled());
 	}
 
 #ifdef PCSX2_DEVBUILD
 	// AccessLog controls file output.
-	if (opts.AccessLog != oldopts.AccessLog)
+	if (opts.AccessLog != old_opts.AccessLog)
 	{
 		if (AccessLog())
 			OpenFileLog();
@@ -435,11 +518,36 @@ s32 SPU2freeze(FreezeAction mode, freezeData* data)
 	return 0;
 }
 
+static void DCFilter(float *input)
+{
+	// A simple DC blocking high-pass filter
+	// Implementation from http://peabody.sapp.org/class/dmp2/lab/dcblock/
+	float output[2];
+	output[0] = (input[0] - DCFilterIn[0] + ((0.995f * DCFilterOut[0])));
+	output[1] = (input[1] - DCFilterIn[1] + ((0.995f * DCFilterOut[1])));
+
+	DCFilterIn[0] = input[0];
+	DCFilterIn[1] = input[1];
+	DCFilterOut[0] = output[0];
+	DCFilterOut[1] = output[1];
+
+	input[0] = output[0];
+	input[1] = output[1];
+}
+
 __forceinline void spu2Output(StereoOut32 out)
 {
-	// Final clamp, take care not to exceed 16 bits from here on
-	s_current_chunk[s_current_chunk_pos++] = static_cast<s16>(clamp_mix(out.Left));
-	s_current_chunk[s_current_chunk_pos++] = static_cast<s16>(clamp_mix(out.Right));
+	float conv[2];
+
+	conv[0] = static_cast<float>(clamp_mix(out.Left)) / INT16_MAX;
+	conv[1] = static_cast<float>(clamp_mix(out.Right)) / INT16_MAX;
+
+	/* Some games pause voices with the volume left on leaving us with
+     * significant DC offset, so we filter it out (e.x. SSX 3)*/
+	DCFilter(conv);
+
+	s_current_chunk[s_current_chunk_pos++] = conv[0];
+	s_current_chunk[s_current_chunk_pos++] = conv[1];
 	if (s_current_chunk_pos == s_current_chunk.size())
 	{
 		s_current_chunk_pos = 0;

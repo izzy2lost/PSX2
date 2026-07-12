@@ -139,12 +139,15 @@ The clamp modes are also numerically based.
 
 ### GS Hardware Mipmap Fixes
 
-* mipmap                     [`0` or `1` or `2`]    {Off, Basic, Full}                    Default: Automatic (No value, looks up GameDB)
+* mipmap                     [`0` or `1`]    {Off, On}                   Default: On (looks up GameDB)
 * trilinearFiltering         [`0` or `1` or `2`]    {None, Trilinear, Trilinear Ultra}    Default: None (`0`)
 
 ### GS Hardware General Fixes
 
 * beforeDraw                {`OI` with suffix }  {None unless specific game GSC}         Default: Automatic (No value, looks up GameDB) with valid variable name (ex. OI_BurnoutGames)
+
+* moveHandler                {`MV` with suffix }  {None unless specific game GSC}         Default: Automatic (No value, looks up GameDB) with valid variable name (ex. MV_Ico)
+
 * afterDraw                 {`OO` with suffix }  {None unless specific game GSC}         Default: Automatic (No value, looks up GameDB) with valid variable name
 * conservativeFramebuffer   [`0` or `1`]               {Off or On}                             Default: On (`1`)
 * texturePreloading         [`0` or `1` or `2`]        {None, Partial or Full Hash Cache}     Default: None (`0`)
@@ -152,17 +155,26 @@ The clamp modes are also numerically based.
 
 ### GS Hardware Renderer Fixes
 
+* accurateAlphaTest                     [`0` or `1`]    {Off, On}                   Default: Off
+
 * autoFlush                   [`0` or `1` or `2`]          {Disabled, Enabled (Sprites Only), Enabled (All Primitives)}                            Default: Off (`0`)
+* partialTargetInvalidation         [`0` or `1`]          {Off, On}                               Default: Off (`0`)
+* PCRTCOffsets    [`0` or `1`]          {Off, On}                               Default: Off (`0`)
+
+* PCRTCOverscan    [`0` or `1`]          {Off, On}                               Default: Off (`0`)
+
 * disableDepthSupport         [`0` or `1`]          {Off, On}                               Default: Off (`0`)
 * disablePartialInvalidation  [`0` or `1`]          {Off, On}                               Default: Off (`0`)
 * cpuFramebufferConversion    [`0` or `1`]          {Off, On}                               Default: Off (`0`)
 * preloadFrameData            [`0` or `1`]          {Off, On}                               Default: Off (`0`)
-* textureInsideRT             [`0` or `1`]          {Disabled, Inside Targets, Merge Targets}                                            Default: Off (`0`)
+* textureInsideRT             [`0` or `1`or `2`]          {Disabled, Inside Targets, Merge Targets}                                            Default: Off (`0`)
+* PCRTCOverscan               [`0` or `1`]          {Off, On}                               Default: Off (`0`)
 * PCRTCOverscan               [`0` or `1`]          {Off, On}                               Default: Off (`0`)
 * cpuCLUTRender               [`0` or `1` or `2`]   {Disabled, Normal, Aggressive}           Default: Disabled (`0`)
 * cpuSpriteRenderBW           [Value between `0` to `10`]   {Disabled, 1 (64), 2 (128), 3 (192), 4 (256), 5 (320), 6 (384), 7 (448), 8 (512), 9 (576), 10 (640)} Default: Off (`0`)
 * cpuSpriteRenderLevel        [`0` or `1` or `2`]    {Sprites only, Sprites/Triangles, Blended Sprites/Triangles}  Default: Off unless cpuSpriteRenderBW has value other than Off then it is 'Sprites only' (`0`)
 * estimateTextureRegion       [`0` or `1`]          {Off, On}                               Default: Off (`0`)
+* drawBuffering			      [`0` or `1`]          {Off, On}                               Default: Off (`0`)
 * getSkipCount                {`GSC` with suffix }  {None unless specific game GSC}         Default: Disabled (`0`) unless valid variable name (ex. GSC_PolyphonyDigitalGames, GSC_UrbanReign, ...)
 * gpuPaletteConversion        [`0` or `1`]          {Off, On}                               Default: Off (`0`)
 * gpuTargetCLUT               [`0` or `1` or `2`]   {Disabled, Enabled (Exact Match), Enabled (Check Inside Target)}                     Default: Disabled (`0`)
@@ -170,6 +182,7 @@ The clamp modes are also numerically based.
 * maximumBlendingLevel        [`0` or `1` or `2` or `3` or `4` or `5`]      {Minimum, Basic, Medium, High, Full(Slow), Maximum (Very Slow)}    Default: Automatic (No value, looks up GameDB)
 * recommendedBlendingLevel    [`0` or `1` or `2` or `3` or `4` or `5`]      {Minimum, Basic, Medium, High, Full(Slow), Maximum (Very Slow)}    Default: Automatic (No value, looks up GameDB)
 * readTCOnClose               [`0` or `1`]          {Off, On}                               Default: Off (`0`) // Tab 3 Hardware Fixes (4th checkbox on right row 2)
+* limit24BitDepth             [`0` or `1`or `2`]    {Disabled, Prioritise Upper Bits, Prioritise Lower Bits}                                Default: Off (`0`)
 
 ### GS Hardware Upscaling Fixes
 
@@ -180,7 +193,7 @@ The clamp modes are also numerically based.
 * skipDrawStart              [Value between `0` to `10000`]             {0-10000}                          Default: Off (`0`)
 * skipDrawEnd                [Value between `0` to `10000`]             {0-10000}                          Default: Off (`0`)
 * halfPixelOffset            [`0` or `1` or `2` or `3` or `4` or `5`] {Off, Normal Vertex, Special (Texture), Special (Texture Aggressive), Align to Native, Align to Native with Texture Offsets} Default: Off (`0`)
-* nativeScaling              [`0` or `1` or `2`]    {Normal, Aggressive or Off}             Default: Normal (`0`)
+* nativeScaling              [`0` or `1` or `2` or `3` or `4`]    {Off, Normal, Aggressive, Normal (Maintain Upscale) or Aggressive (Maintain Upscale)  }             Default: Normal (`0`)
 * nativePaletteDraw          [`0` or `1`]           {Off, On}                               Default: Off (`0`)
 * roundSprite                [`0` or `1` or `2`]    {Off, Half or Full}                     Default: Off (`0`)
 

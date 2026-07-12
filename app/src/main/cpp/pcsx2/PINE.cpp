@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "BuildVersion.h"
@@ -6,8 +6,11 @@
 #include "Host.h"
 #include "Memory.h"
 #include "Elfheader.h"
+#include "SaveState.h"
 #include "PINE.h"
 #include "VMManager.h"
+#include "common/Error.h"
+#include "common/Threading.h"
 
 #include <atomic>
 #include <cstdio>
@@ -18,7 +21,7 @@
 
 #include "fmt/format.h"
 
-#if _WIN32
+#if defined(_WIN32)
 #define read_portable(a, b, c) (recv(a, (char*)b, c, 0))
 #define write_portable(a, b, c) (send(a, (const char*)b, c, 0))
 #define safe_close_portable(a) \
@@ -30,9 +33,23 @@
 			(a) = INVALID_SOCKET; \
 		} \
 	} while (0)
-#define bzero(b, len) (memset((b), '\0', (len)), (void)0)
 #include "common/RedtapeWindows.h"
 #include <WinSock2.h>
+#elif defined(__linux__) || defined(__FreeBSD__)
+#define read_portable(a, b, c) (read(a, b, c))
+#define write_portable(a, b, c) (send(a, b, c, MSG_NOSIGNAL))
+#define safe_close_portable(a) \
+	do \
+	{ \
+		if ((a) >= 0) \
+		{ \
+			close((a)); \
+			(a) = -1; \
+		} \
+	} while (0)
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
 #else
 #define read_portable(a, b, c) (read(a, b, c))
 #define write_portable(a, b, c) (write(a, b, c))
@@ -73,25 +90,25 @@ static bool InitializeWinsock()
 
 namespace PINEServer
 {
-	std::thread m_thread;
-	int m_slot;
+	static std::thread s_thread;
+	static int s_slot;
 
 #ifdef _WIN32
 	// windows claim to have support for AF_UNIX sockets but that is a blatant lie,
 	// their SDK won't even run their own examples, so we go on TCP sockets.
-	static SOCKET m_sock = INVALID_SOCKET;
+	static SOCKET s_sock = INVALID_SOCKET;
 	// the message socket used in thread's accept().
-	static SOCKET m_msgsock = INVALID_SOCKET;
+	static SOCKET s_msgsock = INVALID_SOCKET;
 #else
 	// absolute path of the socket. Stored in XDG_RUNTIME_DIR, if unset /tmp
-	static std::string m_socket_name;
-	static int m_sock = -1;
+	static std::string s_socket_name;
+	static int s_sock = -1;
 	// the message socket used in thread's accept().
-	static int m_msgsock = -1;
+	static int s_msgsock = -1;
 #endif
 
 	// Whether the socket processing thread should stop executing/is stopped.
-	static std::atomic_bool m_end{true};
+	static std::atomic_bool s_end{true};
 
 	/**
 	 * Maximum memory used by an IPC message request.
@@ -110,13 +127,13 @@ namespace PINEServer
 	 * A preallocated buffer used to store all IPC replies.
 	 * to the size of 50.000 MsgWrite64 IPC calls.
 	 */
-	static std::vector<u8> m_ret_buffer;
+	static std::vector<u8> s_ret_buffer;
 
 	/**
 	 * IPC messages buffer.
 	 * A preallocated buffer used to store all IPC messages.
 	 */
-	static std::vector<u8> m_ipc_buffer;
+	static std::vector<u8> s_ipc_buffer;
 
 	/**
 	 * IPC Command messages opcodes.
@@ -245,8 +262,8 @@ namespace PINEServer
 
 bool PINEServer::Initialize(int slot)
 {
-	m_end.store(false, std::memory_order_release);
-	m_slot = slot;
+	s_end.store(false, std::memory_order_release);
+	s_slot = slot;
 
 #ifdef _WIN32
 	if (!InitializeWinsock())
@@ -256,8 +273,8 @@ bool PINEServer::Initialize(int slot)
 		return false;
 	}
 
-	m_sock = socket(AF_INET, SOCK_STREAM, 0);
-	if ((m_sock == INVALID_SOCKET) || slot > 65536)
+	s_sock = socket(AF_INET, SOCK_STREAM, 0);
+	if ((s_sock == INVALID_SOCKET) || slot > 65536)
 	{
 		Console.WriteLn(Color_Red, "PINE: Cannot open socket! Shutting down...");
 		Deinitialize();
@@ -269,7 +286,7 @@ bool PINEServer::Initialize(int slot)
 	server.sin_addr.s_addr = htonl(INADDR_LOOPBACK); // localhost only
 	server.sin_port = htons(slot);
 
-	if (bind(m_sock, (struct sockaddr*)&server, sizeof(server)) == SOCKET_ERROR)
+	if (bind(s_sock, (struct sockaddr*)&server, sizeof(server)) == SOCKET_ERROR)
 	{
 		Console.WriteLn(Color_Red, "PINE: Error while binding to socket! Shutting down...");
 		Deinitialize();
@@ -286,32 +303,32 @@ bool PINEServer::Initialize(int slot)
 	// fallback in case macOS or other OSes don't implement the XDG base
 	// spec
 	if (runtime_dir == nullptr)
-		m_socket_name = "/tmp/" PINE_EMULATOR_NAME ".sock";
+		s_socket_name = "/tmp/" PINE_EMULATOR_NAME ".sock";
 	else
 	{
-		m_socket_name = runtime_dir;
-		m_socket_name += "/" PINE_EMULATOR_NAME ".sock";
+		s_socket_name = runtime_dir;
+		s_socket_name += "/" PINE_EMULATOR_NAME ".sock";
 	}
 
 	if (slot != PINE_DEFAULT_SLOT)
-		m_socket_name += "." + std::to_string(slot);
+		s_socket_name += "." + std::to_string(slot);
 
 	struct sockaddr_un server;
 
-	m_sock = socket(AF_UNIX, SOCK_STREAM, 0);
-	if (m_sock < 0)
+	s_sock = socket(AF_UNIX, SOCK_STREAM, 0);
+	if (s_sock < 0)
 	{
 		Console.WriteLn(Color_Red, "PINE: Cannot open socket! Shutting down...");
 		Deinitialize();
 		return false;
 	}
 	server.sun_family = AF_UNIX;
-	StringUtil::Strlcpy(server.sun_path, m_socket_name, sizeof(server.sun_path));
+	StringUtil::Strlcpy(server.sun_path, s_socket_name, sizeof(server.sun_path));
 
 	// we unlink the socket so that when releasing this thread the socket gets
 	// freed even if we didn't close correctly the loop
-	unlink(m_socket_name.c_str());
-	if (bind(m_sock, (struct sockaddr*)&server, sizeof(struct sockaddr_un)))
+	unlink(s_socket_name.c_str());
+	if (bind(s_sock, (struct sockaddr*)&server, sizeof(struct sockaddr_un)))
 	{
 		Console.WriteLn(Color_Red, "PINE: Error while binding to socket! Shutting down...");
 		Deinitialize();
@@ -322,7 +339,7 @@ bool PINEServer::Initialize(int slot)
 	// maximum queue of 4096 commands before refusing, approximated to the
 	// nearest legal value. We do not use SOMAXCONN as windows have this idea
 	// that a "reasonable" value is 5, which is not.
-	if (listen(m_sock, 4096))
+	if (listen(s_sock, 4096))
 	{
 		Console.WriteLn(Color_Red, "PINE: Cannot listen for connections! Shutting down...");
 		Deinitialize();
@@ -331,23 +348,23 @@ bool PINEServer::Initialize(int slot)
 
 	// we allocate once buffers to not have to do mallocs for each IPC
 	// request, as malloc is expansive when we optimize for µs.
-	m_ret_buffer.resize(MAX_IPC_RETURN_SIZE);
-	m_ipc_buffer.resize(MAX_IPC_SIZE);
+	s_ret_buffer.resize(MAX_IPC_RETURN_SIZE);
+	s_ipc_buffer.resize(MAX_IPC_SIZE);
 
 	// we start the thread
-	m_thread = std::thread(&PINEServer::MainLoop);
+	s_thread = std::thread(&PINEServer::MainLoop);
 
 	return true;
 }
 
 bool PINEServer::IsInitialized()
 {
-	return !m_end.load(std::memory_order_acquire);
+	return !s_end.load(std::memory_order_acquire);
 }
 
 int PINEServer::GetSlot()
 {
-	return m_slot;
+	return s_slot;
 }
 
 std::vector<u8>& PINEServer::MakeOkIPC(std::vector<u8>& ret_buffer, uint32_t size = 5)
@@ -366,33 +383,40 @@ std::vector<u8>& PINEServer::MakeFailIPC(std::vector<u8>& ret_buffer, uint32_t s
 
 bool PINEServer::AcceptClient()
 {
-	m_msgsock = accept(m_sock, 0, 0);
-	if (m_msgsock >= 0)
+	s_msgsock = accept(s_sock, 0, 0);
+	if (s_msgsock < 0)
 	{
-		// Gross C-style cast, but SOCKET is a handle on Windows.
-		Console.WriteLn("PINE: New client with FD %d connected.", (int)m_msgsock);
-		return true;
-	}
-
-	// everything else is non recoverable in our scope
-	// we also mark as recoverable socket errors where it would block a
-	// non blocking socket, even though our socket is blocking, in case
-	// we ever have to implement a non blocking socket.
+		// everything else is non recoverable in our scope
+		// we also mark as recoverable socket errors where it would block a
+		// non blocking socket, even though our socket is blocking, in case
+		// we ever have to implement a non blocking socket.
 #ifdef _WIN32
-	const int errno_w = WSAGetLastError();
-	if (!(errno_w == WSAECONNRESET || errno_w == WSAEINTR || errno_w == WSAEINPROGRESS || errno_w == WSAEMFILE || errno_w == WSAEWOULDBLOCK) && m_sock != INVALID_SOCKET)
-		Console.Error("PINE: accept() returned error %d", errno_w);
+		const int errno_w = WSAGetLastError();
+		if (!(errno_w == WSAECONNRESET || errno_w == WSAEINTR || errno_w == WSAEINPROGRESS || errno_w == WSAEMFILE || errno_w == WSAEWOULDBLOCK) && s_sock != INVALID_SOCKET)
+			Console.Error("PINE: accept() returned error %d", errno_w);
 #else
-	if (!(errno == ECONNABORTED || errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) && m_sock >= 0)
-		Console.Error("PINE: accept() returned error %d", errno);
+		if (!(errno == ECONNABORTED || errno == EINTR || errno == EAGAIN || errno == EWOULDBLOCK) && s_sock >= 0)
+			Console.Error("PINE: accept() returned error %d", errno);
 #endif
 
-	return false;
+		return false;
+	}
+
+#ifdef __APPLE__
+	int nosigpipe = 1;
+	setsockopt(s_msgsock, SOL_SOCKET, SO_NOSIGPIPE, &nosigpipe, sizeof(nosigpipe));
+#endif
+
+	// Gross C-style cast, but SOCKET is a handle on Windows.
+	Console.WriteLn("PINE: New client with FD %d connected.", (int)s_msgsock);
+	return true;
 }
 
 void PINEServer::MainLoop()
 {
-	while (!m_end.load(std::memory_order_acquire))
+	Threading::SetNameOfCurrentThread("PINE Server");
+
+	while (!s_end.load(std::memory_order_acquire))
 	{
 		if (!AcceptClient())
 			continue;
@@ -400,25 +424,25 @@ void PINEServer::MainLoop()
 		ClientLoop();
 
 		Console.WriteLn("PINE: Client disconnected.");
-		safe_close_portable(m_msgsock);
+		safe_close_portable(s_msgsock);
 	}
 }
 
 void PINEServer::ClientLoop()
 {
-	while (!m_end.load(std::memory_order_acquire))
+	while (!s_end.load(std::memory_order_acquire))
 	{
 		// either int or ssize_t depending on the platform, so we have to
 		// use a bunch of auto
 		auto receive_length = 0;
 		auto end_length = 4;
-		const std::span<u8> ipc_buffer_span(m_ipc_buffer);
+		const std::span<u8> ipc_buffer_span(s_ipc_buffer);
 
 		// while we haven't received the entire packet, maybe due to
 		// socket datagram splittage, we continue to read
 		while (receive_length < end_length)
 		{
-			const auto tmp_length = read_portable(m_msgsock, &ipc_buffer_span[receive_length], MAX_IPC_SIZE - receive_length);
+			const auto tmp_length = read_portable(s_msgsock, &ipc_buffer_span[receive_length], MAX_IPC_SIZE - receive_length);
 
 			// we recreate the socket if an error happens
 			if (tmp_length <= 0)
@@ -447,10 +471,10 @@ void PINEServer::ClientLoop()
 		// disconnects
 		if (receive_length != 0)
 		{
-			res = ParseCommand(ipc_buffer_span.subspan(4), m_ret_buffer, (u32)end_length - 4);
+			res = ParseCommand(ipc_buffer_span.subspan(4), s_ret_buffer, (u32)end_length - 4);
 
 			// if we cannot send back our answer restart the socket
-			if (write_portable(m_msgsock, res.buffer.data(), res.size) < 0)
+			if (write_portable(s_msgsock, res.buffer.data(), res.size) < 0)
 				return;
 		}
 	}
@@ -458,30 +482,30 @@ void PINEServer::ClientLoop()
 
 void PINEServer::Deinitialize()
 {
-	m_end.store(true, std::memory_order_release);
+	s_end.store(true, std::memory_order_release);
 
 #ifndef _WIN32
-	if (!m_socket_name.empty())
+	if (!s_socket_name.empty())
 	{
-		unlink(m_socket_name.c_str());
-		m_socket_name = {};
+		unlink(s_socket_name.c_str());
+		s_socket_name = {};
 	}
 #endif
 
 	// shutdown() is needed, otherwise accept() will still block.
 #ifdef _WIN32
-	if (m_sock != INVALID_SOCKET)
-		shutdown(m_sock, SD_BOTH);
+	if (s_sock != INVALID_SOCKET)
+		shutdown(s_sock, SD_BOTH);
 #else
-	if (m_sock >= 0)
-		shutdown(m_sock, SHUT_RDWR);
+	if (s_sock >= 0)
+		shutdown(s_sock, SHUT_RDWR);
 #endif
 
-	safe_close_portable(m_sock);
-	safe_close_portable(m_msgsock);
+	safe_close_portable(s_sock);
+	safe_close_portable(s_msgsock);
 
-	if (m_thread.joinable())
-		m_thread.join();
+	if (s_thread.joinable())
+		s_thread.join();
 }
 
 PINEServer::IPCBuffer PINEServer::ParseCommand(std::span<u8> buf, std::vector<u8>& ret_buffer, u32 buf_size)
@@ -605,8 +629,6 @@ PINEServer::IPCBuffer PINEServer::ParseCommand(std::span<u8> buf, std::vector<u8
 			}
 			case MsgVersion:
 			{
-				if (!VMManager::HasValidVM())
-					goto error;
 				u32 size = strlen(BuildVersion::GitRev) + 7;
 				if (!SafetyChecks(buf_cnt, 0, ret_cnt, size + 4, buf_size)) [[unlikely]]
 					goto error;
@@ -622,7 +644,11 @@ PINEServer::IPCBuffer PINEServer::ParseCommand(std::span<u8> buf, std::vector<u8
 					goto error;
 				if (!SafetyChecks(buf_cnt, 1, ret_cnt, 0, buf_size)) [[unlikely]]
 					goto error;
-				Host::RunOnCPUThread([slot = FromSpan<u8>(buf, buf_cnt)] { VMManager::SaveStateToSlot(slot); });
+				Host::RunOnCPUThread([slot = FromSpan<u8>(buf, buf_cnt)] {
+					VMManager::SaveStateToSlot(slot, true, [slot](const std::string& error) {
+						SaveState_ReportSaveErrorOSD(error, slot);
+					});
+				});
 				buf_cnt += 1;
 				break;
 			}
@@ -632,7 +658,11 @@ PINEServer::IPCBuffer PINEServer::ParseCommand(std::span<u8> buf, std::vector<u8
 					goto error;
 				if (!SafetyChecks(buf_cnt, 1, ret_cnt, 0, buf_size)) [[unlikely]]
 					goto error;
-				Host::RunOnCPUThread([slot = FromSpan<u8>(buf, buf_cnt)] { VMManager::LoadStateFromSlot(slot); });
+				Host::RunOnCPUThread([slot = FromSpan<u8>(buf, buf_cnt)] {
+					Error state_error;
+					if (!VMManager::LoadStateFromSlot(slot, false, &state_error))
+						SaveState_ReportLoadErrorOSD(state_error.GetDescription(), slot, false);
+				});
 				buf_cnt += 1;
 				break;
 			}

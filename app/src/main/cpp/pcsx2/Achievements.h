@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -67,15 +67,22 @@ namespace Achievements
 	/// Called when the system changes game, or is booting.
 	void GameChanged(u32 disc_crc, u32 crc);
 
+	/// Play achievement related sounds effects
+	void PlayAchievementSound(bool is_specific_sound_enabled, const std::string& custom_sound_name, const std::string& default_sound_name);
+
 	/// Re-enables hardcode mode if it is enabled in the settings.
 	bool ResetHardcoreMode(bool is_booting);
 
 	/// Forces hardcore mode off until next reset.
 	void DisableHardcoreMode();
 
-	/// Prompts the user to disable hardcore mode, if they agree, returns true.
-	bool ConfirmHardcoreModeDisable(const char* trigger);
-	void ConfirmHardcoreModeDisableAsync(const char* trigger, std::function<void(bool)> callback);
+	/// Returns the translated title to display for the message box asking the
+	// user to disable hardcore mode.
+	const char* GetHardcoreModeDisableTitle();
+
+	/// Returns the translated text to display in the message box asking the
+	/// user to disable hardcore mode.
+	std::string GetHardcoreModeDisableText(const char* reason);
 
 	/// Returns true if hardcore mode is active, and functionality should be restricted.
 	bool IsHardcoreModeActive();

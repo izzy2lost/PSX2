@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 // Important Note to Future Developers:
@@ -13,9 +13,7 @@
 #include "iCOP0.h"
 
 namespace Interp = R5900::Interpreter::OpcodeImpl::COP0;
-#if !defined(__ANDROID__)
 using namespace x86Emitter;
-#endif
 
 namespace R5900 {
 namespace Dynarec {
@@ -41,18 +39,12 @@ static void _setupBranchTest()
 	// But using 32-bit loads here is ok (and faster), because we mask off
 	// everything except the lower 10 bits away.
 
-//	xMOV(eax, ptr[(&psHu32(DMAC_PCR))]);
-    armAsm->Mov(EAX, psHu32(DMAC_PCR));
-//	xMOV(ecx, 0x3ff); // ECX is our 10-bit mask var
-    armAsm->Mov(ECX, 0x3ff);
-//	xNOT(eax);
-    armAsm->Mvn(EAX, EAX);
-//	xOR(eax, ptr[(&psHu32(DMAC_STAT))]);
-    armAsm->Orr(EAX, EAX, armLoadPtr(&psHu32(DMAC_STAT)));
-//	xAND(eax, ecx);
-    armAsm->And(EAX, EAX, ECX);
-//	xCMP(eax, ecx);
-    armAsm->Cmp(EAX, ECX);
+	xMOV(eax, ptr[(&psHu32(DMAC_PCR))]);
+	xMOV(ecx, 0x3ff); // ECX is our 10-bit mask var
+	xNOT(eax);
+	xOR(eax, ptr[(&psHu32(DMAC_STAT))]);
+	xAND(eax, ecx);
+	xCMP(eax, ecx);
 }
 
 void recBC0F()
@@ -60,11 +52,7 @@ void recBC0F()
 	const u32 branchTo = ((s32)_Imm_ * 4) + pc;
 	const bool swap = TrySwapDelaySlot(0, 0, 0, false);
 	_setupBranchTest();
-//	recDoBranchImm(branchTo, JE32(0), false, swap);
-
-    a64::Label label;
-    armAsm->B(&label, a64::eq);
-    recDoBranchImm(branchTo, &label, false, swap);
+	recDoBranchImm(branchTo, JE32(0), false, swap);
 }
 
 void recBC0T()
@@ -72,33 +60,21 @@ void recBC0T()
 	const u32 branchTo = ((s32)_Imm_ * 4) + pc;
 	const bool swap = TrySwapDelaySlot(0, 0, 0, false);
 	_setupBranchTest();
-//	recDoBranchImm(branchTo, JNE32(0), false, swap);
-
-    a64::Label label;
-    armAsm->B(&label, a64::ne);
-    recDoBranchImm(branchTo, &label, false, swap);
+	recDoBranchImm(branchTo, JNE32(0), false, swap);
 }
 
 void recBC0FL()
 {
 	const u32 branchTo = ((s32)_Imm_ * 4) + pc;
 	_setupBranchTest();
-//	recDoBranchImm(branchTo, JE32(0), true, false);
-
-    a64::Label label;
-    armAsm->B(&label, a64::eq);
-    recDoBranchImm(branchTo, &label, true, false);
+	recDoBranchImm(branchTo, JE32(0), true, false);
 }
 
 void recBC0TL()
 {
 	const u32 branchTo = ((s32)_Imm_ * 4) + pc;
 	_setupBranchTest();
-//	recDoBranchImm(branchTo, JNE32(0), true, false);
-
-    a64::Label label;
-    armAsm->B(&label, a64::ne);
-    recDoBranchImm(branchTo, &label, true, false);
+	recDoBranchImm(branchTo, JNE32(0), true, false);
 }
 
 void recTLBR() { recCall(Interp::TLBR); }
@@ -135,26 +111,15 @@ void recDI()
 	if (!g_recompilingDelaySlot)
 		recompileNextInstruction(false, false); // DI execution is delayed by one instruction
 
-//	xMOV(eax, ptr[&cpuRegs.CP0.n.Status]);
-    armLoad(EAX, PTR_CPU(cpuRegs.CP0.n.Status));
-//	xTEST(eax, 0x20006); // EXL | ERL | EDI
-    armAsm->Tst(EAX, 0x20006);
-//	xForwardJNZ8 iHaveNoIdea;
-    a64::Label iHaveNoIdea;
-    armAsm->B(&iHaveNoIdea, a64::Condition::ne);
-//	xTEST(eax, 0x18); // KSU
-    armAsm->Tst(EAX, 0x18);
-//	xForwardJNZ8 inUserMode;
-    a64::Label inUserMode;
-    armAsm->B(&inUserMode, a64::Condition::ne);
-//	iHaveNoIdea.SetTarget();
-    armBind(&iHaveNoIdea);
-//	xAND(eax, ~(u32)0x10000); // EIE
-    armAsm->And(EAX, EAX, ~(u32)0x10000);
-//	xMOV(ptr[&cpuRegs.CP0.n.Status], eax);
-    armStore(PTR_CPU(cpuRegs.CP0.n.Status), EAX);
-//	inUserMode.SetTarget();
-    armBind(&inUserMode);
+	xMOV(eax, ptr[&cpuRegs.CP0.n.Status]);
+	xTEST(eax, 0x20006); // EXL | ERL | EDI
+	xForwardJNZ8 iHaveNoIdea;
+	xTEST(eax, 0x18); // KSU
+	xForwardJNZ8 inUserMode;
+	iHaveNoIdea.SetTarget();
+	xAND(eax, ~(u32)0x10000); // EIE
+	xMOV(ptr[&cpuRegs.CP0.n.Status], eax);
+	inUserMode.SetTarget();
 }
 
 
@@ -170,25 +135,19 @@ void recMFC0()
 	if (_Rd_ == 9)
 	{
 		// This case needs to be handled even if the write-back is ignored (_Rt_ == 0 )
-//		xMOV(ecx, ptr32[&cpuRegs.cycle]);
-//		xADD(ecx, scaleblockcycles_clear());
-//		xMOV(ptr32[&cpuRegs.cycle], ecx); // update cycles
-        armAdd(ECX, PTR_CPU(cpuRegs.cycle), scaleblockcycles_clear());
-//		xMOV(eax, ecx);
-        armAsm->Mov(EAX, ECX);
-//		xSUB(eax, ptr[&cpuRegs.lastCOP0Cycle]);
-        armAsm->Sub(EAX, EAX, armLoad(PTR_CPU(cpuRegs.lastCOP0Cycle)));
-//		xADD(ptr[&cpuRegs.CP0.n.Count], eax);
-        armAdd(PTR_CPU(cpuRegs.CP0.n.Count), EAX);
-//		xMOV(ptr[&cpuRegs.lastCOP0Cycle], ecx);
-        armStore(PTR_CPU(cpuRegs.lastCOP0Cycle), ECX);
+		xMOV(rcx, ptr64[&cpuRegs.cycle]);
+		xADD(rcx, scaleblockcycles_clear());
+		xMOV(ptr64[&cpuRegs.cycle], rcx); // update cycles
+		xMOV(rax, rcx);
+		xSUB(rax, ptr[&cpuRegs.lastCOP0Cycle]);
+		xADD(ptr[&cpuRegs.CP0.n.Count], rax);
+		xMOV(ptr[&cpuRegs.lastCOP0Cycle], rcx);
 
 		if (!_Rt_)
 			return;
 
 		const int regt = _Rt_ ? _allocX86reg(X86TYPE_GPR, _Rt_, MODE_WRITE) : -1;
-//		xMOVSX(xRegister64(regt), ptr32[&cpuRegs.CP0.r[_Rd_]]);
-        armLoadsw(a64::XRegister(regt), PTR_CPU(cpuRegs.CP0.r[_Rd_]));
+		xMOVSX(xRegister64(regt), ptr32[&cpuRegs.CP0.r[_Rd_]]);
 		return;
 	}
 
@@ -200,36 +159,29 @@ void recMFC0()
 		if (0 == (_Imm_ & 1)) // MFPS, register value ignored
 		{
 			const int regt = _allocX86reg(X86TYPE_GPR, _Rt_, MODE_WRITE);
-//			xMOVSX(xRegister64(regt), ptr32[&cpuRegs.PERF.n.pccr]);
-            armLoadsw(a64::XRegister(regt), PTR_CPU(cpuRegs.PERF.n.pccr));
+			xMOVSX(xRegister64(regt), ptr32[&cpuRegs.PERF.n.pccr]);
 		}
 		else if (0 == (_Imm_ & 2)) // MFPC 0, only LSB of register matters
 		{
 			iFlushCall(FLUSH_INTERPRETER);
-//			xMOV(eax, ptr32[&cpuRegs.cycle]);
-//			xADD(eax, scaleblockcycles_clear());
-//			xMOV(ptr32[&cpuRegs.cycle], eax); // update cycles
-            armAdd(PTR_CPU(cpuRegs.cycle), scaleblockcycles_clear());
-//			xFastCall((void*)COP0_UpdatePCCR);
-            armEmitCall(reinterpret_cast<void*>(COP0_UpdatePCCR));
+			xMOV(rax, ptr64[&cpuRegs.cycle]);
+			xADD(rax, scaleblockcycles_clear());
+			xMOV(ptr64[&cpuRegs.cycle], rax); // update cycles
+			xFastCall((void*)COP0_UpdatePCCR);
 
 			const int regt = _allocX86reg(X86TYPE_GPR, _Rt_, MODE_WRITE);
-//			xMOVSX(xRegister64(regt), ptr32[&cpuRegs.PERF.n.pcr0]);
-            armLoadsw(a64::XRegister(regt), PTR_CPU(cpuRegs.PERF.n.pcr0));
+			xMOVSX(xRegister64(regt), ptr32[&cpuRegs.PERF.n.pcr0]);
 		}
 		else // MFPC 1
 		{
 			iFlushCall(FLUSH_INTERPRETER);
-//			xMOV(eax, ptr32[&cpuRegs.cycle]);
-//			xADD(eax, scaleblockcycles_clear());
-//			xMOV(ptr32[&cpuRegs.cycle], eax); // update cycles
-            armAdd(PTR_CPU(cpuRegs.cycle), scaleblockcycles_clear());
-//			xFastCall((void*)COP0_UpdatePCCR);
-            armEmitCall(reinterpret_cast<void*>(COP0_UpdatePCCR));
+			xMOV(rax, ptr64[&cpuRegs.cycle]);
+			xADD(rax, scaleblockcycles_clear());
+			xMOV(ptr64[&cpuRegs.cycle], rax); // update cycles
+			xFastCall((void*)COP0_UpdatePCCR);
 
 			const int regt = _allocX86reg(X86TYPE_GPR, _Rt_, MODE_WRITE);
-//			xMOVSX(xRegister64(regt), ptr32[&cpuRegs.PERF.n.pcr1]);
-            armLoadsw(a64::XRegister(regt), PTR_CPU(cpuRegs.PERF.n.pcr1));
+			xMOVSX(xRegister64(regt), ptr32[&cpuRegs.PERF.n.pcr1]);
 		}
 
 		return;
@@ -241,8 +193,7 @@ void recMFC0()
 	}
 
 	const int regt = _allocX86reg(X86TYPE_GPR, _Rt_, MODE_WRITE);
-//	xMOVSX(xRegister64(regt), ptr32[&cpuRegs.CP0.r[_Rd_]]);
-    armLoadsw(a64::XRegister(regt), PTR_CPU(cpuRegs.CP0.r[_Rd_]));
+	xMOVSX(xRegister64(regt), ptr32[&cpuRegs.CP0.r[_Rd_]]);
 }
 
 void recMTC0()
@@ -253,31 +204,23 @@ void recMTC0()
 		{
 			case 12:
 				iFlushCall(FLUSH_INTERPRETER);
-//				xMOV(eax, ptr32[&cpuRegs.cycle]);
-//				xADD(eax, scaleblockcycles_clear());
-//				xMOV(ptr32[&cpuRegs.cycle], eax); // update cycles
-                armAdd(PTR_CPU(cpuRegs.cycle), scaleblockcycles_clear());
-//				xFastCall((void*)WriteCP0Status, g_cpuConstRegs[_Rt_].UL[0]);
-                armAsm->Mov(EAX, g_cpuConstRegs[_Rt_].UL[0]);
-                armEmitCall(reinterpret_cast<void*>(WriteCP0Status));
+				xMOV(rax, ptr64[&cpuRegs.cycle]);
+				xADD(rax, scaleblockcycles_clear());
+				xMOV(ptr64[&cpuRegs.cycle], rax); // update cycles
+				xFastCall((void*)WriteCP0Status, g_cpuConstRegs[_Rt_].UL[0]);
 				break;
 
 			case 16:
 				iFlushCall(FLUSH_INTERPRETER);
-//				xFastCall((void*)WriteCP0Config, g_cpuConstRegs[_Rt_].UL[0]);
-                armAsm->Mov(EAX, g_cpuConstRegs[_Rt_].UL[0]);
-                armEmitCall(reinterpret_cast<void*>(WriteCP0Config));
+				xFastCall((void*)WriteCP0Config, g_cpuConstRegs[_Rt_].UL[0]);
 				break;
 
 			case 9:
-//				xMOV(ecx, ptr32[&cpuRegs.cycle]);
-//				xADD(ecx, scaleblockcycles_clear());
-//				xMOV(ptr32[&cpuRegs.cycle], ecx); // update cycles
-                armAdd(ECX, PTR_CPU(cpuRegs.cycle), scaleblockcycles_clear());
-//				xMOV(ptr[&cpuRegs.lastCOP0Cycle], ecx);
-                armStore(PTR_CPU(cpuRegs.lastCOP0Cycle), ECX);
-//				xMOV(ptr32[&cpuRegs.CP0.r[9]], g_cpuConstRegs[_Rt_].UL[0]);
-                armStore(PTR_CPU(cpuRegs.CP0.r[9]), g_cpuConstRegs[_Rt_].UL[0]);
+				xMOV(rcx, ptr64[&cpuRegs.cycle]);
+				xADD(rcx, scaleblockcycles_clear());
+				xMOV(ptr64[&cpuRegs.cycle], rcx); // update cycles
+				xMOV(ptr64[&cpuRegs.lastCOP0Cycle], rcx);
+				xMOV(ptr32[&cpuRegs.CP0.r[9]], g_cpuConstRegs[_Rt_].UL[0]);
 				break;
 
 			case 25:
@@ -287,38 +230,28 @@ void recMTC0()
 						break;
 					// Updates PCRs and sets the PCCR.
 					iFlushCall(FLUSH_INTERPRETER);
-//					xMOV(eax, ptr32[&cpuRegs.cycle]);
-//					xADD(eax, scaleblockcycles_clear());
-//					xMOV(ptr32[&cpuRegs.cycle], eax); // update cycles
-                    armAdd(PTR_CPU(cpuRegs.cycle), scaleblockcycles_clear());
-//					xFastCall((void*)COP0_UpdatePCCR);
-                    armEmitCall(reinterpret_cast<void*>(COP0_UpdatePCCR));
-//					xMOV(ptr32[&cpuRegs.PERF.n.pccr], g_cpuConstRegs[_Rt_].UL[0]);
-                    armStore(PTR_CPU(cpuRegs.PERF.n.pccr), g_cpuConstRegs[_Rt_].UL[0]);
-//					xFastCall((void*)COP0_DiagnosticPCCR);
-                    armEmitCall(reinterpret_cast<void*>(COP0_DiagnosticPCCR));
+					xMOV(rax, ptr64[&cpuRegs.cycle]);
+					xADD(rax, scaleblockcycles_clear());
+					xMOV(ptr64[&cpuRegs.cycle], rax); // update cycles
+					xFastCall((void*)COP0_UpdatePCCR);
+					xMOV(ptr32[&cpuRegs.PERF.n.pccr], g_cpuConstRegs[_Rt_].UL[0]);
+					xFastCall((void*)COP0_DiagnosticPCCR);
 				}
 				else if (0 == (_Imm_ & 2)) // MTPC 0, only LSB of register matters
 				{
-//					xMOV(eax, ptr32[&cpuRegs.cycle]);
-//					xADD(eax, scaleblockcycles_clear());
-//					xMOV(ptr32[&cpuRegs.cycle], eax); // update cycles
-                    armAdd(EAX, PTR_CPU(cpuRegs.cycle), scaleblockcycles_clear());
-//					xMOV(ptr32[&cpuRegs.PERF.n.pcr0], g_cpuConstRegs[_Rt_].UL[0]);
-                    armStore(PTR_CPU(cpuRegs.PERF.n.pcr0), g_cpuConstRegs[_Rt_].UL[0]);
-//					xMOV(ptr[&cpuRegs.lastPERFCycle[0]], eax);
-                    armStore(PTR_CPU(cpuRegs.lastPERFCycle[0]), EAX);
+					xMOV(rax, ptr64[&cpuRegs.cycle]);
+					xADD(rax, scaleblockcycles_clear());
+					xMOV(ptr64[&cpuRegs.cycle], rax); // update cycles
+					xMOV(ptr32[&cpuRegs.PERF.n.pcr0], g_cpuConstRegs[_Rt_].UL[0]);
+					xMOV(ptr64[&cpuRegs.lastPERFCycle[0]], rax);
 				}
 				else // MTPC 1
 				{
-//					xMOV(eax, ptr32[&cpuRegs.cycle]);
-//					xADD(eax, scaleblockcycles_clear());
-//					xMOV(ptr32[&cpuRegs.cycle], eax); // update cycles
-                    armAdd(EAX, PTR_CPU(cpuRegs.cycle), scaleblockcycles_clear());
-//					xMOV(ptr32[&cpuRegs.PERF.n.pcr1], g_cpuConstRegs[_Rt_].UL[0]);
-                    armStore(PTR_CPU(cpuRegs.PERF.n.pcr1), g_cpuConstRegs[_Rt_].UL[0]);
-//					xMOV(ptr[&cpuRegs.lastPERFCycle[1]], eax);
-                    armStore(PTR_CPU(cpuRegs.lastPERFCycle[1]), EAX);
+					xMOV(rax, ptr64[&cpuRegs.cycle]);
+					xADD(rax, scaleblockcycles_clear());
+					xMOV(ptr64[&cpuRegs.cycle], rax); // update cycles
+					xMOV(ptr32[&cpuRegs.PERF.n.pcr1], g_cpuConstRegs[_Rt_].UL[0]);
+					xMOV(ptr64[&cpuRegs.lastPERFCycle[1]], rax);
 				}
 				break;
 
@@ -327,8 +260,7 @@ void recMTC0()
 				break;
 
 			default:
-//				xMOV(ptr32[&cpuRegs.CP0.r[_Rd_]], g_cpuConstRegs[_Rt_].UL[0]);
-                armStore(PTR_CPU(cpuRegs.CP0.r[_Rd_]), g_cpuConstRegs[_Rt_].UL[0]);
+				xMOV(ptr32[&cpuRegs.CP0.r[_Rd_]], g_cpuConstRegs[_Rt_].UL[0]);
 				break;
 		}
 	}
@@ -337,31 +269,26 @@ void recMTC0()
 		switch (_Rd_)
 		{
 			case 12:
-				_eeMoveGPRtoR(RAX, _Rt_);
+				_eeMoveGPRtoR(arg1reg, _Rt_);
 				iFlushCall(FLUSH_INTERPRETER);
-//				xMOV(eax, ptr32[&cpuRegs.cycle]);
-//				xADD(eax, scaleblockcycles_clear());
-//				xMOV(ptr32[&cpuRegs.cycle], eax); // update cycles
-                armAdd(PTR_CPU(cpuRegs.cycle), scaleblockcycles_clear());
-//				xFastCall((void*)WriteCP0Status);
-                armEmitCall(reinterpret_cast<void*>(WriteCP0Status));
+				xMOV(rax, ptr64[&cpuRegs.cycle]);
+				xADD(rax, scaleblockcycles_clear());
+				xMOV(ptr64[&cpuRegs.cycle], rax); // update cycles
+				xFastCall((void*)WriteCP0Status);
 				break;
 
 			case 16:
-				_eeMoveGPRtoR(RAX, _Rt_);
+				_eeMoveGPRtoR(arg1reg, _Rt_);
 				iFlushCall(FLUSH_INTERPRETER);
-//				xFastCall((void*)WriteCP0Config);
-                armEmitCall(reinterpret_cast<const void*>(WriteCP0Config));
+				xFastCall((void*)WriteCP0Config);
 				break;
 
 			case 9:
-//				xMOV(ecx, ptr32[&cpuRegs.cycle]);
-//				xADD(ecx, scaleblockcycles_clear());
-//				xMOV(ptr32[&cpuRegs.cycle], ecx); // update cycles
-                armAdd(ECX, PTR_CPU(cpuRegs.cycle), scaleblockcycles_clear());
-				_eeMoveGPRtoM(PTR_CPU(cpuRegs.CP0.r[9]), _Rt_);
-//				xMOV(ptr[&cpuRegs.lastCOP0Cycle], ecx);
-                armStore(PTR_CPU(cpuRegs.lastCOP0Cycle), ECX);
+				xMOV(rcx, ptr64[&cpuRegs.cycle]);
+				xADD(rcx, scaleblockcycles_clear());
+				xMOV(ptr64[&cpuRegs.cycle], rcx); // update cycles
+				_eeMoveGPRtoM((uptr)&cpuRegs.CP0.r[9], _Rt_);
+				xMOV(ptr64[&cpuRegs.lastCOP0Cycle], rcx);
 				break;
 
 			case 25:
@@ -370,35 +297,28 @@ void recMTC0()
 					if (0 != (_Imm_ & 0x3E)) // only effective when the register is 0
 						break;
 					iFlushCall(FLUSH_INTERPRETER);
-//					xMOV(eax, ptr32[&cpuRegs.cycle]);
-//					xADD(eax, scaleblockcycles_clear());
-//					xMOV(ptr32[&cpuRegs.cycle], eax); // update cycles
-                    armAdd(PTR_CPU(cpuRegs.cycle), scaleblockcycles_clear());
-//					xFastCall((void*)COP0_UpdatePCCR);
-                    armEmitCall(reinterpret_cast<void*>(COP0_UpdatePCCR));
-					_eeMoveGPRtoM(PTR_CPU(cpuRegs.PERF.n.pccr), _Rt_);
-//					xFastCall((void*)COP0_DiagnosticPCCR);
-                    armEmitCall(reinterpret_cast<void*>(COP0_DiagnosticPCCR));
+					xMOV(rax, ptr64[&cpuRegs.cycle]);
+					xADD(rax, scaleblockcycles_clear());
+					xMOV(ptr64[&cpuRegs.cycle], rax); // update cycles
+					xFastCall((void*)COP0_UpdatePCCR);
+					_eeMoveGPRtoM((uptr)&cpuRegs.PERF.n.pccr, _Rt_);
+					xFastCall((void*)COP0_DiagnosticPCCR);
 				}
 				else if (0 == (_Imm_ & 2)) // MTPC 0, only LSB of register matters
 				{
-//					xMOV(ecx, ptr32[&cpuRegs.cycle]);
-//					xADD(ecx, scaleblockcycles_clear());
-//					xMOV(ptr32[&cpuRegs.cycle], ecx); // update cycles
-                    armAdd(ECX, PTR_CPU(cpuRegs.cycle), scaleblockcycles_clear());
-					_eeMoveGPRtoM(PTR_CPU(cpuRegs.PERF.n.pcr0), _Rt_);
-//					xMOV(ptr[&cpuRegs.lastPERFCycle[0]], ecx);
-                    armStore(PTR_CPU(cpuRegs.lastPERFCycle[0]), ECX);
+					xMOV(rcx, ptr64[&cpuRegs.cycle]);
+					xADD(rcx, scaleblockcycles_clear());
+					xMOV(ptr64[&cpuRegs.cycle], rcx); // update cycles
+					_eeMoveGPRtoM((uptr)&cpuRegs.PERF.n.pcr0, _Rt_);
+					xMOV(ptr64[&cpuRegs.lastPERFCycle[0]], rcx);
 				}
 				else // MTPC 1
 				{
-//					xMOV(ecx, ptr32[&cpuRegs.cycle]);
-//					xADD(ecx, scaleblockcycles_clear());
-//					xMOV(ptr32[&cpuRegs.cycle], ecx); // update cycles
-                    armAdd(ECX, PTR_CPU(cpuRegs.cycle), scaleblockcycles_clear());
-					_eeMoveGPRtoM(PTR_CPU(cpuRegs.PERF.n.pcr1), _Rt_);
-//					xMOV(ptr[&cpuRegs.lastPERFCycle[1]], ecx);
-                    armStore(PTR_CPU(cpuRegs.lastPERFCycle[1]), ECX);
+					xMOV(rcx, ptr64[&cpuRegs.cycle]);
+					xADD(rcx, scaleblockcycles_clear());
+					xMOV(ptr64[&cpuRegs.cycle], rcx); // update cycles
+					_eeMoveGPRtoM((uptr)&cpuRegs.PERF.n.pcr1, _Rt_);
+					xMOV(ptr64[&cpuRegs.lastPERFCycle[1]], rcx);
 				}
 				break;
 
@@ -407,7 +327,7 @@ void recMTC0()
 				break;
 
 			default:
-				_eeMoveGPRtoM(PTR_CPU(cpuRegs.CP0.r[_Rd_]), _Rt_);
+				_eeMoveGPRtoM((uptr)&cpuRegs.CP0.r[_Rd_], _Rt_);
 				break;
 		}
 	}

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Common.h"
@@ -222,7 +222,7 @@ __fi void vif1VUFinish()
 	// Sync up VU1 so we don't errantly wait.
 	while (!THREAD_VU1 && (VU0.VI[REG_VPU_STAT].UL & 0x100))
 	{
-		const int cycle_diff = static_cast<int>(cpuRegs.cycle - VU1.cycle);
+		const s64 cycle_diff = static_cast<int>(cpuRegs.cycle - VU1.cycle);
 
 		if ((EmuConfig.Gamefixes.VUSyncHack && cycle_diff < VU1.nextBlockCycles) || cycle_diff <= 0)
 			break;
@@ -244,7 +244,7 @@ __fi void vif1VUFinish()
 
 	if (VU0.VI[REG_VPU_STAT].UL & 0x100)
 	{
-		u32 _cycles = VU1.cycle;
+		u64 _cycles = VU1.cycle;
 		//DevCon.Warning("Finishing VU1");
 		vu1Finish(false);
 		if (THREAD_VU1 && !INSTANT_VU1 && (VU0.VI[REG_VPU_STAT].UL & 0x100))
@@ -276,7 +276,7 @@ __fi void vif1VUFinish()
 
 __fi void vif1Interrupt()
 {
-	VIF_LOG("vif1Interrupt: %8.8x chcr %x, done %x, qwc %x", cpuRegs.cycle, vif1ch.chcr._u32, vif1.done, vif1ch.qwc);
+	VIF_LOG("vif1Interrupt: %8.8llx chcr %x, done %x, qwc %x", cpuRegs.cycle, vif1ch.chcr._u32, vif1.done, vif1ch.qwc);
 
 	g_vif1Cycles = 0;
 

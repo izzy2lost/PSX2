@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Common.h"
@@ -273,7 +273,7 @@ void ipuCMDProcess()
 
 void ipu0Interrupt()
 {
-	IPU_LOG("ipu0Interrupt: %x", cpuRegs.cycle);
+	IPU_LOG("ipu0Interrupt: %llx", cpuRegs.cycle);
 
 	if(ipu0ch.qwc > 0)
 	{
@@ -289,7 +289,7 @@ void ipu0Interrupt()
 
 __fi void ipu1Interrupt()
 {
-	IPU_LOG("ipu1Interrupt %x:", cpuRegs.cycle);
+	IPU_LOG("ipu1Interrupt %llx:", cpuRegs.cycle);
 
 	if(!IPU1Status.DMAFinished || IPU1Status.InProgress)  //Sanity Check
 	{

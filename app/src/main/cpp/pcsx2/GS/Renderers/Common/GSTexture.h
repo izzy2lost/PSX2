@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -34,6 +34,7 @@ public:
 		ColorHDR,     ///< High dynamic range (RGBA16F) color texture
 		ColorClip,    ///< Color texture with more bits for colclip (wrap) emulation, given that blending requires 9bpc (RGBA16Unorm)
 		DepthStencil, ///< Depth stencil texture
+		DepthColor,      ///< For treating depth texture as RT
 		UNorm8,       ///< A8UNorm texture for paletted textures and the OSD font
 		UInt16,       ///< UInt16 texture for reading back 16-bit depth
 		UInt32,       ///< UInt32 texture for reading back 24 and 32-bit depth
@@ -72,6 +73,13 @@ protected:
 	bool m_needs_mipmaps_generated = true;
 	ClearValue m_clear_value = {};
 
+	// For GL/DX11 since they don't track layouts.
+	// Used heuristically to decide whether to use ROV for a draw.
+	bool m_unordered_access = false;
+
+#ifdef PCSX2_DEVBUILD
+	std::string m_debug_name;
+#endif
 public:
 	GSTexture();
 	virtual ~GSTexture();
@@ -86,6 +94,7 @@ public:
 
 #ifdef PCSX2_DEVBUILD
 	virtual void SetDebugName(std::string_view name) = 0;
+	const std::string& GetDebugName() { return m_debug_name; }
 #endif
 
 	bool Save(const std::string& fn);
@@ -103,6 +112,7 @@ public:
 	__fi bool IsCompressedFormat() const { return IsCompressedFormat(m_format); }
 
 	static const char* GetFormatName(Format format);
+	static bool IsBlockCompressedFormat(Format format);
 	static u32 GetCompressedBytesPerBlock(Format format);
 	static u32 GetCompressedBlockSize(Format format);
 	static u32 CalcUploadPitch(Format format, u32 width);
@@ -127,9 +137,17 @@ public:
 	{
 		return (m_type == Type::DepthStencil);
 	}
+	__fi bool IsDepthColor() const
+	{
+		return (m_type == Type::RenderTarget && m_format == Format::DepthColor);
+	}
 	__fi bool IsTexture() const
 	{
 		return (m_type == Type::Texture);
+	}
+	__fi bool IsDepthLike() const
+	{
+		return IsDepthStencil() || IsDepthColor();
 	}
 
 	__fi State GetState() const { return m_state; }
@@ -141,6 +159,10 @@ public:
 	__fi u32 GetClearColor() const { return m_clear_value.color; }
 	__fi float GetClearDepth() const { return m_clear_value.depth; }
 	__fi GSVector4 GetUNormClearColor() const { return GSVector4::unorm8(m_clear_value.color); }
+	__fi GSVector4 GetClearForFormat() const
+	{
+		return IsDepthLike() ? GSVector4(m_clear_value.depth, 0.0f, 0.0f, 0.0f) : GetUNormClearColor();
+	}
 
 	__fi void SetClearColor(u32 color)
 	{
@@ -158,6 +180,12 @@ public:
 
 	// Typical size of a RGBA texture
 	u32 GetMemUsage() const { return m_size.x * m_size.y * (m_format == Format::UNorm8 ? 1 : 4); }
+
+	// The unordered access flag is sticky, so once it's set we keep using ROV for the target
+	// until it's recycled/destroyed. Only used for DX11/GL, which don't track actual resource layout/state.
+	virtual bool IsUnorderedAccess() const { return m_unordered_access; }
+	void SetUnorderedAccess() { m_unordered_access = true; }
+	void ClearUnorderedAccess() { m_unordered_access = false; }
 
 	// Helper routines for formats/types
 	static bool IsCompressedFormat(Format format) { return (format >= Format::BC1 && format <= Format::BC7); }

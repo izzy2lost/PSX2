@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include <cstdio>
@@ -65,9 +65,13 @@ void ReadOSDConfigParames()
 	configParams1.version = (params[2] & 0xE0) >> 5; // OSD Ver (Not sure but best guess).
 	configParams1.language = params[2] & 0x1F; // Language.
 	configParams1.timezoneOffset = params[4] | ((u32)(params[3] & 0x7) << 8);  // Timezone offset in minutes.
-
+	configParams1.timeZoneID = params[6]; // ID for time zone selection
+	
 	// Region settings for time/date and extended language
 	configParams2.UC[1] = ((u32)params[3] & 0x78) << 1; // Daylight Savings, 24hr clock, Date format
+	configParams2.daylightSavings = configParams2.UC[1] & 0x10 ? 1 : 0;
+	configParams2.timeFormat = configParams2.UC[1] & 0x20 ? 1 : 0;
+	configParams2.dateFormat = configParams2.UC[1] & 0x80 ? 2 : (configParams2.UC[1] & 0x40 ? 1 : 0);
 	// FIXME: format, version and language are set manually by the bios. Not sure if any game needs them, but it seems to set version to 2 and duplicate the language value.
 	configParams2.version = 2;
 	configParams2.language = configParams1.language;
@@ -174,7 +178,7 @@ static bool LoadBiosVersion(std::FILE* fp, u32& version, std::string& descriptio
 																  "",
 			serial.c_str());
 
-		version = strtol(vermaj, (char**)NULL, 0) << 8;
+		version = static_cast<u32>(strtol(vermaj, (char**)NULL, 0) << 8);
 		version |= strtol(vermin, (char**)NULL, 0);
 
 		Console.WriteLn("BIOS Found: %s", description.c_str());

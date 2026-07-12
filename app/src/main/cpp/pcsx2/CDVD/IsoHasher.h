@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -28,6 +28,9 @@ public:
 	IsoHasher();
 	~IsoHasher();
 
+	IsoHasher(const IsoHasher&) = delete;
+	IsoHasher& operator=(const IsoHasher&) = delete;
+
 	static std::string_view GetTrackTypeString(u32 type);
 
 	u32 GetTrackCount() const { return static_cast<u32>(m_tracks.size()); }
@@ -44,6 +47,7 @@ private:
 	bool ComputeTrackHash(Track& track, ProgressCallback* callback);
 
 	std::vector<Track> m_tracks;
+	bool m_is_locked = false;
 	bool m_is_open = false;
 	bool m_is_cd = false;
 };

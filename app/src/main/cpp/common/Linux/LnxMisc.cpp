@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "common/Pcsx2Types.h"
@@ -18,12 +18,12 @@
 #include <sys/time.h>
 #include <sys/wait.h>
 #include <unistd.h>
-#if !defined(__ANDROID__)
-#include <dbus/dbus.h>
+#if defined(X11_API)
 #include <X11/Xlib.h>
 #include <X11/extensions/XInput2.h>
 #endif
 
+#include <cerrno>
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
@@ -88,14 +88,34 @@ u64 GetAvailablePhysicalMemory()
 
 u64 GetTickFrequency()
 {
+#if defined(__aarch64__)
+	// Frequency of the architected virtual counter read by GetCPUTicks() (e.g. 19.2MHz on
+	// Snapdragon 865, 24MHz on Apple M2, 1GHz on ARMv8.6+ with FEAT_ECV).
+	u64 freq;
+	asm volatile("mrs %0, cntfrq_el0" : "=r"(freq));
+	return freq;
+#else
 	return 1000000000; // unix measures in nanoseconds
+#endif
 }
 
 u64 GetCPUTicks()
 {
+#if defined(__aarch64__)
+	// Read the architected virtual counter directly (a single mrs) rather than going through the
+	// vDSO clock_gettime() (function call + seqlock + isb + ns conversion) - this is the same
+	// counter the vDSO reads underneath. CNTVCT_EL0 is monotonic and consistent across cores, and
+	// Linux always enables EL0 counter access since its own vDSO fast path requires it. Resolution
+	// is coarser than 1ns (~52ns at 19.2MHz), which is ample for every consumer of this clock; all
+	// consumers must convert through GetTickFrequency() rather than assuming nanoseconds.
+	u64 val;
+	asm volatile("mrs %0, cntvct_el0" : "=r"(val)::"memory");
+	return val;
+#else
 	struct timespec ts;
 	clock_gettime(CLOCK_MONOTONIC, &ts);
 	return (static_cast<u64>(ts.tv_sec) * 1000000000ULL) + ts.tv_nsec;
+#endif
 }
 
 std::string GetOSVersionString()
@@ -227,6 +247,7 @@ bool Common::InhibitScreensaver(bool inhibit)
 	return SetScreensaverInhibitDBus(inhibit, "PCSX2", "PCSX2 VM is running.");
 }
 
+#if defined(X11_API)
 void Common::SetMousePosition(int x, int y)
 {
 	Display* display = XOpenDisplay(nullptr);
@@ -331,6 +352,7 @@ void Common::DetachMousePositionCb()
 		mouseThread.join();
 	}
 }
+#endif // X11_API
 
 bool Common::PlaySoundAsync(const char* path)
 {
@@ -377,8 +399,23 @@ void Threading::Sleep(int ms)
 
 void Threading::SleepUntil(u64 ticks)
 {
-	struct timespec ts;
-	ts.tv_sec = static_cast<time_t>(ticks / 1000000000ULL);
-	ts.tv_nsec = static_cast<long>(ticks % 1000000000ULL);
-	clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, &ts, nullptr);
+	// GetCPUTicks() values are not necessarily in the CLOCK_MONOTONIC domain (on AArch64 they are
+	// raw CNTVCT_EL0 counter values with a different epoch), so we can't use TIMER_ABSTIME here.
+	// Sleep off the remaining delta instead, retrying on early wakeups, matching the Windows and
+	// Darwin implementations.
+	for (;;)
+	{
+		const s64 diff = static_cast<s64>(ticks - GetCPUTicks());
+		if (diff <= 0)
+			return;
+
+		const u64 freq = GetTickFrequency();
+		struct timespec ts;
+		ts.tv_sec = static_cast<time_t>(static_cast<u64>(diff) / freq);
+		ts.tv_nsec = static_cast<long>(((static_cast<u64>(diff) % freq) * 1000000000ULL) / freq);
+
+		const int err = clock_nanosleep(CLOCK_MONOTONIC, 0, &ts, nullptr);
+		if (err != 0 && err != EINTR)
+			return;
+	}
 }

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 class alignas(16) GSVector4i
@@ -494,6 +494,16 @@ public:
 		return GSVector4i(_mm_packus_epi32(m, m));
 	}
 
+	__forceinline GSVector4i pkl32(const GSVector4i& a) const
+	{
+		return GSVector4i(_mm_castps_si128(_mm_shuffle_ps(_mm_castsi128_ps(m), _mm_castsi128_ps(a.m), _MM_SHUFFLE(2, 0, 2, 0))));
+	}
+
+	__forceinline GSVector4i pku32(const GSVector4i& a) const
+	{
+		return GSVector4i(_mm_castps_si128(_mm_shuffle_ps(_mm_castsi128_ps(m), _mm_castsi128_ps(a.m), _MM_SHUFFLE(3, 1, 3, 1))));
+	}
+
 	__forceinline GSVector4i upl8(const GSVector4i& a) const
 	{
 		return GSVector4i(_mm_unpacklo_epi8(m, a));
@@ -840,6 +850,11 @@ public:
 		return GSVector4i(_mm_srli_epi64(m, i));
 	}
 
+	__forceinline GSVector4i abs32() const
+	{
+		return GSVector4i(_mm_abs_epi32(m));
+	}
+
 	__forceinline GSVector4i add8(const GSVector4i& v) const
 	{
 		return GSVector4i(_mm_add_epi8(m, v.m));
@@ -853,6 +868,11 @@ public:
 	__forceinline GSVector4i add32(const GSVector4i& v) const
 	{
 		return GSVector4i(_mm_add_epi32(m, v.m));
+	}
+
+	__forceinline GSVector4i hadd32(const GSVector4i& v) const
+	{
+		return GSVector4i(_mm_hadd_epi32(m, v.m));
 	}
 
 	__forceinline GSVector4i adds8(const GSVector4i& v) const
@@ -893,6 +913,11 @@ public:
 	__forceinline GSVector4i sub32(const GSVector4i& v) const
 	{
 		return GSVector4i(_mm_sub_epi32(m, v.m));
+	}
+
+	__forceinline GSVector4i hsub32(const GSVector4i& v) const
+	{
+		return GSVector4i(_mm_hsub_epi32(m, v.m));
 	}
 
 	__forceinline GSVector4i subs8(const GSVector4i& v) const
@@ -985,10 +1010,6 @@ public:
 	__forceinline GSVector4i modulate16(const GSVector4i& f) const
 	{
 		// a * f << shift
-		if (shift == 0)
-		{
-			return mul16hrs(f);
-		}
 
 		return sll16<shift + 1>().mul16hs(f);
 	}
@@ -1969,6 +1990,11 @@ public:
 	__forceinline friend GSVector4i operator^(const GSVector4i& v, int i)
 	{
 		return v ^ GSVector4i(i);
+	}
+
+	__forceinline friend GSVector4i operator-(const GSVector4i& v)
+	{
+		return GSVector4i(_mm_sub_epi32(_mm_setzero_si128(), v));
 	}
 
 	__forceinline friend GSVector4i operator~(const GSVector4i& v)

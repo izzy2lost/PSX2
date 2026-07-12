@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -38,7 +38,7 @@ struct psxCounter {
 	u64 count, target;
 	
 	u32 rate, interrupt;
-	u32 startCycle;
+	u64 startCycle;
 	s32 deltaCycles;
 
 	psxCounterMode mode;

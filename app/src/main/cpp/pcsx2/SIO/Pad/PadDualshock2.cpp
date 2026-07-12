@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "SIO/Pad/PadDualshock2.h"
@@ -81,7 +81,7 @@ static const SettingInfo s_settings[] = {
 };
 
 const Pad::ControllerInfo PadDualshock2::ControllerInfo = {Pad::ControllerType::DualShock2, "DualShock2",
-	TRANSLATE_NOOP("Pad", "DualShock 2"), ICON_PF_GAMEPAD_ALT, s_bindings, s_settings, Pad::VibrationCapabilities::LargeSmallMotors};
+	TRANSLATE_NOOP("Pad", "DualShock 2"), ICON_PF_DUALSHOCK2, s_bindings, s_settings, Pad::VibrationCapabilities::LargeSmallMotors};
 
 void PadDualshock2::ConfigLog()
 {
@@ -851,6 +851,16 @@ u8 PadDualshock2::GetPressure(u32 index) const
 		default:
 			return this->rawInputs[index];
 	}
+}
+
+bool PadDualshock2::IsAnalogLightEnabled() const
+{
+	return this->analogLight;
+}
+
+bool PadDualshock2::IsAnalogLocked() const
+{
+	return this->analogLocked;
 }
 
 bool PadDualshock2::Freeze(StateWrapper& sw)

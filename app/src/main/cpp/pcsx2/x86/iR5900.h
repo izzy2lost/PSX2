@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -22,6 +22,11 @@ extern int g_branch;       // set for branch
 extern u32 target;         // branch target
 extern u32 s_nBlockCycles; // cycles of current block recompiling
 extern bool s_nBlockInterlocked; // Current block has VU0 interlocking
+
+// x86 can use shorter displacement if it fits in an s8, so offset 144 bytes into the cpuRegs
+// This will allow us to reach r1-r16 with a shorter encoding
+// TODO: Actually figure out what things are used most often, maybe rearrange the cpuRegs struct, and point at that
+#define R5900_TEXTPTR (&cpuRegs.GPR.r[9])
 
 //////////////////////////////////////////////////////////////////////////////////////////
 //
@@ -66,7 +71,7 @@ void SaveBranchState();
 void LoadBranchState();
 
 void recompileNextInstruction(bool delayslot, bool swapped_delay_slot);
-void SetBranchReg(u32 reg);
+void SetBranchReg();
 void SetBranchImm(u32 imm);
 
 void iFlushCall(int flushtype);

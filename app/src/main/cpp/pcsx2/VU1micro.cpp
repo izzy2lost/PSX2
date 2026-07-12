@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 // This module contains code shared by both the dynarec and interpreter versions
@@ -31,7 +31,7 @@ void vu1Finish(bool add_cycles) {
 		vu1Thread.Get_MTVUChanges();
 		return;
 	}
-	u32 vu1cycles = VU1.cycle;
+	u64 vu1cycles = VU1.cycle;
 	if(VU0.VI[REG_VPU_STAT].UL & 0x100) {
 		VUM_LOG("vu1ExecMicro > Stalling until current microprogram finishes");
 		CpuVU1->Execute(vu1RunCycles);

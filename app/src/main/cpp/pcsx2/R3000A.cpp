@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "R3000A.h"
@@ -32,7 +32,7 @@ static constexpr uint iopWaitCycles = 384; // Keep inline with EE wait cycle max
 
 bool iopEventTestIsActive = false;
 
-//alignas(16) psxRegisters psxRegs;
+alignas(16) psxRegisters psxRegs;
 
 void psxReset()
 {
@@ -94,7 +94,7 @@ void psxException(u32 code, u32 bd)
 	}*/
 }
 
-__fi void psxSetNextBranch( u32 startCycle, s32 delta )
+__fi void psxSetNextBranch( u64 startCycle, s32 delta )
 {
 	// typecast the conditional to signed so that things don't blow up
 	// if startCycle is greater than our next branch cycle.
@@ -108,7 +108,7 @@ __fi void psxSetNextBranchDelta( s32 delta )
 	psxSetNextBranch( psxRegs.cycle, delta );
 }
 
-__fi int psxTestCycle( u32 startCycle, s32 delta )
+__fi int psxTestCycle( u64 startCycle, s32 delta )
 {
 	// typecast the conditional to signed so that things don't explode
 	// if the startCycle is ahead of our current cpu cycle.
@@ -136,13 +136,15 @@ __fi void PSX_INT( IopEventId n, s32 ecycle )
 	psxRegs.eCycle[n] = ecycle;
 
 	psxSetNextBranchDelta(ecycle);
-
-#if defined(ANDROID)
-    const s32 iopDelta = (psxRegs.iopNextEventCycle - psxRegs.cycle) << 3; // cycle * 8
-#else
 	const float mutiplier = static_cast<float>(PS2CLK) / static_cast<float>(PSXCLK);
-	const s32 iopDelta = (psxRegs.iopNextEventCycle - psxRegs.cycle) * mutiplier;
-#endif
+	// Cast the u32 cycle delta to s32 *before* the float multiply. When `cycle`
+	// briefly leads `iopNextEventCycle`, the u32 subtraction underflows to ~4e9;
+	// multiplied by ~2.97f the float result is ~1.2e10, out of int range. The
+	// cast to int is host-defined: x86 CVTTSS2SI returns INT_MIN, ARM64 FCVTZS
+	// saturates to INT_MAX. Casting first lets the multiply happen in signed
+	// arithmetic where the small-negative case rounds correctly on both hosts.
+	const s32 iopCyclesUntilEvent = static_cast<s32>(psxRegs.iopNextEventCycle - psxRegs.cycle);
+	const s32 iopDelta = static_cast<s32>(iopCyclesUntilEvent * mutiplier);
 
 	if (psxRegs.iopCycleEE < iopDelta)
 	{
@@ -233,11 +235,11 @@ __ri void iopEventTest()
 		iopEventTestIsActive = false;
 	}
 
-	if ((psxHu32(0x1078) != 0) && ((psxHu32(0x1070) & psxHu32(0x1074)) != 0))
+	if ((psxHu32(HW_ICTRL) != 0) && ((psxHu32(HW_ISTAT) & psxHu32(HW_IMASK)) != 0))
 	{
 		if ((psxRegs.CP0.n.Status & 0xFE01) >= 0x401)
 		{
-			PSXCPU_LOG("Interrupt: %x  %x", psxHu32(0x1070), psxHu32(0x1074));
+			PSXCPU_LOG("Interrupt: %x  %x", psxHu32(HW_ISTAT), psxHu32(HW_IMASK));
 			psxException(0, 0);
 			iopEventAction = true;
 		}
@@ -246,8 +248,8 @@ __ri void iopEventTest()
 
 void iopTestIntc()
 {
-	if( psxHu32(0x1078) == 0 ) return;
-	if( (psxHu32(0x1070) & psxHu32(0x1074)) == 0 ) return;
+	if( psxHu32(HW_ICTRL) == 0 ) return;
+	if( (psxHu32(HW_ISTAT) & psxHu32(HW_IMASK)) == 0 ) return;
 
 	if( !eeEventTestIsActive )
 	{

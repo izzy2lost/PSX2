@@ -1,11 +1,11 @@
-// SPDX-FileCopyrightText: 2002-2023 PCSX2 Dev Team
-// SPDX-License-Identifier: LGPL-3.0+
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
+// SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
 
 #include "GS/Renderers/OpenGL/GLContext.h"
 
-#include "glad_egl.h"
+#include "glad/egl.h"
 
 #include <span>
 
@@ -15,29 +15,34 @@ public:
 	GLContextEGL(const WindowInfo& wi);
 	~GLContextEGL() override;
 
-	static std::unique_ptr<GLContext> Create(const WindowInfo& wi, const Version* versions_to_try,
-											 size_t num_versions_to_try);
+	static std::unique_ptr<GLContext> Create(const WindowInfo& wi, std::span<const Version> versions_to_try, Error* error);
 
 	void* GetProcAddress(const char* name) override;
 	virtual bool ChangeSurface(const WindowInfo& new_wi) override;
 	virtual void ResizeSurface(u32 new_surface_width = 0, u32 new_surface_height = 0) override;
 	bool SwapBuffers() override;
+	bool IsCurrent() override;
 	bool MakeCurrent() override;
 	bool DoneCurrent() override;
+	bool SupportsNegativeSwapInterval() const override;
 	bool SetSwapInterval(s32 interval) override;
-	virtual std::unique_ptr<GLContext> CreateSharedContext(const WindowInfo& wi) override;
+	virtual std::unique_ptr<GLContext> CreateSharedContext(const WindowInfo& wi, Error* error) override;
 
 protected:
-	virtual bool SetDisplay();
-	virtual EGLNativeWindowType GetNativeWindow(EGLConfig config);
+	virtual EGLDisplay GetPlatformDisplay(Error* error);
+	virtual EGLSurface CreatePlatformSurface(EGLConfig config, void* win, Error* error);
 
-	bool Initialize(const Version* versions_to_try, size_t num_versions_to_try);
-	bool CreateDisplay();
+	EGLDisplay TryGetPlatformDisplay(EGLenum platform, const char* platform_ext);
+	EGLSurface TryCreatePlatformSurface(EGLConfig config, void* window, Error* error);
+	EGLDisplay GetFallbackDisplay(Error* error);
+	EGLSurface CreateFallbackSurface(EGLConfig config, void* window, Error* error);
+
+	bool Initialize(std::span<const Version> versions_to_try, Error* error);
 	bool CreateContext(const Version& version, EGLContext share_context);
 	bool CreateContextAndSurface(const Version& version, EGLContext share_context, bool make_current);
 	bool CreateSurface();
 	bool CreatePBufferSurface();
-	bool CheckConfigSurfaceFormat(EGLConfig config) const;
+	bool CheckConfigSurfaceFormat(EGLConfig config);
 	void DestroyContext();
 	void DestroySurface();
 
@@ -47,5 +52,6 @@ protected:
 
 	EGLConfig m_config = {};
 
-	bool m_supports_surfaceless = false;
+	bool m_use_ext_platform_base = false;
+	bool m_supports_negative_swap_interval = false;
 };

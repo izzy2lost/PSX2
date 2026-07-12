@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -46,6 +46,12 @@ namespace GSTextureReplacements
 	void DumpTexture(const GSTextureCache::HashCacheKey& hash, const GIFRegTEX0& TEX0, const GIFRegTEXA& TEXA,
 		GSTextureCache::SourceRegion region, GSLocalMemory& mem, u32 level);
 	void ClearDumpedTextureList();
+
+	/// Get the number of textures that have been dumped.
+	u32 GetDumpedTextureCount();
+
+	/// Get the number of replacement textures that have been loaded/cached.
+	u32 GetLoadedTextureCount();
 
 	/// Loader will take a filename and interpret the format (e.g. DDS, PNG, etc).
 	using ReplacementTextureLoader = bool (*)(const std::string& filename, GSTextureReplacements::ReplacementTexture* tex, bool only_base_image);

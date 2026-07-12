@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 // This file abstracts the floating-point control registers, known as MXCSR on x86, and FPCR on AArch64.
@@ -20,7 +20,7 @@ enum class FPRoundMode : u8
 
 struct FPControlRegister
 {
-#ifdef _M_X86
+#ifdef ARCH_X86
 	u32 bitmask;
 
 	static constexpr u32 EXCEPTION_MASK = (0x3Fu << 7);
@@ -101,7 +101,7 @@ struct FPControlRegister
 	__fi constexpr bool operator==(const FPControlRegister& rhs) const { return bitmask == rhs.bitmask; }
 	__fi constexpr bool operator!=(const FPControlRegister& rhs) const { return bitmask != rhs.bitmask; }
 
-#elif defined(_M_ARM64)
+#elif defined(ARCH_ARM64)
 	u64 bitmask;
 
 	static constexpr u64 FZ_BIT = (0x1ULL << 24);

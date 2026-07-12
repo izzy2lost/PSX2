@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "common/Assertions.h"
@@ -105,7 +105,7 @@ bool ATA::IO_Write()
 		{
 			IO_SparseCacheUpdateLocation(imagePos + written);
 			// Align to sparse block size.
-			u32 writeSize = hddSparseBlockSize - ((imagePos + written) % hddSparseBlockSize);
+			u32 writeSize = static_cast<u32>(hddSparseBlockSize - ((imagePos + written) % hddSparseBlockSize));
 			// Limit to size of write.
 			writeSize = std::min(writeSize, entry.length - written);
 

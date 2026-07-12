@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -83,7 +83,7 @@ void GSThrottlePresentation();
 void GSGameChanged();
 void GSSetDisplayAlignment(GSDisplayAlignment alignment);
 bool GSHasDisplayWindow();
-void GSResizeDisplayWindow(int width, int height, float scale);
+void GSResizeDisplayWindow(u32 width, u32 height, float scale);
 void GSUpdateDisplayWindow();
 void GSSetVSyncMode(GSVSyncMode mode, bool allow_present_throttle);
 

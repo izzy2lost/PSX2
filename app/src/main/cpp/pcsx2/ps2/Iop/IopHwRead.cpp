@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "IopHw_Internal.h"
@@ -94,19 +94,28 @@ mem8_t iopHwRead8_Page1( u32 addr )
 
 //////////////////////////////////////////////////////////////////////////////////////////
 //
-mem8_t iopHwRead8_Page3( u32 addr )
+mem8_t iopHwRead8_Page3(u32 addr)
 {
 	// all addresses are assumed to be prefixed with 0x1f803xxx:
-	pxAssume( (addr >> 12) == 0x1f803 );
+	pxAssume((addr >> 12) == 0x1f803);
+
+	const u32 masked_addr = addr & 0x0fff;
 
 	mem8_t ret;
-	if( addr == 0x1f803100 )	// PS/EE/IOP conf related
-		//ret = 0x10; // Dram 2M
-		ret = 0xFF; //all high bus is the corect default state for CEX PS2!
-	else
-		ret = psxHu8( addr );
+	switch (masked_addr)
+	{
+		case 0x100: // TOOL config switches
+			ret = 0;
+			break;
+		case 0x204: // TOOL board id
+			ret = 0x7c;
+			break;
+		default:
+			ret = psxHu8(addr);
+			break;
+	}
 
-	IopHwTraceLog<mem8_t>( addr, ret, true );
+	IopHwTraceLog<mem8_t>(addr, ret, true);
 	return ret;
 }
 
@@ -119,7 +128,7 @@ mem8_t iopHwRead8_Page8( u32 addr )
 
 	mem8_t ret;
 
-	if (addr == HW_SIO2_FIFO)
+	if (addr == HW_SIO2_RX)
 	{
 		ret = g_Sio2.Read();
 	}
@@ -290,13 +299,13 @@ static __fi T _HwRead_16or32_Page1( u32 addr )
 			//	case 0x05e: hard = serial_baud_read(); break;
 
 			mcase(HW_ICTRL):
-				ret = psxHu32(0x1078);
-				psxHu32(0x1078) = 0;
+				ret = psxHu32(HW_ICTRL);
+				psxHu32(HW_ICTRL) = 0;
 			break;
 
 			mcase(HW_ICTRL+2):
-				ret = psxHu16(0x107a);
-				psxHu32(0x1078) = 0;	// most likely should clear all 32 bits here.
+				ret = psxHu16(HW_ICTRL+2);
+				psxHu32(HW_ICTRL) = 0;	// most likely should clear all 32 bits here.
 			break;
 
 			// ------------------------------------------------------------------------
@@ -415,7 +424,7 @@ mem32_t iopHwRead32_Page8( u32 addr )
 		if( masked_addr < 0x240 )
 		{
 			const int parm = (masked_addr-0x200) / 4;
-			ret = g_Sio2.send3[parm];
+			ret = g_Sio2.CmdQueue[parm];
 			Sio2Log.WriteLn("%s(%08X) SIO2 SEND3 Read (%08X)", __FUNCTION__, addr, ret);
 		}
 		else if ( masked_addr < 0x260 )
@@ -423,18 +432,18 @@ mem32_t iopHwRead32_Page8( u32 addr )
 			// SIO2 Send commands alternate registers.  First reg maps to Send1, second
 			// to Send2, third to Send1, etc.  And the following clever code does this:
 			const int parm = (masked_addr-0x240) / 8;
-			ret = (masked_addr & 4) ? g_Sio2.send2[parm] : g_Sio2.send1[parm];
+			ret = (masked_addr & 4) ? g_Sio2.PortCtrl1[parm] : g_Sio2.PortCtrl0[parm];
 			Sio2Log.WriteLn("%s(%08X) SIO2 SEND1/2 Read (%08X)", __FUNCTION__, addr, ret);
 		}
 		else if ( masked_addr <= 0x280 )
 		{
 			switch( masked_addr )
 			{
-				case (HW_SIO2_DATAIN & 0x0fff):
+				case (HW_SIO2_TX & 0x0fff):
 					ret = psxHu32(addr);
 					Sio2Log.Warning("%s(%08X) Unexpected 32 bit read of HW_SIO2_DATAIN (%08X)", __FUNCTION__, addr, ret);
 					break;
-				case (HW_SIO2_FIFO & 0x0fff):
+				case (HW_SIO2_RX & 0x0fff):
 					ret = psxHu32(addr);
 					Sio2Log.Warning("%s(%08X) Unexpected 32 bit read of HW_SIO2_FIFO (%08X)", __FUNCTION__, addr, ret);
 					break;
@@ -442,24 +451,24 @@ mem32_t iopHwRead32_Page8( u32 addr )
 					ret = g_Sio2.ctrl;
 					Sio2Log.WriteLn("%s(%08X) SIO2 CTRL Read (%08X)", __FUNCTION__, addr, ret);
 					break;
-				case (HW_SIO2_RECV1 & 0xfff):
-					ret = g_Sio2.recv1;
+				case (HW_SIO2_CMD_STAT & 0xfff):
+					ret = g_Sio2.CmdStat;
 					Sio2Log.WriteLn("%s(%08X) SIO2 RECV1 Read (%08X)", __FUNCTION__, addr, ret);
 					break;
-				case (HW_SIO2_RECV2 & 0x0fff):
-					ret = g_Sio2.recv2;
+				case (HW_SIO2_PORT_STAT & 0x0fff):
+					ret = g_Sio2.PortStat;
 					Sio2Log.WriteLn("%s(%08X) SIO2 RECV2 Read (%08X)", __FUNCTION__, addr, ret);
 					break;
-				case (HW_SIO2_RECV3 & 0x0fff):
-					ret = g_Sio2.recv3;
+				case (HW_SIO2_FIFO_STAT & 0x0fff):
+					ret = g_Sio2.FifoStat;
 					Sio2Log.WriteLn("%s(%08X) SIO2 RECV3 Read (%08X)", __FUNCTION__, addr, ret);
 					break;
 				case (0x1f808278 & 0x0fff):
-					ret = g_Sio2.unknown1;
+					ret = g_Sio2.FifoTxPos;
 					Sio2Log.WriteLn("%s(%08X) SIO2 UNK1 Read (%08X)", __FUNCTION__, addr, ret);
 					break;
 				case (0x1f80827C & 0x0fff):
-					ret = g_Sio2.unknown2;
+					ret = g_Sio2.FifoRxPos;
 					Sio2Log.WriteLn("%s(%08X) SIO2 UNK2 Read (%08X)", __FUNCTION__, addr, ret);
 					break;
 				case (HW_SIO2_INTR & 0x0fff):

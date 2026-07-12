@@ -1,7 +1,8 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0
 
 #include "arm64/Vif_UnpackNEON.h"
+#include "arm64/AsmHelpers.h"
 #include "MTVU.h"
 
 #include "common/Assertions.h"
@@ -10,150 +11,92 @@
 
 namespace a64 = vixl::aarch64;
 
-// Precomputed per-lane write masks for XYZW selection.
-// Index bits: X=8, Y=4, Z=2, W=1. Lane value = 0xFFFFFFFF if selected, else 0x00000000.
-alignas(16) static const u32 sLaneWriteMask[16][4] = {
-    /* 0b0000 */ {0x00000000, 0x00000000, 0x00000000, 0x00000000},
-    /* 0b0001 W*/ {0x00000000, 0x00000000, 0x00000000, 0xFFFFFFFF},
-    /* 0b0010 Z*/ {0x00000000, 0x00000000, 0xFFFFFFFF, 0x00000000},
-    /* 0b0011 ZW*/{0x00000000, 0x00000000, 0xFFFFFFFF, 0xFFFFFFFF},
-    /* 0b0100 Y*/ {0x00000000, 0xFFFFFFFF, 0x00000000, 0x00000000},
-    /* 0b0101 YW*/{0x00000000, 0xFFFFFFFF, 0x00000000, 0xFFFFFFFF},
-    /* 0b0110 YZ*/{0x00000000, 0xFFFFFFFF, 0xFFFFFFFF, 0x00000000},
-    /* 0b0111 YZW*/{0x00000000, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF},
-    /* 0b1000 X*/ {0xFFFFFFFF, 0x00000000, 0x00000000, 0x00000000},
-    /* 0b1001 XW*/{0xFFFFFFFF, 0x00000000, 0x00000000, 0xFFFFFFFF},
-    /* 0b1010 XZ*/{0xFFFFFFFF, 0x00000000, 0xFFFFFFFF, 0x00000000},
-    /* 0b1011 XZW*/{0xFFFFFFFF, 0x00000000, 0xFFFFFFFF, 0xFFFFFFFF},
-    /* 0b1100 XY*/{0xFFFFFFFF, 0xFFFFFFFF, 0x00000000, 0x00000000},
-    /* 0b1101 XYW*/{0xFFFFFFFF, 0xFFFFFFFF, 0x00000000, 0xFFFFFFFF},
-    /* 0b1110 XYZ*/{0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0x00000000},
-    /* 0b1111 XYZW*/{0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF},
-};
-
-static inline void emitLoadLaneMask(const a64::VRegister& target, int xyzw)
-{
-    armMoveAddressToReg(RXVIXLSCRATCH, sLaneWriteMask);
-    const uptr base = (uptr)sLaneWriteMask;
-    const uptr offs = (uptr)&sLaneWriteMask[xyzw][0] - base;
-    armAsm->Ldr(target, a64::MemOperand(RXVIXLSCRATCH, offs));
-}
-
-// Merge selected lanes from src into dest using a mask derived from xyzw.
-// Equivalent to dest = (mask & src) | (~mask & dest).
-static void mVUMergeRegsVBsl(const a64::VRegister& dest, const a64::VRegister& src, int xyzw)
-{
-    xyzw &= 0xf;
-    if (dest.GetCode() == src.GetCode() || xyzw == 0)
-        return;
-    if (xyzw == 0xf)
-    {
-        armAsm->Mov(dest.Q(), src.Q());
-        return;
-    }
-
-    const a64::VRegister vMask = a64::q28;
-    const a64::VRegister vTmp1 = a64::q29;
-    const a64::VRegister vTmp2 = a64::q30;
-
-    emitLoadLaneMask(vMask, xyzw);
-    armAsm->And(vTmp1.V16B(), src.V16B(), vMask.V16B());   // new & mask
-    armAsm->Bic(vTmp2.V16B(), dest.V16B(), vMask.V16B());  // dest & ~mask
-    armAsm->Orr(dest.V16B(), vTmp1.V16B(), vTmp2.V16B());  // combine
-}
-
-static void mVUmergeRegs(const vixl::aarch64::VRegister& dest, const vixl::aarch64::VRegister& src, int xyzw, bool modXYZW = false, bool canModifySrc = false)
-{
-	xyzw &= 0xf;
-	if ((dest.GetCode() != src.GetCode()) && (xyzw != 0))
-	{
-		if (xyzw == 0x8)
-			armAsm->Mov(dest.V4S(), 0, src.V4S(), 0);
-		else if (xyzw == 0xf)
-			armAsm->Mov(dest.Q(), src.Q());
-		else
-		{
-			if (modXYZW)
-			{
-				if (xyzw == 1)
-				{
-					armAsm->Ins(dest.V4S(), 3, src.V4S(), 0);
-					return;
-				}
-				else if (xyzw == 2)
-				{
-					armAsm->Ins(dest.V4S(), 2, src.V4S(), 0);
-					return;
-				}
-				else if (xyzw == 4)
-				{
-					armAsm->Ins(dest.V4S(), 1, src.V4S(), 0);
-					return;
-				}
-			}
-
-			if (xyzw == 0)
-				return;
-			if (xyzw == 15)
-			{
-				armAsm->Mov(dest, src);
-				return;
-			}
-			if (xyzw == 14 && canModifySrc)
-			{
-				// xyz - we can get rid of the mov if we swap the RA around
-				armAsm->Mov(src.V4S(), 3, dest.V4S(), 3);
-				armAsm->Mov(dest.V16B(), src.V16B());
-				return;
-			}
-
-			// reverse
-			xyzw = ((xyzw & 1) << 3) | ((xyzw & 2) << 1) | ((xyzw & 4) >> 1) | ((xyzw & 8) >> 3);
-
-			if ((xyzw & 3) == 3)
-			{
-				// xy
-				armAsm->Mov(dest.V2D(), 0, src.V2D(), 0);
-				xyzw &= ~3;
-			}
-			else if ((xyzw & 12) == 12)
-			{
-				// zw
-				armAsm->Mov(dest.V2D(), 1, src.V2D(), 1);
-				xyzw &= ~12;
-			}
-
-			// xyzw
-			for (u32 i = 0; i < 4; i++)
-			{
-				if (xyzw & (1u << i))
-					armAsm->Mov(dest.V4S(), i, src.V4S(), i);
-			}
-		}
-	}
-}
-
 static void maskedVecWrite(const a64::VRegister& reg, const a64::MemOperand& addr, int xyzw)
 {
-    const int lanes = (xyzw & 0xF);
-    if (lanes == 0)
-        return; // nothing to write
-    if (lanes == 0xF)
-    {
-        armAsm->Str(reg, addr);
-        return;
-    }
+	switch (xyzw)
+	{
+		case 5: // YW
+			armGetMemOperandInRegister(RSCRATCHADDR, addr, 4);
+			armAsm->St1(reg.V4S(), 1, a64::MemOperand(RSCRATCHADDR)); // Y
+			armGetMemOperandInRegister(RSCRATCHADDR, addr, 12);
+			armAsm->St1(reg.V4S(), 3, a64::MemOperand(RSCRATCHADDR)); // W
+			break;
 
-    const a64::VRegister vMask = a64::q28;
-    const a64::VRegister vOld  = a64::q29;
-    const a64::VRegister vTmp  = a64::q30;
+		case 9: // XW
+			armGetMemOperandInRegister(RSCRATCHADDR, addr, 12);
+			armAsm->Str(reg.S(), addr); // X
+			armAsm->St1(reg.V4S(), 3, a64::MemOperand(RSCRATCHADDR)); // W
+			break;
 
-    emitLoadLaneMask(vMask, lanes);
-    armAsm->Ldr(vOld, addr);
-    armAsm->And(vTmp.V16B(), reg.V16B(), vMask.V16B());   // new & mask
-    armAsm->Bic(vOld.V16B(), vOld.V16B(), vMask.V16B());  // old & ~mask
-    armAsm->Orr(vTmp.V16B(), vTmp.V16B(), vOld.V16B());   // combine
-    armAsm->Str(vTmp, addr);
+		case 10: //XZ
+			armGetMemOperandInRegister(RSCRATCHADDR, addr, 8);
+			armAsm->Str(reg.S(), addr); // X
+			armAsm->St1(reg.V4S(), 2, a64::MemOperand(RSCRATCHADDR)); // Z
+			break;
+
+		case 3: // ZW
+			armGetMemOperandInRegister(RSCRATCHADDR, addr, 8);
+			armAsm->St1(reg.V2D(), 1, a64::MemOperand(RSCRATCHADDR));
+			break;
+
+		case 11: //XZW
+			armGetMemOperandInRegister(RSCRATCHADDR, addr, 8);
+			armAsm->Str(reg.S(), addr); // X
+			armAsm->St1(reg.V2D(), 1, a64::MemOperand(RSCRATCHADDR)); // ZW
+			break;
+
+		case 13: // XYW
+			armGetMemOperandInRegister(RSCRATCHADDR, addr, 12);
+			armAsm->Str(reg.D(), addr);
+			armAsm->St1(reg.V4S(), 3, a64::MemOperand(RSCRATCHADDR));
+			break;
+
+		case 6: // YZ
+			armGetMemOperandInRegister(RSCRATCHADDR, addr, 4);
+			armAsm->St1(reg.V4S(), 1, a64::MemOperand(RSCRATCHADDR, 4, a64::PostIndex));
+			armAsm->St1(reg.V4S(), 2, a64::MemOperand(RSCRATCHADDR));
+			break;
+
+		case 7: // YZW
+			armGetMemOperandInRegister(RSCRATCHADDR, addr, 4);
+			armAsm->St1(reg.V4S(), 1, a64::MemOperand(RSCRATCHADDR, 4, a64::PostIndex));
+			armAsm->St1(reg.V2D(), 1, a64::MemOperand(RSCRATCHADDR));
+			break;
+
+		case 12: // XY
+			armAsm->Str(reg.D(), addr);
+			break;
+
+		case 14: // XYZ
+			armGetMemOperandInRegister(RSCRATCHADDR, addr, 8);
+			armAsm->Str(reg.D(), addr);
+			armAsm->St1(reg.V4S(), 2, a64::MemOperand(RSCRATCHADDR)); // Z
+			break;
+
+		case 4:
+			armGetMemOperandInRegister(RSCRATCHADDR, addr, 4);
+			armAsm->St1(reg.V4S(), 1, a64::MemOperand(RSCRATCHADDR));
+			break; // Y
+		case 2:
+			armGetMemOperandInRegister(RSCRATCHADDR, addr, 8);
+			armAsm->St1(reg.V4S(), 2, a64::MemOperand(RSCRATCHADDR));
+			break; // Z
+		case 1:
+			armGetMemOperandInRegister(RSCRATCHADDR, addr, 12);
+			armAsm->St1(reg.V4S(), 3, a64::MemOperand(RSCRATCHADDR));
+			break; // W
+		case 8:
+			armAsm->Str(reg.S(), addr);
+			break; // X
+
+		case 0:
+			Console.Error("maskedVecWrite case 0!");
+			break;
+
+		default:
+			armAsm->Str(reg.Q(), addr);
+			break; // XYZW
+	}
 }
 
 void dVifReset(int idx)
@@ -234,15 +177,15 @@ void VifUnpackNEON_Dynarec::doMaskWrite(const vixl::aarch64::VRegister& regX) co
 	makeMergeMask(m3);
 	makeMergeMask(m4);
 
-    if (doMask && m2) // Merge MaskRow
-    {
-        mVUMergeRegsVBsl(regX, xmmRow, m2);
-    }
+	if (doMask && m2) // Merge MaskRow
+	{
+		mVUmergeRegs(regX, xmmRow, m2);
+	}
 
-    if (doMask && m3) // Merge MaskCol
-    {
-        mVUMergeRegsVBsl(regX, armQRegister(xmmCol0.GetCode() + cc), m3);
-    }
+	if (doMask && m3) // Merge MaskCol
+	{
+		mVUmergeRegs(regX, armQRegister(xmmCol0.GetCode() + cc), m3);
+	}
 
 	if (doMode)
 	{
@@ -254,17 +197,17 @@ void VifUnpackNEON_Dynarec::doMaskWrite(const vixl::aarch64::VRegister& regX) co
 		if (m5 < 0xf)
 		{
 			armAsm->Movi(xmmTemp.V4S(), 0);
-                if (doMode == 3)
-                {
-                    mVUMergeRegsVBsl(xmmRow, regX, m5);
-                }
-                else
-                {
-                    mVUMergeRegsVBsl(xmmTemp, xmmRow, m5);
-                    armAsm->Add(regX.V4S(), regX.V4S(), xmmTemp.V4S());
-                    if (doMode == 2)
-                        mVUMergeRegsVBsl(xmmRow, regX, m5);
-                }
+			if (doMode == 3)
+			{
+				mVUmergeRegs(xmmRow, regX, m5);
+			}
+			else
+			{
+				mVUmergeRegs(xmmTemp, xmmRow, m5);
+				armAsm->Add(regX.V4S(), regX.V4S(), xmmTemp.V4S());
+				if (doMode == 2)
+					mVUmergeRegs(xmmRow, regX, m5);
+			}
 		}
 		else
 		{
@@ -469,8 +412,13 @@ _vifT __fi nVifBlock* dVifCompile(nVifBlock& block, bool isFill)
 		dVifReset(idx);
 	}
 
-	// Compile the block now
-	armSetAsmPtr(v.recWritePtr, v.recEndPtr - v.recWritePtr, nullptr);
+	// Compile the block now. Capacity includes the 256 KB slack past
+	// recEndPtr (dVifReset carved it out of the physical region size): the
+	// bounds check above only guarantees the routine STARTS below recEndPtr;
+	// the slack exists so it can finish past it. Binding capacity at
+	// recEndPtr would make vixl abort on an unmanaged-buffer Grow instead —
+	// same bug as the mVU cache (SM8650 OutRun 2006, 2026-07-02).
+	armSetAsmPtr(v.recWritePtr, v.recEndPtr - v.recWritePtr + _256kb, nullptr);
 
 	block.startPtr = (uptr)armStartBlock();
 	block.length = dVifComputeLength(block.cl, block.wl, block.num, isFill);
@@ -529,7 +477,7 @@ _vifT __fi void dVifUnpack(const u8* data, bool isFill)
 	}
 
 	{ // Execute the block
-		const VURegs& VU = g_cpuRegistersPack.vuRegs[idx];
+		const VURegs& VU = vuRegs[idx];
 		const uint vuMemLimit = idx ? 0x4000 : 0x1000;
 
 		u8* startmem = VU.Mem + (vif.tag.addr & (vuMemLimit - 0x10));

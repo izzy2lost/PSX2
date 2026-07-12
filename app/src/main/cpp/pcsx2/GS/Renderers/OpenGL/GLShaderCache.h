@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -22,7 +22,7 @@ public:
 	GLShaderCache();
 	~GLShaderCache();
 
-	bool Open(bool is_gles);
+	bool Open();
 	void Close();
 
 	std::optional<GLProgram> GetProgram(const std::string_view vertex_shader, const std::string_view fragment_shader,

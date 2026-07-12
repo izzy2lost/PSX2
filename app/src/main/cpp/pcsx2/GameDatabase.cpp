@@ -1,10 +1,10 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "GameDatabase.h"
 #include "GS/GS.h"
 #include "Host.h"
-#include "IconsFontAwesome5.h"
+#include "IconsFontAwesome.h"
 #include "vtlb.h"
 
 #include "common/Console.h"
@@ -14,10 +14,9 @@
 #include "common/Path.h"
 #include "common/StringUtil.h"
 #include "common/Timer.h"
+#include "common/YAML.h"
 
 #include <sstream>
-#include "ryml_std.hpp"
-#include "ryml.hpp"
 #include "fmt/format.h"
 #include "fmt/ranges.h"
 #include <fstream>
@@ -33,7 +32,7 @@ namespace GameDatabaseSchema
 
 namespace GameDatabase
 {
-	static void parseAndInsert(const std::string_view serial, const c4::yml::NodeRef& node);
+	static void parseAndInsert(const std::string_view serial, const ryml::NodeRef& node);
 	static void initDatabase();
 } // namespace GameDatabase
 
@@ -84,7 +83,7 @@ const char* GameDatabaseSchema::GameEntry::compatAsString() const
 	}
 }
 
-void GameDatabase::parseAndInsert(const std::string_view serial, const c4::yml::NodeRef& node)
+void GameDatabase::parseAndInsert(const std::string_view serial, const ryml::NodeRef& node)
 {
 	GameDatabaseSchema::GameEntry gameEntry;
 	if (node.has_child("name"))
@@ -357,8 +356,7 @@ static const char* s_round_modes[static_cast<u32>(FPRoundMode::MaxCount)] = {
 	"Nearest",
 	"NegativeInfinity",
 	"PositiveInfinity",
-	"Chop"
-};
+	"Chop"};
 
 static const char* s_gs_hw_fix_names[] = {
 	"autoFlush",
@@ -368,19 +366,21 @@ static const char* s_gs_hw_fix_names[] = {
 	"preloadFrameData",
 	"disablePartialInvalidation",
 	"textureInsideRT",
+	"limit24BitDepth",
 	"alignSprite",
 	"mergeSprite",
 	"mipmap",
+	"accurateAlphaTest",
 	"forceEvenSpritePosition",
 	"bilinearUpscale",
 	"nativePaletteDraw",
 	"estimateTextureRegion",
+	"drawBuffering",
 	"PCRTCOffsets",
 	"PCRTCOverscan",
 	"trilinearFiltering",
 	"skipDrawStart",
 	"skipDrawEnd",
-	"halfBottomOverride",
 	"halfPixelOffset",
 	"roundSprite",
 	"nativeScaling",
@@ -597,6 +597,9 @@ bool GameDatabaseSchema::GameEntry::configMatchesHWFix(const Pcsx2Config::GSOpti
 		case GSHWFixId::TextureInsideRT:
 			return (static_cast<int>(config.UserHacks_TextureInsideRt) == value);
 
+		case GSHWFixId::Limit24BitDepth:
+			return (static_cast<int>(config.UserHacks_Limit24BitDepth) == value);
+
 		case GSHWFixId::AlignSprite:
 			return (config.UpscaleMultiplier <= 1.0f || static_cast<int>(config.UserHacks_AlignSpriteX) == value);
 
@@ -615,6 +618,9 @@ bool GameDatabaseSchema::GameEntry::configMatchesHWFix(const Pcsx2Config::GSOpti
 		case GSHWFixId::EstimateTextureRegion:
 			return (static_cast<int>(config.UserHacks_EstimateTextureRegion) == value);
 
+		case GSHWFixId::DrawBuffering:
+			return (static_cast<int>(config.UserHacks_DrawBuffering) == value);
+
 		case GSHWFixId::PCRTCOffsets:
 			return (static_cast<int>(config.PCRTCOffsets) == value);
 
@@ -623,6 +629,9 @@ bool GameDatabaseSchema::GameEntry::configMatchesHWFix(const Pcsx2Config::GSOpti
 
 		case GSHWFixId::Mipmap:
 			return (static_cast<int>(config.HWMipmap) == value);
+
+		case GSHWFixId::AccurateAlphaTest:
+			return (static_cast<int>(config.HWAccurateAlphaTest) == value);
 
 		case GSHWFixId::TrilinearFiltering:
 			return (config.TriFilter == TriFiltering::Automatic || static_cast<int>(config.TriFilter) == value);
@@ -744,6 +753,13 @@ void GameDatabaseSchema::GameEntry::applyGSHardwareFixes(Pcsx2Config::GSOptions&
 			}
 			break;
 
+			case GSHWFixId::Limit24BitDepth:
+			{
+				if (value >= 0 && value <= static_cast<int>(GSLimit24BitDepth::PrioritizeLower))
+					config.UserHacks_Limit24BitDepth = static_cast<GSLimit24BitDepth>(value);
+			}
+			break;
+
 			case GSHWFixId::AlignSprite:
 				config.UserHacks_AlignSpriteX = (value > 0);
 				break;
@@ -771,6 +787,10 @@ void GameDatabaseSchema::GameEntry::applyGSHardwareFixes(Pcsx2Config::GSOptions&
 				config.UserHacks_EstimateTextureRegion = (value > 0);
 				break;
 
+			case GSHWFixId::DrawBuffering:
+				config.UserHacks_DrawBuffering = (value > 0);
+				break;
+
 			case GSHWFixId::PCRTCOffsets:
 				config.PCRTCOffsets = (value > 0);
 				break;
@@ -781,6 +801,10 @@ void GameDatabaseSchema::GameEntry::applyGSHardwareFixes(Pcsx2Config::GSOptions&
 
 			case GSHWFixId::Mipmap:
 				config.HWMipmap = (value > 0);
+				break;
+
+			case GSHWFixId::AccurateAlphaTest:
+				config.HWAccurateAlphaTest = (value > 0);
 				break;
 
 			case GSHWFixId::TrilinearFiltering:
@@ -884,16 +908,24 @@ void GameDatabaseSchema::GameEntry::applyGSHardwareFixes(Pcsx2Config::GSOptions&
 			{
 				if (!is_sw_renderer && value >= 0 && value <= static_cast<int>(AccBlendLevel::Maximum) && static_cast<int>(EmuConfig.GS.AccurateBlendingUnit) < value)
 				{
+					static constexpr std::array<const char*, static_cast<u8>(AccBlendLevel::MaxCount)> s_blending_option_names = {{
+						TRANSLATE_NOOP("GameDatabase", "Minimum"),
+						TRANSLATE_NOOP("GameDatabase", "Basic"),
+						TRANSLATE_NOOP("GameDatabase", "Medium"),
+						TRANSLATE_NOOP("GameDatabase", "High"),
+						TRANSLATE_NOOP("GameDatabase", "Full"),
+						TRANSLATE_NOOP("GameDatabase", "Maximum"),
+					}};
+
 					Host::AddKeyedOSDMessage("HWBlendingWarning",
 						fmt::format(TRANSLATE_FS("GameDatabase",
 										"{0} Current Blending Accuracy is {1}.\n"
 										"Recommended Blending Accuracy for this game is {2}.\n"
 										"You can adjust the blending level in Game Properties to improve\n"
 										"graphical quality, but this will increase system requirements."),
-							ICON_FA_PAINT_BRUSH,
-							Pcsx2Config::GSOptions::BlendingLevelNames[static_cast<int>(
-								EmuConfig.GS.AccurateBlendingUnit)],
-							Pcsx2Config::GSOptions::BlendingLevelNames[value]),
+							ICON_FA_PAINTBRUSH,
+							s_blending_option_names[static_cast<u8>(EmuConfig.GS.AccurateBlendingUnit)],
+							s_blending_option_names[static_cast<u8>(value)]),
 						Host::OSD_WARNING_DURATION);
 				}
 				else
@@ -928,9 +960,9 @@ void GameDatabaseSchema::GameEntry::applyGSHardwareFixes(Pcsx2Config::GSOptions&
 	if (!is_sw_renderer && !disabled_fixes.empty())
 	{
 		Host::AddKeyedOSDMessage("HWFixesWarning",
-			fmt::format(ICON_FA_MAGIC " {}\n{}",
+			fmt::format(ICON_FA_WAND_MAGIC_SPARKLES " {}\n{}",
 				TRANSLATE_SV("GameDatabase", "Manual GS hardware renderer fixes are enabled, automatic fixes were not applied:"),
-					disabled_fixes),
+				disabled_fixes),
 			Host::OSD_ERROR_DURATION);
 	}
 	else
@@ -941,25 +973,28 @@ void GameDatabaseSchema::GameEntry::applyGSHardwareFixes(Pcsx2Config::GSOptions&
 
 void GameDatabase::initDatabase()
 {
-	ryml::Callbacks rymlCallbacks = ryml::get_callbacks();
-	rymlCallbacks.m_error = [](const char* msg, size_t msg_len, ryml::Location loc, void* userdata) {
-		Console.Error(fmt::format("[GameDB YAML] Parsing error at {}:{} (bufpos={}): {}",
-			loc.line, loc.col, loc.offset, std::string_view(msg, msg_len)));
-	};
-	ryml::set_callbacks(rymlCallbacks);
-	c4::set_error_callback([](const char* msg, size_t msg_size) {
-		Console.Error(fmt::format("[GameDB YAML] Internal Parsing error: {}", std::string_view(msg, msg_size)));
-	});
+	const std::string path(Path::Combine(EmuFolders::Resources, GAMEDB_YAML_FILE_NAME));
+	const std::string name(GAMEDB_YAML_FILE_NAME);
 
-	auto buf = FileSystem::ReadFileToString(Path::Combine(EmuFolders::Resources, GAMEDB_YAML_FILE_NAME).c_str());
-	if (!buf.has_value())
+	const std::optional<std::string> buffer = FileSystem::ReadFileToString(path.c_str());
+	if (!buffer.has_value())
 	{
 		Console.Error("GameDB: Unable to open GameDB file, file does not exist.");
 		return;
 	}
 
-	ryml::Tree tree = ryml::parse_in_arena(c4::to_csubstr(buf.value()));
-	ryml::NodeRef root = tree.rootref();
+	const ryml::csubstr yaml = ryml::to_csubstr(*buffer);
+
+	Error error;
+	std::optional<ryml::Tree> tree = ParseYAMLFromString(yaml, ryml::to_csubstr(name), &error);
+	if (!tree.has_value())
+	{
+		Console.ErrorFmt("GameDB: Failed to parse game database file {}:", path);
+		Console.Error(error.GetDescription());
+		return;
+	}
+
+	ryml::NodeRef root = tree->rootref();
 
 	for (const ryml::NodeRef& n : root.children())
 	{
@@ -971,7 +1006,7 @@ void GameDatabase::initDatabase()
 		// However, YAML's keys are as expected case-sensitive, so we have to explicitly do our own duplicate checking
 		if (s_game_db.count(serial) == 1)
 		{
-			Console.Error(fmt::format("GameDB: Duplicate serial '{}' found in GameDB. Skipping, Serials are case-insensitive!", serial));
+			Console.ErrorFmt("GameDB: Duplicate serial '{}' found in GameDB. Skipping, Serials are case-insensitive!", serial);
 			continue;
 		}
 
@@ -980,8 +1015,6 @@ void GameDatabase::initDatabase()
 			parseAndInsert(serial, n);
 		}
 	}
-
-	ryml::reset_callbacks();
 }
 
 void GameDatabase::ensureLoaded()
@@ -1049,7 +1082,7 @@ static constexpr char HASHDB_YAML_FILE_NAME[] = "RedumpDatabase.yaml";
 std::unordered_map<GameDatabase::TrackHash, u32, TrackHashHasher> s_track_hash_to_entry_map;
 std::vector<GameDatabase::HashDatabaseEntry> s_hash_database;
 
-static bool parseHashDatabaseEntry(const c4::yml::NodeRef& node)
+static bool parseHashDatabaseEntry(const ryml::NodeRef& node)
 {
 	if (!node.has_child("name") || !node.has_child("hashes"))
 	{
@@ -1069,7 +1102,7 @@ static bool parseHashDatabaseEntry(const c4::yml::NodeRef& node)
 	{
 		if (!n.is_map() || !n.has_child("size") || !n.has_child("md5"))
 		{
-			Console.Error(fmt::format("[HashDatabase] Incomplete hash definition in {}", entry.name));
+			Console.ErrorFmt("[HashDatabase] Incomplete hash definition in {}", entry.name);
 			return false;
 		}
 
@@ -1080,12 +1113,12 @@ static bool parseHashDatabaseEntry(const c4::yml::NodeRef& node)
 
 		if (!th.parseHash(md5))
 		{
-			Console.Error(fmt::format("[HashDatabase] Failed to parse hash in {}: '{}'", entry.name, md5));
+			Console.ErrorFmt("[HashDatabase] Failed to parse hash in {}: '{}'", entry.name, md5);
 			return false;
 		}
 
 		if (entry.tracks.empty() && s_track_hash_to_entry_map.find(th) != s_track_hash_to_entry_map.end())
-			Console.Warning(fmt::format("[HashDatabase] Duplicate first track hash in {}", entry.name));
+			Console.WarningFmt("[HashDatabase] Duplicate first track hash in {}", entry.name);
 
 		entry.tracks.push_back(th);
 		s_track_hash_to_entry_map.emplace(th, index);
@@ -1100,27 +1133,30 @@ bool GameDatabase::loadHashDatabase()
 	if (!s_hash_database.empty())
 		return true;
 
-	ryml::Callbacks rymlCallbacks = ryml::get_callbacks();
-	rymlCallbacks.m_error = [](const char* msg, size_t msg_len, ryml::Location loc, void*) {
-		Console.Error(fmt::format(
-			"[HashDatabase YAML] Parsing error at {}:{} (bufpos={}): {}", loc.line, loc.col, loc.offset, msg));
-	};
-	ryml::set_callbacks(rymlCallbacks);
-	c4::set_error_callback([](const char* msg, size_t msg_size) {
-		Console.Error(fmt::format("[HashDatabase YAML] Internal Parsing error: {}", std::string_view(msg, msg_size)));
-	});
-
 	Common::Timer load_timer;
 
-	auto buf = FileSystem::ReadFileToString(Path::Combine(EmuFolders::Resources, HASHDB_YAML_FILE_NAME).c_str());
-	if (!buf.has_value())
+	const std::string path(Path::Combine(EmuFolders::Resources, HASHDB_YAML_FILE_NAME));
+	const std::string name(HASHDB_YAML_FILE_NAME);
+
+	std::optional<std::string> buffer = FileSystem::ReadFileToString(path.c_str());
+	if (!buffer.has_value())
 	{
-		Console.Error("GameDB: Unable to open hash database file, file does not exist.");
+		Console.Error("[HashDatabase] Unable to open hash database file, file does not exist.");
 		return false;
 	}
 
-	ryml::Tree tree = ryml::parse_in_arena(c4::to_csubstr(buf.value()));
-	ryml::NodeRef root = tree.rootref();
+	ryml::csubstr yaml = ryml::to_csubstr(*buffer);
+
+	Error error;
+	std::optional<ryml::Tree> tree = ParseYAMLFromString(yaml, ryml::to_csubstr(name), &error);
+	if (!tree.has_value())
+	{
+		Console.ErrorFmt("[HashDatabase] Failed to parse hash database file {}:", path);
+		Console.Error(error.GetDescription());
+		return false;
+	}
+
+	ryml::NodeRef root = tree->rootref();
 
 	bool okay = true;
 	for (const ryml::NodeRef& n : root.children())
@@ -1132,7 +1168,6 @@ bool GameDatabase::loadHashDatabase()
 		}
 	}
 
-	ryml::reset_callbacks();
 	if (!okay)
 	{
 		s_track_hash_to_entry_map.clear();

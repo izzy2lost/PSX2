@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -26,10 +26,9 @@ class microBlockManager;
 
 struct microBlockLink
 {
-    microBlock block;
-    microBlockLink* next;
+	microBlock block;
+	microBlockLink* next;
 };
-
 
 struct microBlockLinkRef
 {
@@ -43,12 +42,11 @@ struct microRange
 	s32 end;   // End PC   (The opcode the block ends with)
 };
 
-#define mProgSize (0x4000 >> 2)         // (0x4000 / 4)
-#define mProgSizeHalf (mProgSize >> 1)  // mProgSize / 2
+#define mProgSize (0x4000 / 4)
 struct microProgram
 {
 	u32                data [mProgSize];     // Holds a copy of the VU microProgram
-	microBlockManager* block[mProgSizeHalf]; // Array of Block Managers
+	microBlockManager* block[mProgSize / 2]; // Array of Block Managers
 	std::deque<microRange>* ranges;          // The ranges of the microProgram that have already been recompiled
 	u32 startPC; // Start PC of this program
 	int idx;     // Program index
@@ -65,8 +63,8 @@ struct microProgramQuick
 struct microProgManager
 {
 	microIR<mProgSize> IRinfo;             // IR information
-	microProgramList*  prog [mProgSizeHalf]; // List of microPrograms indexed by startPC values
-	microProgramQuick  quick[mProgSizeHalf]; // Quick reference to valid microPrograms for current execution
+	microProgramList*  prog [mProgSize/2]; // List of microPrograms indexed by startPC values
+	microProgramQuick  quick[mProgSize/2]; // Quick reference to valid microPrograms for current execution
 	microProgram*      cur;                // Pointer to currently running MicroProgram
 	int                total;              // Total Number of valid MicroPrograms
 	int                isSame;             // Current cached microProgram is Exact Same program as mVU.regs().Micro (-1 = unknown, 0 = No, 1 = Yes)
@@ -124,8 +122,8 @@ struct microVU
 	u32 totalCycles;  // Total Cycles that mVU is expected to run for
 	s32 cycles;       // Cycles Counter
 
-//	VURegs& regs() const { return ::vuRegs[index]; }
-    VURegs& regs() const { return ::g_cpuRegistersPack.vuRegs[index]; }
+	VURegs& regs() const { return ::vuRegs[index]; }
+	void* textPtr() const { return (index && THREAD_VU1) ? (void*)&regs().VF[9] : (void*)R5900_TEXTPTR; }
 
 	__fi REG_VI& getVI(uint reg) const { return regs().VI[reg]; }
 	__fi VECTOR& getVF(uint reg) const { return regs().VF[reg]; }
@@ -147,37 +145,6 @@ private:
 	std::vector<microBlockLinkRef> quickLookup;
 	int qListI, fListI;
 
-	// Simple free-list pool for microBlockLink to reduce aligned allocations.
-	static microBlockLink* s_free_links;
-	static int s_free_link_count;
-	static constexpr int s_free_link_max = 4096;
-
-	static microBlockLink* allocLink()
-	{
-		if (s_free_links)
-		{
-			microBlockLink* p = s_free_links;
-			s_free_links = s_free_links->next;
-			s_free_link_count--;
-			return p;
-		}
-		return (microBlockLink*)_aligned_malloc(sizeof(microBlockLink), 32);
-	}
-	static void freeLink(microBlockLink* p)
-	{
-		if (!p) return;
-		if (s_free_link_count < s_free_link_max)
-		{
-			p->next = s_free_links;
-			s_free_links = p;
-			s_free_link_count++;
-		}
-		else
-		{
-			_aligned_free(p);
-		}
-	}
-
 public:
 	inline int getFullListCount() const { return fListI; }
 	microBlockManager()
@@ -194,14 +161,14 @@ public:
 			microBlockLink* freeI = linkI;
 			safe_delete_array(linkI->block.jumpCache);
 			linkI = linkI->next;
-			freeLink(freeI);
+			_aligned_free(freeI);
 		}
 		for (microBlockLink* linkI = fBlockList; linkI != nullptr;)
 		{
 			microBlockLink* freeI = linkI;
 			safe_delete_array(linkI->block.jumpCache);
 			linkI = linkI->next;
-			freeLink(freeI);
+			_aligned_free(freeI);
 		}
 		qListI = fListI = 0;
 		qBlockEnd = qBlockList = nullptr;
@@ -219,10 +186,9 @@ public:
 			else
 				qListI++;
 
-            microBlockLink*& blockList = fullCmp ? fBlockList : qBlockList;
-            microBlockLink*& blockEnd  = fullCmp ? fBlockEnd  : qBlockEnd;
-			microBlockLink*  newBlock  = allocLink();
-
+			microBlockLink*& blockList = fullCmp ? fBlockList : qBlockList;
+			microBlockLink*& blockEnd  = fullCmp ? fBlockEnd  : qBlockEnd;
+			microBlockLink*  newBlock  = (microBlockLink*)_aligned_malloc(sizeof(microBlockLink), 32);
 			newBlock->block.jumpCache  = nullptr;
 			newBlock->next             = nullptr;
 
@@ -243,8 +209,6 @@ public:
 		}
 		return thisBlock;
 	}
-
-    typedef u32 (*mVUCall)(u32, void*, void*);
 	__ri microBlock* search(microVU& mVU, microRegInfo* pState)
 	{
 		if (pState->needExactMatch) // Needs Detailed Search (Exact Match of Pipeline State)
@@ -252,8 +216,7 @@ public:
 			microBlockLink* prevI = nullptr;
 			for (microBlockLink* linkI = fBlockList; linkI != nullptr; prevI = linkI, linkI = linkI->next)
 			{
-//				if (mVU.compareState(pState, &linkI->block.pState) == 0)
-                if (((mVUCall(mVU.compareStateF)(0, pState, &linkI->block.pState)) == 0))
+				if (mVU.compareState(pState, &linkI->block.pState) == 0)
 				{
 					if (linkI != fBlockList)
 					{
@@ -271,7 +234,13 @@ public:
 			const u64 quick64 = pState->quick64[0];
 			for (const microBlockLinkRef& ref : quickLookup)
 			{
-				if (ref.quick != quick64) continue;
+				// if we're using the flag hack, ignore the mac flags going in to the new block too if an exact match wasn't requested.
+				if (mVUsFlagHack)
+				{
+					if ((ref.quick & ~0x0C04) != (quick64 & ~0x0C04)) continue;
+				}
+				else if (ref.quick != quick64) continue;
+
 				if (doConstProp && (ref.pBlock->pState.vi15 != pState->vi15))  continue;
 				if (doConstProp && (ref.pBlock->pState.vi15v != pState->vi15v)) continue;
 				return ref.pBlock;
@@ -301,24 +270,11 @@ public:
 			linkI = linkI->next;
 		}
 	}
-	};
-// Static members initialization (after class definition to avoid incomplete-type errors)
-inline microBlockLink* microBlockManager::s_free_links = nullptr;
-inline int microBlockManager::s_free_link_count = 0;
-
-	// microVU rec structs
-//alignas(16) microVU microVU0;
-//alignas(16) microVU microVU1;
-
-struct vuRegistersPack
-{
-    alignas(16) microVU microVU[2];
-    alignas(64) VU_Thread vu1Thread;
 };
-alignas(64) extern vuRegistersPack g_vuRegistersPack;
-////
-static microVU& microVU0 = g_vuRegistersPack.microVU[0];
-static microVU& microVU1 = g_vuRegistersPack.microVU[1];
+
+// microVU rec structs
+alignas(16) microVU microVU0;
+alignas(16) microVU microVU1;
 
 // Debug Helper
 int mVUdebugNow = 0;

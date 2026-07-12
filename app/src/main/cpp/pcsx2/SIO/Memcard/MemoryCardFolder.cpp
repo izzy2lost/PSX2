@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "SIO/Memcard/MemoryCardFile.h"
@@ -12,48 +12,42 @@
 #include "IconsPromptFont.h"
 
 #include "common/Console.h"
+#include "common/Error.h"
 #include "common/FileSystem.h"
 #include "common/Path.h"
 #include "common/StringUtil.h"
 #include "common/Timer.h"
+#include "common/YAML.h"
 
 #include "fmt/format.h"
-#include "ryml_std.hpp"
-#include "ryml.hpp"
 
-#include <sstream>
-#include <mutex>
 #include <optional>
 #include <chrono>
 
 // A helper function to parse the YAML file
 static std::optional<ryml::Tree> loadYamlFile(const char* filePath)
 {
-	std::optional<std::string> buffer = FileSystem::ReadFileToString(filePath);
+	const std::optional<std::string> buffer = FileSystem::ReadFileToString(filePath);
 	if (!buffer.has_value())
 		return std::nullopt;
 
-	static u32 errorCount;
-	errorCount = 0;
+	const ryml::csubstr yaml(ryml::to_csubstr(buffer.value()));
+	const std::string file_name(Path::GetFileName(filePath));
 
-	ryml::Callbacks rymlCallbacks = ryml::get_callbacks();
-	rymlCallbacks.m_error = [](const char* msg, size_t msg_len, ryml::Location loc, void* userdata) {
-		Console.Error(fmt::format("[YAML] Parsing error at {}:{} (bufpos={}): {}",
-			loc.line, loc.col, loc.offset, std::string_view(msg, msg_len)));
-		errorCount++;
-	};
-	ryml::set_callbacks(rymlCallbacks);
-	c4::set_error_callback([](const char* msg, size_t msg_size) {
-		Console.Error(fmt::format("[YAML] Internal Parsing error: {}", std::string_view(msg, msg_size)));
-		errorCount++;
-	});
-
-	ryml::Tree tree = ryml::parse_in_arena(c4::to_csubstr(buffer.value()));
-	ryml::reset_callbacks();
-	if (errorCount > 0)
+	Error error;
+	std::optional<ryml::Tree> tree = ParseYAMLFromString(yaml, ryml::to_csubstr(file_name), &error);
+	if (!tree.has_value())
 	{
-		Console.Error(fmt::format("[MemoryCard] Error occured when parsing folder memory card at path '{}'.", filePath));
+		Console.ErrorFmt("[MemoryCard] Failed to parse folder memory card file '{}':", filePath);
+		Console.Error(error.GetDescription());
 		return std::nullopt;
+	}
+
+	// Repair damaged memory card entries - file names were saved to the YAML file with trailing \0's
+	// due to a possible rapidyaml bug: https://github.com/biojppm/rapidyaml/issues/531
+	for (ryml::NodeRef node : tree->rootref().children())
+	{
+		node.set_key(node.key().trimr('\0'));
 	}
 
 	return tree;
@@ -1279,8 +1273,8 @@ void FolderMemoryCard::FlushFileEntries(const u32 dirCluster, const u32 remainin
 						// if _pcsx2_index hasn't been made yet, start a new file
 						if (!yaml.has_value())
 						{
-							char initialData[] = "{$ROOT: {timeCreated: 0, timeModified: 0}}";
-							ryml::Tree newYaml = ryml::parse_in_arena(c4::to_csubstr(initialData));
+							const char initialData[] = "{$ROOT: {timeCreated: 0, timeModified: 0}}";
+							ryml::Tree newYaml = ryml::parse_in_arena(ryml::to_csubstr(initialData));
 							ryml::NodeRef newNode = newYaml.rootref()["$ROOT"];
 							newNode["timeCreated"] << entry->entry.data.timeCreated.ToTime();
 							newNode["timeModified"] << entry->entry.data.timeModified.ToTime();
@@ -1744,7 +1738,7 @@ void FolderMemoryCard::AttemptToRecreateIndexFile(const std::string& directory) 
 		}
 
 		root.append_child() << ryml::key(fd.FileName) |= ryml::MAP;
-		ryml::NodeRef newNode = root[c4::to_csubstr(fd.FileName)];
+		ryml::NodeRef newNode = root[ryml::to_csubstr(fd.FileName)];
 		newNode["order"] << currOrder++;
 		newNode["timeCreated"] << currTime++;
 		newNode["timeModified"] << currTime++;
@@ -1805,9 +1799,9 @@ std::vector<FolderMemoryCard::EnumeratedFileEntry> FolderMemoryCard::GetOrderedF
 					{
 						auto key = std::string(n.key().str, n.key().len);
 					}
-					if (index.has_child(c4::to_csubstr(fd.FileName)))
+					if (index.has_child(ryml::to_csubstr(fd.FileName)))
 					{
-						const auto& node = index[c4::to_csubstr(fd.FileName)];
+						const auto& node = index[ryml::to_csubstr(fd.FileName)];
 						if (node.has_child("timeCreated"))
 						{
 							node["timeCreated"] >> entry.m_timeCreated;
@@ -1903,9 +1897,9 @@ void FolderMemoryCard::DeleteFromIndex(const std::string& filePath, const std::s
 	{
 		ryml::NodeRef index = yaml.value().rootref();
 
-		if (index.has_child(c4::csubstr(entry.data(), entry.length())))
+		if (index.has_child(ryml::csubstr(entry.data(), entry.length())))
 		{
-			index.remove_child(c4::csubstr(entry.data(), entry.length()));
+			index.remove_child(ryml::csubstr(entry.data(), entry.length()));
 			// Write out the changes
 			SaveYAMLToFile(indexName.c_str(), index);
 		}
@@ -2075,7 +2069,10 @@ void FileAccessHelper::WriteIndex(const std::string& baseFolderName, MemoryCardF
 	FileAccessHelper::CleanMemcardFilename(cleanName);
 
 	const std::string indexFileName(Path::Combine(folderName, "_pcsx2_index"));
-	const c4::csubstr key = c4::to_csubstr(cleanName);
+
+	// When length isn't passed explicitly, ryml::to_csubstr spans the entire array, incl. the trailing \0's
+	// due to a possible rapidyaml bug: https://github.com/biojppm/rapidyaml/issues/531
+	const ryml::csubstr key = ryml::csubstr(cleanName, std::strlen(cleanName));
 	std::optional<ryml::Tree> yaml = loadYamlFile(indexFileName.c_str());
 
 	if (yaml.has_value() && !yaml.value().empty())

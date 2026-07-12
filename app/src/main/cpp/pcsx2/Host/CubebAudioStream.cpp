@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Host/AudioStream.h"
@@ -13,11 +13,13 @@
 
 #include "cubeb/cubeb.h"
 #include "fmt/format.h"
-#include "IconsFontAwesome5.h"
+#include "IconsFontAwesome.h"
 
 #ifdef _WIN32
 #include "common/RedtapeWindows.h"
 #include <objbase.h>
+
+#include "wil/resource.h"
 #endif
 
 namespace
@@ -26,7 +28,7 @@ namespace
 	{
 	public:
 		CubebAudioStream(u32 sample_rate, const AudioStreamParameters& parameters);
-		~CubebAudioStream();
+		~CubebAudioStream() override;
 
 		void SetPaused(bool paused) override;
 
@@ -39,6 +41,11 @@ namespace
 		static void StateCallback(cubeb_stream* stream, void* user_ptr, cubeb_state state);
 
 		void DestroyContextAndStream();
+
+#ifdef _WIN32
+		// Keep it as the first field, as COM must uninitialize last.
+		wil::unique_couninitialize_call m_coUninit{false};
+#endif
 
 		cubeb* m_context = nullptr;
 		cubeb_stream* stream = nullptr;
@@ -105,11 +112,24 @@ void CubebAudioStream::DestroyContextAndStream()
 		cubeb_destroy(m_context);
 		m_context = nullptr;
 	}
+#ifdef _WIN32
+	m_coUninit.reset();
+#endif
 }
 
 bool CubebAudioStream::Initialize(const char* driver_name, const char* device_name, bool stretch_enabled, Error* error)
 {
 	cubeb_set_log_callback(CUBEB_LOG_NORMAL, LogCallback);
+
+#ifdef _WIN32
+	const HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+	if (FAILED(hr))
+	{
+		Error::SetHResult(error, "CoInitializeEx() failed: ", hr);
+		return false;
+	}
+	wil::unique_couninitialize_call uninit;
+#endif
 
 	int rv = cubeb_init(&m_context, "PCSX2", (driver_name && *driver_name) ? driver_name : nullptr);
 	if (rv != CUBEB_OK)
@@ -145,7 +165,7 @@ bool CubebAudioStream::Initialize(const char* driver_name, const char* device_na
 		}};
 
 	cubeb_stream_params params = {};
-	params.format = CUBEB_SAMPLE_S16LE;
+	params.format = CUBEB_SAMPLE_FLOAT32LE;
 	params.rate = m_sample_rate;
 	params.channels = m_output_channels;
 	params.layout = channel_setups[static_cast<size_t>(m_parameters.expansion_mode)].first;
@@ -207,7 +227,7 @@ bool CubebAudioStream::Initialize(const char* driver_name, const char* device_na
 
 			if (!selected_device)
 			{
-				Host::AddIconOSDMessage("AudioDeviceUnavailable", ICON_FA_VOLUME_UP,
+				Host::AddIconOSDMessage("AudioDeviceUnavailable", ICON_FA_VOLUME_HIGH,
 					fmt::format("Requested audio output device '{}' not found, using default.", device_name),
 					Host::OSD_ERROR_DURATION);
 			}
@@ -244,6 +264,9 @@ bool CubebAudioStream::Initialize(const char* driver_name, const char* device_na
 		return false;
 	}
 
+#ifdef _WIN32
+	m_coUninit = std::move(uninit);
+#endif
 	return true;
 }
 
@@ -255,7 +278,7 @@ void CubebAudioStream::StateCallback(cubeb_stream* stream, void* user_ptr, cubeb
 long CubebAudioStream::DataCallback(cubeb_stream* stm, void* user_ptr, const void* input_buffer, void* output_buffer,
 	long nframes)
 {
-	static_cast<CubebAudioStream*>(user_ptr)->ReadFrames(static_cast<s16*>(output_buffer), static_cast<u32>(nframes));
+	static_cast<CubebAudioStream*>(user_ptr)->ReadFrames(static_cast<float*>(output_buffer), static_cast<u32>(nframes));
 	return nframes;
 }
 
@@ -288,9 +311,9 @@ std::vector<std::pair<std::string, std::string>> AudioStream::GetCubebDriverName
 	std::vector<std::pair<std::string, std::string>> names;
 	names.emplace_back(std::string(), TRANSLATE_STR("AudioStream", "Default"));
 
-	const char** cubeb_names = cubeb_get_backend_names();
-	for (u32 i = 0; cubeb_names[i] != nullptr; i++)
-		names.emplace_back(cubeb_names[i], cubeb_names[i]);
+	auto cubeb_names = cubeb_get_backend_names();
+	for (size_t i = 0; i < cubeb_names.count; i++)
+		names.emplace_back(cubeb_names.names[i], cubeb_names.names[i]);
 
 	return names;
 }
@@ -299,6 +322,23 @@ std::vector<AudioStream::DeviceInfo> AudioStream::GetCubebOutputDevices(const ch
 {
 	std::vector<AudioStream::DeviceInfo> ret;
 	ret.emplace_back(std::string(), TRANSLATE_STR("AudioStream", "Default"), 0);
+
+#ifdef _WIN32
+	// For enumeration, we need *any* COM context. multi- or single-threaded.
+	// Cubeb theoretically wants an MTA context, but this is only relevant when creating streams,
+	// which enumerating devices does not do.
+	HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+	if (hr == RPC_E_CHANGED_MODE)
+	{
+		hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED);
+	}
+	if (FAILED(hr))
+	{
+		ERROR_LOG("CoInitializeEx failed: {}", Error::CreateHResult(hr).GetDescription());
+		return ret;
+	}
+	wil::unique_couninitialize_call uninit;
+#endif
 
 	cubeb* context;
 	int rv = cubeb_init(&context, "PCSX2", (driver && *driver) ? driver : nullptr);
@@ -322,7 +362,7 @@ std::vector<AudioStream::DeviceInfo> AudioStream::GetCubebOutputDevices(const ch
 
 	// we need stream parameters to query latency
 	cubeb_stream_params params = {};
-	params.format = CUBEB_SAMPLE_S16LE;
+	params.format = CUBEB_SAMPLE_FLOAT32LE;
 	params.rate = 48000;
 	params.channels = 2;
 	params.layout = CUBEB_LAYOUT_UNDEFINED;

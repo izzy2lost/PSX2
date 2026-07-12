@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "videodev.h"
@@ -83,16 +83,16 @@ namespace usb_eyetoy
 			int InitializeDevice(const std::wstring& selectedDevice);
 
 		private:
-			wil::unique_couninitialize_call dshowCoInitialize;
-			ICaptureGraphBuilder2* pGraphBuilder;
-			IFilterGraph2* pGraph;
-			IMediaControl* pControl;
+			wil::unique_couninitialize_call dshowCoInitialize{false};
+			wil::com_ptr_nothrow<ICaptureGraphBuilder2> pGraphBuilder;
+			wil::com_ptr_nothrow<IFilterGraph2> pGraph;
+			wil::com_ptr_nothrow<IMediaControl> pControl;
 
-			IBaseFilter* sourcefilter;
-			IAMStreamConfig* pSourceConfig;
-			IBaseFilter* samplegrabberfilter;
-			ISampleGrabber* samplegrabber;
-			IBaseFilter* nullrenderer;
+			wil::com_ptr_nothrow<IBaseFilter> sourcefilter;
+			wil::com_ptr_nothrow<IAMStreamConfig> pSourceConfig;
+			wil::com_ptr_nothrow<IBaseFilter> samplegrabberfilter;
+			wil::com_ptr_nothrow<ISampleGrabber> samplegrabber;
+			wil::com_ptr_nothrow<IBaseFilter> nullrenderer;
 
 			class CallbackHandler : public ISampleGrabberCB
 			{

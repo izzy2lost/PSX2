@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Achievements.h"
@@ -26,6 +26,7 @@
 #include "common/MD5Digest.h"
 #include "common/Path.h"
 #include "common/ScopedGuard.h"
+#include "common/SettingsInterface.h"
 #include "common/SmallString.h"
 #include "common/StringUtil.h"
 #include "common/Timer.h"
@@ -40,6 +41,7 @@
 #include <cstdlib>
 #include <functional>
 #include <limits>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -48,10 +50,6 @@
 // RA_Interface ends up including windows.h, with its silly macros.
 #include "common/RedtapeWindows.h"
 #include "RA_Interface.h"
-#endif
-
-#ifdef __ANDROID__
-#include "../AchievementsAndroid.h"
 #endif
 
 namespace Achievements
@@ -64,6 +62,10 @@ namespace Achievements
 	static constexpr float GAME_COMPLETE_NOTIFICATION_TIME = 20.0f;
 	static constexpr float LEADERBOARD_STARTED_NOTIFICATION_TIME = 3.0f;
 	static constexpr float LEADERBOARD_FAILED_NOTIFICATION_TIME = 3.0f;
+
+	static constexpr const char* DEFAULT_INFO_SOUND_NAME = "sounds/achievements/message.wav";
+	static constexpr const char* DEFAULT_UNLOCK_SOUND_NAME = "sounds/achievements/unlock.wav";
+	static constexpr const char* DEFAULT_LBSUBMIT_SOUND_NAME = "sounds/achievements/lbsubmit.wav";
 
 	static constexpr float INDICATOR_FADE_IN_TIME = 0.1f;
 	static constexpr float INDICATOR_FADE_OUT_TIME = 0.5f;
@@ -145,6 +147,7 @@ namespace Achievements
 	static void HandleResetEvent(const rc_client_event_t* event);
 	static void HandleUnlockEvent(const rc_client_event_t* event);
 	static void HandleGameCompleteEvent(const rc_client_event_t* event);
+	static void HandleSubsetCompleteEvent(const rc_client_event_t* event);
 	static void HandleLeaderboardStartedEvent(const rc_client_event_t* event);
 	static void HandleLeaderboardFailedEvent(const rc_client_event_t* event);
 	static void HandleLeaderboardSubmittedEvent(const rc_client_event_t* event);
@@ -168,8 +171,10 @@ namespace Achievements
 	static void DisplayHardcoreDeferredMessage();
 	static void DisplayAchievementSummary();
 	static void UpdateRichPresence(std::unique_lock<std::recursive_mutex>& lock);
+	static void UpdateNotificationPosition();
 
 	static std::string GetAchievementBadgePath(const rc_client_achievement_t* achievement, int state);
+	static std::string GetSubsetBadgePath(const rc_client_subset_t* subset);
 	static std::string GetUserBadgePath(const std::string_view username);
 	static std::string GetLeaderboardUserBadgePath(const rc_client_leaderboard_entry_t* entry);
 
@@ -177,6 +182,9 @@ namespace Achievements
 	static void DrawLeaderboardListEntry(const rc_client_leaderboard_t* lboard);
 	static void DrawLeaderboardEntry(const rc_client_leaderboard_entry_t& entry, bool is_self, float rank_column_width,
 		float name_column_width, float time_column_width, float column_spacing);
+	static void OpenSubset(const rc_client_subset_t* subset);
+	static bool DrawSubsetSidebar(float sidebar_width, bool& sidebar_has_focus, bool leaderboards_only);
+	static void DrawSubsetSidebarFooter(bool sidebar_has_focus);
 	static void OpenLeaderboard(const rc_client_leaderboard_t* lboard);
 	static void LeaderboardFetchNearbyCallback(
 		int result, const char* error_message, rc_client_leaderboard_entry_list_t* list, rc_client_t* client, void* callback_userdata);
@@ -184,6 +192,7 @@ namespace Achievements
 		int result, const char* error_message, rc_client_leaderboard_entry_list_t* list, rc_client_t* client, void* callback_userdata);
 	static void FetchNextLeaderboardEntries();
 	static void CloseLeaderboard();
+	static void CloseSubset();
 
 	static bool s_hardcore_mode = false;
 
@@ -214,14 +223,24 @@ namespace Achievements
 	static rc_client_async_handle_t* s_load_game_request;
 
 	static rc_client_achievement_list_t* s_achievement_list;
+	static rc_client_subset_list_t* s_subset_list;
 	static rc_client_leaderboard_list_t* s_leaderboard_list;
 	static std::vector<std::pair<const void*, std::string>> s_achievement_badge_paths;
 	static const rc_client_leaderboard_t* s_open_leaderboard = nullptr;
+	static const rc_client_subset_t* s_open_subset = nullptr;
 	static rc_client_async_handle_t* s_leaderboard_fetch_handle = nullptr;
 	static std::vector<rc_client_leaderboard_entry_list_t*> s_leaderboard_entry_lists;
 	static rc_client_leaderboard_entry_list_t* s_leaderboard_nearby_entries;
 	static std::vector<std::pair<const rc_client_leaderboard_entry_t*, std::string>> s_leaderboard_user_icon_paths;
 	static bool s_is_showing_all_leaderboard_entries = false;
+	static u32 s_last_selected_leaderboard_id = 0;
+	static bool s_has_last_selected_leaderboard = false;
+	static bool s_restore_leaderboard_focus = false;
+	static float s_leaderboard_list_scroll = 0.0f;
+	static bool s_restore_leaderboard_scroll = false;
+
+	static std::map<std::pair<u32, u32>, bool> s_achievement_buckets_collapsed;
+	static std::map<std::pair<u32, u8>, bool> s_leaderboard_buckets_collapsed;
 
 	static std::vector<LeaderboardTrackerIndicator> s_active_leaderboard_trackers;
 	static std::vector<AchievementChallengeIndicator> s_active_challenge_indicators;
@@ -237,12 +256,12 @@ std::unique_lock<std::recursive_mutex> Achievements::GetLock()
 void Achievements::BeginLoadingScreen(const char* text, bool* was_running_idle)
 {
 	MTGS::RunOnGSThread(&ImGuiManager::InitializeFullscreenUI);
-	ImGuiFullscreen::OpenBackgroundProgressDialog("achievements_loading", text, 0, 0, 0);
+	ImGuiFullscreen::OpenProgressDialog("achievements_loading", text, 0, 0, 0);
 }
 
 void Achievements::EndLoadingScreen(bool was_running_idle)
 {
-	ImGuiFullscreen::CloseBackgroundProgressDialog("achievements_loading");
+	ImGuiFullscreen::CloseProgressDialog("achievements_loading");
 }
 
 void Achievements::ReportError(const std::string_view sv)
@@ -446,7 +465,25 @@ bool Achievements::Initialize()
 		IdentifyGame(VMManager::GetDiscCRC(), VMManager::GetCurrentCRC());
 
 	const std::string username = Host::GetBaseStringSettingValue("Achievements", "Username");
-	const std::string api_token = Host::GetBaseStringSettingValue("Achievements", "Token");
+
+	// Check the base settings file to see if the token is defined inside. Move if found.
+	std::string oldToken = Host::GetBaseStringSettingValue("Achievements", "Token");
+	if (!oldToken.empty())
+	{
+		auto secretsLock = Host::GetSecretsSettingsLock();
+		SettingsInterface* secretsInterface = Host::Internal::GetSecretsSettingsLayer();
+		secretsInterface->SetStringValue("Achievements", "Token", oldToken.c_str());
+		secretsInterface->Save();
+
+		oldToken.clear();
+
+		auto baseLock = Host::GetSettingsLock();
+		SettingsInterface* baseInterface = Host::Internal::GetBaseSettingsLayer();
+		baseInterface->DeleteValue("Achievements", "Token");
+		baseInterface->Save();
+	}
+
+	const std::string api_token = Host::GetStringSettingValue("Achievements", "Token");
 	if (!username.empty() && !api_token.empty())
 	{
 		Console.WriteLn("Achievements: Attempting login with user '%s'...", username.c_str());
@@ -458,6 +495,9 @@ bool Achievements::Initialize()
 	if (VMManager::HasValidVM() && IsLoggedInOrLoggingIn() && EmuConfig.Achievements.HardcoreMode)
 		DisplayHardcoreDeferredMessage();
 
+	// Set initial notification position
+	UpdateNotificationPosition();
+
 	return true;
 }
 
@@ -468,7 +508,7 @@ u32 Achievements::GetExposedEEMemorySize()
 
 bool Achievements::CreateClient(rc_client_t** client, std::unique_ptr<HTTPDownloader>* http)
 {
-	*http = HTTPDownloader::Create(Host::GetHTTPUserAgent());
+	*http = HTTPDownloader::Create(Host::GetAchievementsUserAgent());
 	if (!*http)
 	{
 		Host::ReportErrorAsync("Achievements Error", "Failed to create HTTPDownloader, cannot use achievements");
@@ -494,6 +534,13 @@ bool Achievements::CreateClient(rc_client_t** client, std::unique_ptr<HTTPDownlo
 
 	rc_client_set_userdata(new_client, http->get());
 
+	const std::string custom_host = Host::GetBaseStringSettingValue("Achievements", "Host", "");
+	if (!custom_host.empty())
+	{
+		Console.WriteLn("Achievements: Using custom host %s", custom_host.c_str());
+		rc_client_set_host(new_client, custom_host.c_str());
+	}
+
 	*client = new_client;
 	return true;
 }
@@ -506,6 +553,63 @@ void Achievements::DestroyClient(rc_client_t** client, std::unique_ptr<HTTPDownl
 	*client = nullptr;
 
 	http->reset();
+}
+
+void Achievements::UpdateNotificationPosition()
+{
+	// Set notification position based on achievement settings
+	float horizontal_position, vertical_position, direction;
+
+	// Determine horizontal alignment
+	switch (EmuConfig.Achievements.NotificationPosition)
+	{
+		case OsdOverlayPos::TopLeft:
+		case OsdOverlayPos::CenterLeft:
+		case OsdOverlayPos::BottomLeft:
+			horizontal_position = 0.0f; // Left
+			break;
+
+		case OsdOverlayPos::TopCenter:
+		case OsdOverlayPos::Center:
+		case OsdOverlayPos::BottomCenter:
+			horizontal_position = 0.5f; // Center
+			break;
+
+		case OsdOverlayPos::TopRight:
+		case OsdOverlayPos::CenterRight:
+		case OsdOverlayPos::BottomRight:
+		default:
+			horizontal_position = 1.0f; // Right
+			break;
+	}
+
+	// Determine vertical alignment and stacking direction
+	switch (EmuConfig.Achievements.NotificationPosition)
+	{
+		case OsdOverlayPos::TopLeft:
+		case OsdOverlayPos::TopCenter:
+		case OsdOverlayPos::TopRight:
+			vertical_position = 0.15f; // Top area
+			direction = 1.0f; // Stack downward
+			break;
+
+		case OsdOverlayPos::CenterLeft:
+		case OsdOverlayPos::Center:
+		case OsdOverlayPos::CenterRight:
+			vertical_position = 0.5f; // Center
+			direction = 1.0f; // Stack downward
+			break;
+
+		case OsdOverlayPos::BottomLeft:
+		case OsdOverlayPos::BottomCenter:
+		case OsdOverlayPos::BottomRight:
+		default:
+			vertical_position = 0.85f; // Bottom area
+			direction = -1.0f; // Stack upward
+			break;
+	}
+
+	ImGuiFullscreen::SetNotificationPosition(horizontal_position, vertical_position, direction);
 }
 
 void Achievements::UpdateSettings(const Pcsx2Config::AchievementsOptions& old_config)
@@ -562,6 +666,10 @@ void Achievements::UpdateSettings(const Pcsx2Config::AchievementsOptions& old_co
 		if (EmuConfig.Achievements.UnofficialTestMode != old_config.UnofficialTestMode)
 			rc_client_set_unofficial_enabled(s_client, EmuConfig.Achievements.UnofficialTestMode);
 	}
+
+	// Update notification position if it changed
+	if (EmuConfig.Achievements.NotificationPosition != old_config.NotificationPosition)
+		UpdateNotificationPosition();
 
 	// in case cache directory changed
 	EnsureCacheDirectoriesExist();
@@ -650,13 +758,20 @@ uint32_t Achievements::ClientReadMemory(uint32_t address, uint8_t* buffer, uint3
 void Achievements::ClientServerCall(
 	const rc_api_request_t* request, rc_client_server_callback_t callback, void* callback_data, rc_client_t* client)
 {
-	HTTPDownloader::Request::Callback hd_callback = [callback, callback_data](s32 status_code, const std::string& content_type,
-														HTTPDownloader::Request::Data data) {
+	HTTPDownloader::Request::Callback hd_callback = [callback, callback_data](s32 status_code, const std::string& content_type, HTTPDownloader::Request::Data data)
+	{
+		const bool is_error = (status_code <= 0);
+		const bool is_retryable =
+			is_error && (status_code == HTTPDownloader::HTTP_STATUS_TIMEOUT);
+
 		rc_api_server_response_t rr;
-		rr.http_status_code = (status_code <= 0) ? (status_code == HTTPDownloader::HTTP_STATUS_CANCELLED ?
-														   RC_API_SERVER_RESPONSE_CLIENT_ERROR :
-														   RC_API_SERVER_RESPONSE_RETRYABLE_CLIENT_ERROR) :
-												   status_code;
+		rr.http_status_code =
+			is_error
+			? (is_retryable
+				? RC_API_SERVER_RESPONSE_RETRYABLE_CLIENT_ERROR
+				: RC_API_SERVER_RESPONSE_CLIENT_ERROR)
+			: status_code;
+
 		rr.body_length = data.size();
 		rr.body = reinterpret_cast<const char*>(data.data());
 
@@ -735,6 +850,10 @@ void Achievements::ClientEventHandler(const rc_client_event_t* event, rc_client_
 
 		case RC_CLIENT_EVENT_GAME_COMPLETED:
 			HandleGameCompleteEvent(event);
+			break;
+
+		case RC_CLIENT_EVENT_SUBSET_COMPLETED:
+			HandleSubsetCompleteEvent(event);
 			break;
 
 		case RC_CLIENT_EVENT_LEADERBOARD_STARTED:
@@ -828,6 +947,17 @@ void Achievements::UpdateRichPresence(std::unique_lock<std::recursive_mutex>& lo
 	lock.unlock();
 	VMManager::UpdateDiscordPresence(false);
 	lock.lock();
+}
+
+void Achievements::PlayAchievementSound(bool is_specific_sound_enabled, const std::string& custom_sound_name, const std::string& default_sound_name)
+{
+	if (!EmuConfig.Achievements.SoundEffects || !is_specific_sound_enabled)
+		return;
+
+	if (custom_sound_name.empty() || !FileSystem::FileExists(custom_sound_name.c_str()))
+		Common::PlaySoundAsync(Path::Combine(EmuFolders::Resources, default_sound_name).c_str());
+	else
+		Common::PlaySoundAsync(custom_sound_name.c_str());
 }
 
 void Achievements::GameChanged(u32 disc_crc, u32 crc)
@@ -960,24 +1090,14 @@ void Achievements::ClientLoadGameCallback(int result, const char* error_message,
 	s_has_leaderboards = has_leaderboards;
 	s_has_rich_presence = rc_client_has_rich_presence(client);
 	s_game_icon = {};
-	s_game_icon_url = {};
+	s_game_icon_url = info->badge_url;
 
 	// ensure fullscreen UI is ready for notifications
 	MTGS::RunOnGSThread(&ImGuiManager::InitializeFullscreenUI);
 
-	char url_buffer[URL_BUFFER_SIZE];
-	if (int err = rc_client_game_get_image_url(info, url_buffer, std::size(url_buffer)); err == RC_OK)
-	{
-		s_game_icon_url = url_buffer;
-	}
-	else
-	{
-		ReportRCError(err, "rc_client_game_get_image_url() failed: ");
-	}
-
 	if (const std::string_view badge_name = info->badge_name; !badge_name.empty())
 	{
-		s_game_icon = Path::Combine(s_image_directory, fmt::format("game_{}.png", info->id));
+		s_game_icon = Path::Combine(s_image_directory, fmt::format("game_{}.png", badge_name));
 		if (!s_game_icon.empty() && !s_game_icon_url.empty() && !FileSystem::FileExists(s_game_icon.c_str()))
 			DownloadImage(s_game_icon_url, s_game_icon);
 	}
@@ -1024,9 +1144,6 @@ void Achievements::ClearGameHash()
 
 void Achievements::DisplayAchievementSummary()
 {
-#ifdef __ANDROID__
-	AchievementsAndroid::NotifyGameSummary(s_game_title.c_str(), &s_game_summary);
-#else
 	if (EmuConfig.Achievements.Notifications)
 	{
 		std::string title;
@@ -1060,12 +1177,7 @@ void Achievements::DisplayAchievementSummary()
 			}
 		});
 	}
-#endif
-
-#if !defined(__ANDROID__)
-	if (EmuConfig.Achievements.SoundEffects && EmuConfig.Achievements.InfoSound)
-		Common::PlaySoundAsync(EmuConfig.Achievements.InfoSoundName.c_str());
-#endif
+	Achievements::PlayAchievementSound(EmuConfig.Achievements.InfoSound, EmuConfig.Achievements.InfoSoundName, DEFAULT_INFO_SOUND_NAME);
 }
 
 void Achievements::DisplayHardcoreDeferredMessage()
@@ -1099,10 +1211,6 @@ void Achievements::HandleUnlockEvent(const rc_client_event_t* event)
 	Console.WriteLn("Achievements: Achievement %s (%u) for game %u unlocked", cheevo->title, cheevo->id, s_game_id);
 	UpdateGameSummary();
 
-#ifdef __ANDROID__
-	AchievementsAndroid::NotifyAchievementUnlocked(cheevo);
-#endif
-
 	if (EmuConfig.Achievements.Notifications)
 	{
 		std::string title;
@@ -1119,22 +1227,13 @@ void Achievements::HandleUnlockEvent(const rc_client_event_t* event)
 					std::move(title), std::move(summary), std::move(badge_path));
 			});
 	}
-
-#if !defined(__ANDROID__)
-	if (EmuConfig.Achievements.SoundEffects && EmuConfig.Achievements.UnlockSound)
-		Common::PlaySoundAsync(EmuConfig.Achievements.UnlockSoundName.c_str());
-#endif
+	Achievements::PlayAchievementSound(EmuConfig.Achievements.UnlockSound, EmuConfig.Achievements.UnlockSoundName, DEFAULT_UNLOCK_SOUND_NAME);
 }
 
 void Achievements::HandleGameCompleteEvent(const rc_client_event_t* event)
 {
 	Console.WriteLn("Achievements: Game %u complete", s_game_id);
 	UpdateGameSummary();
-
-#ifdef __ANDROID__
-	AchievementsAndroid::NotifyGameComplete(s_game_title.c_str(), 
-		s_game_summary.num_unlocked_achievements, s_game_summary.points_unlocked);
-#endif
 
 	if (EmuConfig.Achievements.Notifications)
 	{
@@ -1155,13 +1254,36 @@ void Achievements::HandleGameCompleteEvent(const rc_client_event_t* event)
 	}
 }
 
+void Achievements::HandleSubsetCompleteEvent(const rc_client_event_t* event)
+{
+	const rc_client_subset_t* subset = event->subset;
+	Console.WriteLn("Achievements: Subset '%s' (%u) complete", subset->title, subset->id);
+	UpdateGameSummary();
+
+	if (EmuConfig.Achievements.Notifications)
+	{
+		std::string title = fmt::format(TRANSLATE_FS("Achievements", "Mastered {}"), subset->title);
+		std::string message = fmt::format(
+			TRANSLATE_FS("Achievements", "{0}, {1}"),
+			TRANSLATE_PLURAL_STR("Achievements", "%n achievements", "Mastery popup",
+				s_game_summary.num_unlocked_achievements),
+			TRANSLATE_PLURAL_STR("Achievements", "%n points", "Mastery popup", s_game_summary.points_unlocked));
+
+		std::string badge_path = GetSubsetBadgePath(subset);
+
+		MTGS::RunOnGSThread([title = std::move(title), message = std::move(message), badge_path = std::move(badge_path)]() {
+			if (ImGuiManager::InitializeFullscreenUI())
+			{
+				ImGuiFullscreen::AddNotification(
+					"achievement_subset_mastery", GAME_COMPLETE_NOTIFICATION_TIME, std::move(title), std::move(message), std::move(badge_path));
+			}
+		});
+	}
+}
+
 void Achievements::HandleLeaderboardStartedEvent(const rc_client_event_t* event)
 {
 	DevCon.WriteLn("Achievements: Leaderboard %u (%s) started", event->leaderboard->id, event->leaderboard->title);
-
-#ifdef __ANDROID__
-	AchievementsAndroid::NotifyLeaderboardStarted(event->leaderboard);
-#endif
 
 	if (EmuConfig.Achievements.LeaderboardNotifications)
 	{
@@ -1224,24 +1346,13 @@ void Achievements::HandleLeaderboardSubmittedEvent(const rc_client_event_t* even
 			}
 		});
 	}
-
-#if !defined(__ANDROID__)
-	if (EmuConfig.Achievements.SoundEffects && EmuConfig.Achievements.LBSubmitSound)
-		Common::PlaySoundAsync(EmuConfig.Achievements.LBSubmitSoundName.c_str());
-#endif
+	Achievements::PlayAchievementSound(EmuConfig.Achievements.LBSubmitSound, EmuConfig.Achievements.LBSubmitSoundName, DEFAULT_LBSUBMIT_SOUND_NAME);
 }
 
 void Achievements::HandleLeaderboardScoreboardEvent(const rc_client_event_t* event)
 {
 	Console.WriteLn("Achievements: Leaderboard %u scoreboard rank %u of %u", event->leaderboard_scoreboard->leaderboard_id,
 		event->leaderboard_scoreboard->new_rank, event->leaderboard_scoreboard->num_entries);
-
-#ifdef __ANDROID__
-	AchievementsAndroid::NotifyLeaderboardSubmitted(event->leaderboard,
-		event->leaderboard_scoreboard->submitted_score,
-		event->leaderboard_scoreboard->new_rank,
-		event->leaderboard_scoreboard->num_entries);
-#endif
 
 	if (EmuConfig.Achievements.LeaderboardNotifications)
 	{
@@ -1325,10 +1436,6 @@ void Achievements::HandleAchievementChallengeIndicatorShowEvent(const rc_client_
 	s_active_challenge_indicators.push_back(std::move(indicator));
 
 	DevCon.WriteLn("Achievements: Show challenge indicator for %u (%s)", event->achievement->id, event->achievement->title);
-
-#ifdef __ANDROID__
-	AchievementsAndroid::NotifyChallengeIndicatorShow(event->achievement);
-#endif
 }
 
 void Achievements::HandleAchievementChallengeIndicatorHideEvent(const rc_client_event_t* event)
@@ -1356,10 +1463,6 @@ void Achievements::HandleAchievementProgressIndicatorShowEvent(const rc_client_e
 	s_active_progress_indicator->achievement = event->achievement;
 	s_active_progress_indicator->badge_path = GetAchievementBadgePath(event->achievement, RC_CLIENT_ACHIEVEMENT_STATE_UNLOCKED);
 	s_active_progress_indicator->active = true;
-
-#ifdef __ANDROID__
-	AchievementsAndroid::NotifyProgressIndicatorUpdate(event->achievement);
-#endif
 }
 
 void Achievements::HandleAchievementProgressIndicatorHideEvent(const rc_client_event_t* event)
@@ -1452,6 +1555,11 @@ void Achievements::DisableHardcoreMode()
 		if (RA_HardcoreModeIsActive())
 			RA_DisableHardcore();
 
+		if (s_hardcore_mode && !RA_HardcoreModeIsActive())
+		{
+			s_hardcore_mode = false;
+			Host::OnAchievementsHardcoreModeChanged(false);
+		}
 		return;
 	}
 #endif
@@ -1465,6 +1573,18 @@ bool Achievements::ResetHardcoreMode(bool is_booting)
 	if (!IsActive())
 		return false;
 
+#ifdef ENABLE_RAINTEGRATION
+	if (IsUsingRAIntegration())
+	{
+		const bool ra_hardcore = (RA_HardcoreModeIsActive() != 0);
+		if (ra_hardcore == s_hardcore_mode)
+			return false;
+		s_hardcore_mode = ra_hardcore;
+		Host::OnAchievementsHardcoreModeChanged(ra_hardcore);
+		return true;
+	}
+#endif
+
 	const auto lock = GetLock();
 
 	// If we're not logged in, don't apply hardcore mode restrictions.
@@ -1473,7 +1593,7 @@ bool Achievements::ResetHardcoreMode(bool is_booting)
 	// because the gameid can be cached, and identify immediately on GameChanged(),
 	// which gets called before ResetHardcoreMode().
 	const bool wanted_hardcore_mode = (IsLoggedInOrLoggingIn() || s_load_game_request) &&
-									  EmuConfig.Achievements.HardcoreMode;
+	                                  EmuConfig.Achievements.HardcoreMode;
 	if (s_hardcore_mode == wanted_hardcore_mode)
 		return false;
 
@@ -1486,6 +1606,12 @@ bool Achievements::ResetHardcoreMode(bool is_booting)
 
 void Achievements::SetHardcoreMode(bool enabled, bool force_display_message)
 {
+	// yaps2 is not a RetroAchievements-registered hardcore client (it reports as "yaps2", see
+	// Host::GetAchievementsUserAgent), so hardcore is forced off and all unlocks are softcore.
+	// This is the sole non-RAIntegration setter of s_hardcore_mode, so pinning it here keeps
+	// hardcore off across both the boot and runtime paths. Revisit once yaps2 merges into ARMSX2.
+	enabled = false;
+
 	if (enabled == s_hardcore_mode)
 		return;
 
@@ -1620,16 +1746,16 @@ void Achievements::SaveState(SaveStateBase& writer)
 
 std::string Achievements::GetAchievementBadgePath(const rc_client_achievement_t* achievement, int state)
 {
-	static constexpr std::array<const char*, NUM_RC_CLIENT_ACHIEVEMENT_STATES> s_achievement_state_strings = {
-		{"inactive", "active", "unlocked", "disabled"}};
-
 	std::string path;
 
-	if (achievement->badge_name[0] == 0)
+	const std::string_view badge_name(achievement->badge_name);
+	if (badge_name.empty())
 		return path;
 
+	const std::string_view suffix = state == RC_CLIENT_ACHIEVEMENT_STATE_UNLOCKED ? "" : "_lock";
+
 	path = Path::Combine(s_image_directory,
-		TinyString::from_format("achievement_{}_{}_{}.png", s_game_id, achievement->id, s_achievement_state_strings[state]));
+		TinyString::from_format("achievement_{}{}.png", badge_name, suffix));
 
 	if (!FileSystem::FileExists(path.c_str()))
 	{
@@ -1679,7 +1805,9 @@ bool Achievements::IsLoggedInOrLoggingIn()
 
 bool Achievements::CanEnableHardcoreMode()
 {
-	return (s_load_game_request || s_has_achievements || s_has_leaderboards);
+	// yaps2 is softcore-only (see SetHardcoreMode / Host::GetAchievementsUserAgent), so it can
+	// never enable hardcore regardless of game/achievement state.
+	return false;
 }
 
 bool Achievements::Login(const char* username, const char* password, Error* error)
@@ -1759,9 +1887,12 @@ void Achievements::ClientLoginWithPasswordCallback(int result, const char* error
 
 	// Store configuration.
 	Host::SetBaseStringSettingValue("Achievements", "Username", params->username);
-	Host::SetBaseStringSettingValue("Achievements", "Token", user->token);
 	Host::SetBaseStringSettingValue("Achievements", "LoginTimestamp", fmt::format("{}", std::time(nullptr)).c_str());
 	Host::CommitBaseSettingChanges();
+
+	SettingsInterface* secretsInterface = Host::Internal::GetSecretsSettingsLayer();
+	secretsInterface->SetStringValue("Achievements", "Token", user->token);
+	secretsInterface->Save();
 
 	ShowLoginSuccess(client);
 }
@@ -1790,11 +1921,6 @@ void Achievements::ShowLoginSuccess(const rc_client_t* client)
 		return;
 
 	Host::OnAchievementsLoginSuccess(user->username, user->score, user->score_softcore, user->num_unread_messages);
-
-#ifdef __ANDROID__
-	AchievementsAndroid::NotifyLoginSuccess(user->username, user->score,
-		user->score_softcore, user->num_unread_messages);
-#endif
 
 	// Were we logging in with a temporary client?
 	const auto lock = GetLock();
@@ -1866,9 +1992,13 @@ void Achievements::Logout()
 
 	Console.WriteLn("Achievements: Clearing credentials...");
 	Host::RemoveBaseSettingValue("Achievements", "Username");
-	Host::RemoveBaseSettingValue("Achievements", "Token");
 	Host::RemoveBaseSettingValue("Achievements", "LoginTimestamp");
 	Host::CommitBaseSettingChanges();
+
+	auto secretsLock = Host::GetSecretsSettingsLock();
+	SettingsInterface* secretsInterface = Host::Internal::GetSecretsSettingsLayer();
+	secretsInterface->DeleteValue("Achievements", "Token");
+	secretsInterface->Save();
 }
 
 
@@ -1882,62 +2012,19 @@ bool Achievements::ConfirmSystemReset()
 	return true;
 }
 
-bool Achievements::ConfirmHardcoreModeDisable(const char* trigger)
+const char* Achievements::GetHardcoreModeDisableTitle()
 {
-#ifdef ENABLE_RAINTEGRATION
-	if (IsUsingRAIntegration())
-		return (RA_WarnDisableHardcore(trigger) != 0);
-#endif
-
-	// I really hope this doesn't deadlock :/
-	const bool confirmed = Host::ConfirmMessage(TRANSLATE("Achievements", "Confirm Hardcore Mode"),
-		fmt::format(TRANSLATE_FS("Achievements", "{0} cannot be performed while hardcore mode is active. Do you "
-												 "want to disable hardcore mode? {0} will be cancelled if you select No."),
-			trigger));
-	if (!confirmed)
-		return false;
-
-	DisableHardcoreMode();
-	return true;
+	return TRANSLATE("Achievements", "Confirm Hardcore Mode");
 }
 
-void Achievements::ConfirmHardcoreModeDisableAsync(const char* trigger, std::function<void(bool)> callback)
+std::string Achievements::GetHardcoreModeDisableText(const char* reason)
 {
-#ifdef ENABLE_RAINTEGRATION
-	if (IsUsingRAIntegration())
-	{
-		const bool result = (RA_WarnDisableHardcore(trigger) != 0);
-		callback(result);
-		return;
-	}
-#endif
-
-	MTGS::RunOnGSThread([trigger = TinyString(trigger), callback = std::move(callback)]() {
-		if (!FullscreenUI::Initialize())
-		{
-			Host::AddOSDMessage(fmt::format(TRANSLATE_FS("Cannot {} while hardcore mode is active.", trigger)),
-				Host::OSD_WARNING_DURATION);
-			callback(false);
-			return;
-		}
-
-		auto real_callback = [callback = std::move(callback)](bool res) mutable {
-			// don't run the callback in the middle of rendering the UI
-			Host::RunOnCPUThread([callback = std::move(callback), res]() {
-				if (res)
-					DisableHardcoreMode();
-				callback(res);
-			});
-		};
-
-		ImGuiFullscreen::OpenConfirmMessageDialog(
-			TRANSLATE_STR("Achievements", "Confirm Hardcore Mode"),
-			fmt::format(TRANSLATE_FS("Achievements", "{0} cannot be performed while hardcore mode is active. Do you "
-													 "want to disable hardcore mode? {0} will be cancelled if you select No."),
-				trigger),
-			std::move(real_callback), fmt::format(ICON_FA_CHECK " {}", TRANSLATE_SV("Achievements", "Yes")),
-			fmt::format(ICON_FA_TIMES " {}", TRANSLATE_SV("Achievements", "No")));
-	});
+	return fmt::format(
+		TRANSLATE_FS("Achievements",
+			"{0} cannot be performed while hardcore mode is active. "
+			"Do you want to disable hardcore mode? "
+			"{0} will be cancelled if you select No."),
+		reason);
 }
 
 void Achievements::ClearUIState()
@@ -1961,6 +2048,9 @@ void Achievements::ClearUIState()
 		rc_client_destroy_achievement_list(s_achievement_list);
 		s_achievement_list = nullptr;
 	}
+
+	s_achievement_buckets_collapsed.clear();
+	s_leaderboard_buckets_collapsed.clear();
 }
 
 template <typename T>
@@ -1972,13 +2062,122 @@ static float IndicatorOpacity(const T& i)
 	return (i.active) ? opacity : (1.0f - opacity);
 }
 
+static ImVec2 CalculateOverlayPosition(const ImGuiIO& io, float padding, AchievementOverlayPosition alignment)
+{
+	switch (alignment)
+	{
+		case AchievementOverlayPosition::TopLeft:
+			return ImVec2(padding, padding);
+		case AchievementOverlayPosition::TopCenter:
+			return ImVec2(io.DisplaySize.x * 0.5f, padding);
+		case AchievementOverlayPosition::TopRight:
+			return ImVec2(io.DisplaySize.x - padding, padding);
+		case AchievementOverlayPosition::CenterLeft:
+			return ImVec2(padding, io.DisplaySize.y * 0.5f);
+		case AchievementOverlayPosition::Center:
+			return ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f);
+		case AchievementOverlayPosition::CenterRight:
+			return ImVec2(io.DisplaySize.x - padding, io.DisplaySize.y * 0.5f);
+		case AchievementOverlayPosition::BottomLeft:
+			return ImVec2(padding, io.DisplaySize.y - padding);
+		case AchievementOverlayPosition::BottomCenter:
+			return ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y - padding);
+		case AchievementOverlayPosition::BottomRight:
+		default:
+			return ImVec2(io.DisplaySize.x - padding, io.DisplaySize.y - padding);
+	}
+}
+
+static ImVec2 AdjustPositionForAlignment(const ImVec2& base_position, const ImVec2& element_size, AchievementOverlayPosition alignment)
+{
+	ImVec2 adjusted = base_position;
+
+	// Adjust for horizontal alignment
+	switch (alignment)
+	{
+		case AchievementOverlayPosition::TopLeft:
+		case AchievementOverlayPosition::CenterLeft:
+		case AchievementOverlayPosition::BottomLeft:
+			// Left aligned no adjustment needed for x
+			break;
+
+		case AchievementOverlayPosition::TopCenter:
+		case AchievementOverlayPosition::Center:
+		case AchievementOverlayPosition::BottomCenter:
+			// Center aligned offset by half element width
+			adjusted.x -= element_size.x * 0.5f;
+			break;
+
+		case AchievementOverlayPosition::TopRight:
+		case AchievementOverlayPosition::CenterRight:
+		case AchievementOverlayPosition::BottomRight:
+		default:
+			// Right aligned offset by full element width
+			adjusted.x -= element_size.x;
+			break;
+	}
+
+	// Adjust for vertical alignment
+	switch (alignment)
+	{
+		case AchievementOverlayPosition::TopLeft:
+		case AchievementOverlayPosition::TopCenter:
+		case AchievementOverlayPosition::TopRight:
+			// Top aligned no adjustment needed for y
+			break;
+
+		case AchievementOverlayPosition::CenterLeft:
+		case AchievementOverlayPosition::Center:
+		case AchievementOverlayPosition::CenterRight:
+			// Center aligned offset by half element height
+			adjusted.y -= element_size.y * 0.5f;
+			break;
+
+		case AchievementOverlayPosition::BottomLeft:
+		case AchievementOverlayPosition::BottomCenter:
+		case AchievementOverlayPosition::BottomRight:
+		default:
+			// Bottom aligned offset by full element height
+			adjusted.y -= element_size.y;
+			break;
+	}
+
+	return adjusted;
+}
+
+static ImVec2 GetStackingDirection(AchievementOverlayPosition alignment)
+{
+	switch (alignment)
+	{
+		case AchievementOverlayPosition::TopLeft:
+		case AchievementOverlayPosition::TopCenter:
+		case AchievementOverlayPosition::TopRight:
+			return ImVec2(0.0f, 1.0f); // Stack downward
+
+		case AchievementOverlayPosition::BottomLeft:
+		case AchievementOverlayPosition::BottomCenter:
+		case AchievementOverlayPosition::BottomRight:
+		default:
+			return ImVec2(0.0f, -1.0f); // Stack upward
+
+		case AchievementOverlayPosition::CenterLeft:
+			return ImVec2(1.0f, 0.0f); // Stack rightward
+
+		case AchievementOverlayPosition::CenterRight:
+			return ImVec2(-1.0f, 0.0f); // Stack leftward
+
+		case AchievementOverlayPosition::Center:
+			return ImVec2(0.0f, -1.0f); // Stack upward for center
+	}
+}
+
 
 void Achievements::DrawGameOverlays()
 {
 	using ImGuiFullscreen::g_medium_font;
 	using ImGuiFullscreen::LayoutScale;
 
-	if (!HasActiveGame() || !EmuConfig.Achievements.Overlays)
+	if (!HasActiveGame() || !(EmuConfig.Achievements.Overlays || EmuConfig.Achievements.LBOverlays))
 		return;
 
 	const auto lock = GetLock();
@@ -1987,13 +2186,14 @@ void Achievements::DrawGameOverlays()
 	const float padding = LayoutScale(10.0f);
 	const ImVec2 image_size = LayoutScale(ImGuiFullscreen::LAYOUT_MENU_BUTTON_HEIGHT, ImGuiFullscreen::LAYOUT_MENU_BUTTON_HEIGHT);
 	const ImGuiIO& io = ImGui::GetIO();
-	ImVec2 position = ImVec2(io.DisplaySize.x - padding, io.DisplaySize.y - padding);
+	ImVec2 position = CalculateOverlayPosition(io, padding, EmuConfig.Achievements.OverlayPosition);
 	ImDrawList* dl = ImGui::GetBackgroundDrawList();
 
-	if (!s_active_challenge_indicators.empty())
+	if (!s_active_challenge_indicators.empty() && EmuConfig.Achievements.Overlays)
 	{
+		const ImVec2 stack_direction = GetStackingDirection(EmuConfig.Achievements.OverlayPosition);
+		ImVec2 current_position = AdjustPositionForAlignment(position, image_size, EmuConfig.Achievements.OverlayPosition);
 		const float x_advance = image_size.x + spacing;
-		ImVec2 current_position = ImVec2(position.x - image_size.x, position.y - image_size.y);
 
 		for (auto it = s_active_challenge_indicators.begin(); it != s_active_challenge_indicators.end();)
 		{
@@ -2006,7 +2206,26 @@ void Achievements::DrawGameOverlays()
 			{
 				dl->AddImage(reinterpret_cast<ImTextureID>(badge->GetNativeHandle()),
 					current_position, current_position + image_size, ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f), col);
-				current_position.x -= x_advance;
+
+				// For horizontal layouts, go horizontally for vertical layouts, stay in the same row
+				if (std::abs(stack_direction.x) > 0.0f)
+				{
+					current_position.x += stack_direction.x * x_advance;
+				}
+				else
+				{
+					// For right-aligned vertical layouts, move left for next indicator
+					switch (EmuConfig.Achievements.OverlayPosition)
+					{
+						case AchievementOverlayPosition::TopRight:
+						case AchievementOverlayPosition::BottomRight:
+							current_position.x -= x_advance;
+							break;
+						default:
+							current_position.x += x_advance;
+							break;
+					}
+				}
 			}
 
 			if (!indicator.active && opacity <= 0.01f)
@@ -2020,10 +2239,12 @@ void Achievements::DrawGameOverlays()
 			}
 		}
 
-		position.y -= image_size.y + padding;
+		// Go to the next row/column for anymore overlays
+		position.x += stack_direction.x * (image_size.x + padding);
+		position.y += stack_direction.y * (image_size.y + padding);
 	}
 
-	if (s_active_progress_indicator.has_value())
+	if (s_active_progress_indicator.has_value() && EmuConfig.Achievements.Overlays)
 	{
 		const AchievementProgressIndicator& indicator = s_active_progress_indicator.value();
 		const float opacity = IndicatorOpacity(indicator);
@@ -2031,11 +2252,14 @@ void Achievements::DrawGameOverlays()
 
 		const char* text_start = s_active_progress_indicator->achievement->measured_progress;
 		const char* text_end = text_start + std::strlen(text_start);
-		const ImVec2 text_size = g_medium_font->CalcTextSizeA(g_medium_font->FontSize, FLT_MAX, 0.0f, text_start, text_end);
+		const ImVec2 text_size = g_medium_font.first->CalcTextSizeA(g_medium_font.second, FLT_MAX, 0.0f, text_start, text_end);
 
-		const ImVec2 box_min =
-			ImVec2(position.x - image_size.x - text_size.x - spacing - padding * 2.0f, position.y - image_size.y - padding * 2.0f);
-		const ImVec2 box_max = position;
+		const ImVec2 progress_box_size = ImVec2(image_size.x + text_size.x + spacing + padding * 2.0f, image_size.y + padding * 2.0f);
+		const ImVec2 stack_direction = GetStackingDirection(EmuConfig.Achievements.OverlayPosition);
+		const ImVec2 box_position = AdjustPositionForAlignment(position, progress_box_size, EmuConfig.Achievements.OverlayPosition);
+
+		const ImVec2 box_min = box_position;
+		const ImVec2 box_max = box_position + progress_box_size;
 		const float box_rounding = LayoutScale(1.0f);
 
 		dl->AddRectFilled(box_min, box_max, ImGui::GetColorU32(ImVec4(0.13f, 0.13f, 0.13f, opacity * 0.5f)), box_rounding);
@@ -2051,7 +2275,7 @@ void Achievements::DrawGameOverlays()
 
 		const ImVec2 text_pos = box_min + ImVec2(padding + image_size.x + spacing, (box_max.y - box_min.y - text_size.y) * 0.5f);
 		const ImVec4 text_clip_rect(text_pos.x, text_pos.y, box_max.x, box_max.y);
-		dl->AddText(g_medium_font, g_medium_font->FontSize, text_pos, col, text_start, text_end, 0.0f, &text_clip_rect);
+		dl->AddText(g_medium_font.first, g_medium_font.second, text_pos, col, text_start, text_end, 0.0f, &text_clip_rect);
 
 		if (!indicator.active && opacity <= 0.01f)
 		{
@@ -2059,11 +2283,15 @@ void Achievements::DrawGameOverlays()
 			s_active_progress_indicator.reset();
 		}
 
-		position.y -= image_size.y + padding * 3.0f;
+		// Go to the next row/column for anymore overlays
+		position.x += stack_direction.x * (progress_box_size.x + padding);
+		position.y += stack_direction.y * (progress_box_size.y + padding);
 	}
 
-	if (!s_active_leaderboard_trackers.empty())
+	if (!s_active_leaderboard_trackers.empty() && EmuConfig.Achievements.LBOverlays)
 	{
+		const ImVec2 stack_direction = GetStackingDirection(EmuConfig.Achievements.OverlayPosition);
+
 		for (auto it = s_active_leaderboard_trackers.begin(); it != s_active_leaderboard_trackers.end();)
 		{
 			const LeaderboardTrackerIndicator& indicator = *it;
@@ -2073,26 +2301,29 @@ void Achievements::DrawGameOverlays()
 			width_string.append(ICON_FA_STOPWATCH);
 			for (u32 i = 0; i < indicator.text.length(); i++)
 				width_string.append('0');
-			const ImVec2 size = ImGuiFullscreen::g_medium_font->CalcTextSizeA(
-				ImGuiFullscreen::g_medium_font->FontSize, FLT_MAX, 0.0f, width_string.c_str(), width_string.end_ptr());
+			const ImVec2 size = g_medium_font.first->CalcTextSizeA(
+				g_medium_font.second, FLT_MAX, 0.0f, width_string.c_str(), width_string.end_ptr());
 
-			const ImVec2 box_min = ImVec2(position.x - size.x - padding * 2.0f, position.y - size.y - padding * 2.0f);
-			const ImVec2 box_max = position;
+			const ImVec2 tracker_box_size = ImVec2(size.x + padding * 2.0f, size.y + padding * 2.0f);
+			const ImVec2 box_position = AdjustPositionForAlignment(position, tracker_box_size, EmuConfig.Achievements.OverlayPosition);
+
+			const ImVec2 box_min = box_position;
+			const ImVec2 box_max = box_position + tracker_box_size;
 			const float box_rounding = LayoutScale(1.0f);
 			dl->AddRectFilled(box_min, box_max, ImGui::GetColorU32(ImVec4(0.13f, 0.13f, 0.13f, opacity * 0.5f)), box_rounding);
 			dl->AddRect(box_min, box_max, ImGui::GetColorU32(ImVec4(0.8f, 0.8f, 0.8f, opacity)), box_rounding);
 
 			const u32 text_col = ImGui::GetColorU32(ImVec4(1.0f, 1.0f, 1.0f, opacity));
-			const ImVec2 text_size = ImGuiFullscreen::g_medium_font->CalcTextSizeA(
-				ImGuiFullscreen::g_medium_font->FontSize, FLT_MAX, 0.0f, indicator.text.c_str(),
+			const ImVec2 text_size = g_medium_font.first->CalcTextSizeA(
+				g_medium_font.second, FLT_MAX, 0.0f, indicator.text.c_str(),
 				indicator.text.c_str() + indicator.text.length());
 			const ImVec2 text_pos = ImVec2(box_max.x - padding - text_size.x, box_min.y + padding);
 			const ImVec4 text_clip_rect(box_min.x, box_min.y, box_max.x, box_max.y);
-			dl->AddText(g_medium_font, g_medium_font->FontSize, text_pos, text_col, indicator.text.c_str(),
+			dl->AddText(g_medium_font.first, g_medium_font.second, text_pos, text_col, indicator.text.c_str(),
 				indicator.text.c_str() + indicator.text.length(), 0.0f, &text_clip_rect);
 
 			const ImVec2 icon_pos = ImVec2(box_min.x + padding, box_min.y + padding);
-			dl->AddText(g_medium_font, g_medium_font->FontSize, icon_pos, text_col, ICON_FA_STOPWATCH,
+			dl->AddText(g_medium_font.first, g_medium_font.second, icon_pos, text_col, ICON_FA_STOPWATCH,
 				nullptr, 0.0f, &text_clip_rect);
 
 			if (!indicator.active && opacity <= 0.01f)
@@ -2105,7 +2336,9 @@ void Achievements::DrawGameOverlays()
 				++it;
 			}
 
-			position.x = box_min.x - padding;
+			// Go to the next position for anymore trackers
+			position.x += stack_direction.x * (tracker_box_size.x + padding);
+			position.y += stack_direction.y * (tracker_box_size.y + padding);
 		}
 
 		// Uncomment if there are any other overlays above this one.
@@ -2117,6 +2350,7 @@ void Achievements::DrawPauseMenuOverlays()
 {
 	using ImGuiFullscreen::g_large_font;
 	using ImGuiFullscreen::g_medium_font;
+	using ImGuiFullscreen::GetLineHeight;
 	using ImGuiFullscreen::LayoutScale;
 
 	if (!HasActiveGame())
@@ -2128,18 +2362,18 @@ void Achievements::DrawPauseMenuOverlays()
 		return;
 
 	const ImGuiIO& io = ImGui::GetIO();
-	ImFont* font = g_medium_font;
+	const std::pair<ImFont*, float> font = g_medium_font;
 
 	const ImVec2 image_size(
 		LayoutScale(ImGuiFullscreen::LAYOUT_MENU_BUTTON_HEIGHT_NO_SUMMARY, ImGuiFullscreen::LAYOUT_MENU_BUTTON_HEIGHT_NO_SUMMARY));
-	const float start_y = LayoutScale(10.0f + 4.0f + 4.0f) + g_large_font->FontSize + (g_medium_font->FontSize * 2.0f);
+	const float start_y = LayoutScale(10.0f + 4.0f + 4.0f) + GetLineHeight(g_large_font) + (GetLineHeight(g_medium_font) * 2.0f);
 	const float margin = LayoutScale(10.0f);
 	const float spacing = LayoutScale(10.0f);
 	const float padding = LayoutScale(10.0f);
 
 	const float max_text_width = ImGuiFullscreen::LayoutScale(300.0f);
 	const float row_width = max_text_width + padding + padding + image_size.x + spacing;
-	const float title_height = padding + font->FontSize + padding;
+	const float title_height = padding + GetLineHeight(font) + padding;
 
 	if (!s_active_challenge_indicators.empty())
 	{
@@ -2149,11 +2383,11 @@ void Achievements::DrawPauseMenuOverlays()
 
 		ImDrawList* dl = ImGui::GetBackgroundDrawList();
 		dl->AddRectFilled(box_min, box_max, IM_COL32(0x21, 0x21, 0x21, 200), LayoutScale(10.0f));
-		dl->AddText(font, font->FontSize, ImVec2(box_min.x + padding, box_min.y + padding), IM_COL32(255, 255, 255, 255),
+		dl->AddText(font.first, font.second, ImVec2(box_min.x + padding, box_min.y + padding), IM_COL32(255, 255, 255, 255),
 			TRANSLATE("Achievements", "Active Challenge Achievements"));
 
 		const float y_advance = image_size.y + spacing;
-		const float acheivement_name_offset = (image_size.y - font->FontSize) / 2.0f;
+		const float acheivement_name_offset = (image_size.y - GetLineHeight(font)) / 2.0f;
 		const float max_non_ellipised_text_width = max_text_width - LayoutScale(10.0f);
 		ImVec2 position(box_min.x + padding, box_min.y + title_height);
 
@@ -2168,21 +2402,21 @@ void Achievements::DrawPauseMenuOverlays()
 			const char* achievement_title = indicator.achievement->title;
 			const char* achievement_title_end = achievement_title + std::strlen(indicator.achievement->title);
 			const char* remaining_text = nullptr;
-			const ImVec2 text_width(font->CalcTextSizeA(
-				font->FontSize, max_non_ellipised_text_width, 0.0f, achievement_title, achievement_title_end, &remaining_text));
+			const ImVec2 text_width(font.first->CalcTextSizeA(
+				font.second, max_non_ellipised_text_width, 0.0f, achievement_title, achievement_title_end, &remaining_text));
 			const ImVec2 text_position(position.x + image_size.x + spacing, position.y + acheivement_name_offset);
 			const ImVec4 text_bbox(text_position.x, text_position.y, text_position.x + max_text_width, text_position.y + image_size.y);
 			const u32 text_color = IM_COL32(255, 255, 255, 255);
 
 			if (remaining_text < achievement_title_end)
 			{
-				dl->AddText(font, font->FontSize, text_position, text_color, achievement_title, remaining_text, 0.0f, &text_bbox);
-				dl->AddText(font, font->FontSize, ImVec2(text_position.x + text_width.x, text_position.y), text_color, "...", nullptr, 0.0f,
+				dl->AddText(font.first, font.second, text_position, text_color, achievement_title, remaining_text, 0.0f, &text_bbox);
+				dl->AddText(font.first, font.second, ImVec2(text_position.x + text_width.x, text_position.y), text_color, "...", nullptr, 0.0f,
 					&text_bbox);
 			}
 			else
 			{
-				dl->AddText(font, font->FontSize, text_position, text_color, achievement_title, achievement_title_end, 0.0f, &text_bbox);
+				dl->AddText(font.first, font.second, text_position, text_color, achievement_title, achievement_title_end, 0.0f, &text_bbox);
 			}
 
 			position.y += y_advance;
@@ -2195,6 +2429,18 @@ bool Achievements::PrepareAchievementsWindow()
 	auto lock = Achievements::GetLock();
 
 	s_achievement_badge_paths = {};
+
+	if (s_subset_list)
+	{
+		rc_client_destroy_subset_list(s_subset_list);
+		s_subset_list = nullptr;
+	}
+	CloseSubset();
+
+	s_subset_list = rc_client_create_subset_list(s_client);
+	if (!s_subset_list)
+		Console.Warning("Achievements: rc_client_create_subset_list() returned null");
+	s_achievement_buckets_collapsed.clear();
 
 	if (s_achievement_list)
 		rc_client_destroy_achievement_list(s_achievement_list);
@@ -2209,10 +2455,136 @@ bool Achievements::PrepareAchievementsWindow()
 	return true;
 }
 
+bool Achievements::DrawSubsetSidebar(float sidebar_width, bool& sidebar_has_focus, bool leaderboards_only)
+{
+	if (!s_subset_list)
+		return false;
+
+	using ImGuiFullscreen::g_medium_font;
+	using ImGuiFullscreen::LayoutScale;
+
+	static constexpr float alpha = 0.8f;
+	const ImVec4 sidebar_bg(0.10f, 0.10f, 0.10f, alpha);
+	ImGui::PushStyleColor(ImGuiCol_ChildBg, sidebar_bg);
+	ImGui::PushStyleColor(ImGuiCol_NavCursor, IM_COL32(0, 0, 0, 0));
+
+	bool subset_selected = false;
+
+	if (ImGui::BeginChild("subset_sidebar", ImVec2(sidebar_width, 0.0f), 0, 0))
+	{
+		sidebar_has_focus = ImGui::IsWindowFocused();
+		ImGuiFullscreen::BeginMenuButtons();
+
+		const float padding = LayoutScale(10.0f);
+		const float spacing = LayoutScale(8.0f);
+		const float icon_size = LayoutScale(28.0f);
+
+		for (u32 i = 0; i < s_subset_list->num_subsets; i++)
+		{
+			const rc_client_subset_t* subset = s_subset_list->subsets[i];
+			if (leaderboards_only && subset->num_leaderboards == 0)
+				continue;
+
+			TinyString id_str;
+			id_str.format("sidebar_subset_{}", subset->id);
+
+			ImRect bb;
+			bool visible, hovered;
+			ImGuiFullscreen::MenuButtonFrame(id_str, true, ImGuiFullscreen::LAYOUT_MENU_BUTTON_HEIGHT_NO_SUMMARY,
+				&visible, &hovered, &bb.Min, &bb.Max, 0, 1.0f);
+
+			if (s_open_subset && s_open_subset->id == subset->id)
+			{
+				ImGui::GetWindowDrawList()->AddRectFilled(
+					ImVec2(bb.Min.x, bb.Min.y), ImVec2(bb.Min.x + LayoutScale(4.0f), bb.Max.y), IM_COL32(52, 152, 219, 255));
+			}
+
+			const ImVec2 icon_min(bb.Min.x + padding, bb.Min.y + (bb.Max.y - bb.Min.y - icon_size) * 0.5f);
+			const ImVec2 icon_max(icon_min.x + icon_size, icon_min.y + icon_size);
+
+			std::string badge_path = GetSubsetBadgePath(subset);
+			if (!badge_path.empty())
+			{
+				GSTexture* badge = ImGuiFullscreen::GetCachedTextureAsync(badge_path);
+				if (badge)
+				{
+					ImGui::GetWindowDrawList()->AddImage(reinterpret_cast<ImTextureID>(badge->GetNativeHandle()),
+						icon_min, icon_max, ImVec2(0.0f, 0.0f), ImVec2(1.0f, 1.0f), IM_COL32(255, 255, 255, 255));
+				}
+			}
+
+			const ImRect text_bb(ImVec2(icon_max.x + spacing, bb.Min.y), ImVec2(bb.Max.x - padding, bb.Max.y));
+			ImGui::PushFont(g_medium_font.first, g_medium_font.second);
+			ImGuiFullscreen::RenderTextClippedWithShadow(
+				text_bb.Min, text_bb.Max, subset->title, nullptr, nullptr, ImVec2(0.0f, 0.5f), &text_bb);
+			ImGui::PopFont();
+
+			if (ImGui::IsItemClicked() || ImGui::IsItemActivated())
+			{
+				OpenSubset(subset);
+				subset_selected = true;
+				break;
+			}
+		}
+
+		ImGuiFullscreen::EndMenuButtons();
+	}
+	ImGui::EndChild();
+
+	ImGui::PopStyleColor(2);
+	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
+	ImGui::SameLine();
+	ImGui::PopStyleVar();
+	return subset_selected;
+}
+
+void Achievements::DrawSubsetSidebarFooter(bool sidebar_has_focus)
+{
+	if (ImGuiFullscreen::IsGamepadInputSource())
+	{
+		const bool circleOK = ImGui::GetIO().ConfigNavSwapGamepadButtons;
+		const auto glyphs = ImGuiFullscreen::GetGamepadGlyphs();
+		if (sidebar_has_focus)
+		{
+			ImGuiFullscreen::SetFullscreenFooterText(std::array{
+				std::make_pair(glyphs.dpad_ud, TRANSLATE_SV("Achievements", "Navigate Subsets")),
+				std::make_pair(glyphs.confirm(circleOK), TRANSLATE_SV("Achievements", "Select")),
+				std::make_pair(glyphs.cancel(circleOK), TRANSLATE_SV("Achievements", "Back")),
+			});
+		}
+		else
+		{
+			ImGuiFullscreen::SetFullscreenFooterText(std::array{
+				std::make_pair(glyphs.dpad_ud, TRANSLATE_SV("Achievements", "Change Selection")),
+				std::make_pair(glyphs.cancel(circleOK), TRANSLATE_SV("Achievements", "Subsets")),
+			});
+		}
+	}
+	else
+	{
+		if (sidebar_has_focus)
+		{
+			ImGuiFullscreen::SetFullscreenFooterText(std::array{
+				std::make_pair(ICON_PF_ARROW_UP ICON_PF_ARROW_DOWN, TRANSLATE_SV("Achievements", "Navigate Subsets")),
+				std::make_pair(ICON_PF_ENTER, TRANSLATE_SV("Achievements", "Select")),
+				std::make_pair(ICON_PF_ESC, TRANSLATE_SV("Achievements", "Back")),
+			});
+		}
+		else
+		{
+			ImGuiFullscreen::SetFullscreenFooterText(std::array{
+				std::make_pair(ICON_PF_ARROW_UP ICON_PF_ARROW_DOWN, TRANSLATE_SV("Achievements", "Change Selection")),
+				std::make_pair(ICON_PF_ESC, TRANSLATE_SV("Achievements", "Subsets")),
+			});
+		}
+	}
+}
+
 void Achievements::DrawAchievementsWindow()
 {
 	using ImGuiFullscreen::g_large_font;
 	using ImGuiFullscreen::g_medium_font;
+	using ImGuiFullscreen::GetLineHeight;
 	using ImGuiFullscreen::LayoutScale;
 
 	if (!s_achievement_list)
@@ -2222,6 +2594,12 @@ void Achievements::DrawAchievementsWindow()
 
 	// ensure image downloads still happen while we're paused
 	Achievements::IdleUpdate();
+
+	const bool has_multiple_subsets = (s_subset_list && s_subset_list->num_subsets > 1);
+	static bool sidebar_has_focus = false;
+	static bool focus_sidebar = false;
+	if (!has_multiple_subsets)
+		sidebar_has_focus = false;
 
 	static constexpr float alpha = 0.8f;
 	static constexpr float heading_alpha = 0.95f;
@@ -2265,37 +2643,55 @@ void Achievements::DrawAchievementsWindow()
 			SmallString text;
 			ImVec2 text_size;
 
-			if (ImGuiFullscreen::FloatingButton(ICON_FA_WINDOW_CLOSE, 10.0f, 10.0f, -1.0f, -1.0f, 1.0f, 0.0f, true, g_large_font) ||
-				ImGuiFullscreen::WantsToCloseMenu())
+			const bool wants_close = ImGuiFullscreen::WantsToCloseMenu();
+			if (ImGuiFullscreen::FloatingButton(ICON_FA_SQUARE_XMARK, 10.0f, 10.0f, -1.0f, -1.0f, 1.0f, 0.0f, true, g_large_font) ||
+				(wants_close && (!has_multiple_subsets || sidebar_has_focus)))
 			{
+				sidebar_has_focus = false;
 				FullscreenUI::ReturnToPreviousWindow();
 			}
+			else if (has_multiple_subsets && !sidebar_has_focus && wants_close)
+			{
+				sidebar_has_focus = true;
+				focus_sidebar = true;
+			}
 
-			const ImRect title_bb(ImVec2(left, top), ImVec2(right, top + g_large_font->FontSize));
-			text.assign(s_game_title);
+			const ImRect title_bb(ImVec2(left, top), ImVec2(right, top + GetLineHeight(g_large_font)));
+			text.assign(s_open_subset ? s_open_subset->title : s_game_title);
 
 			if (s_hardcore_mode)
 				text.append(TRANSLATE_SV("Achievements", " (Hardcore Mode)"));
 
-			top += g_large_font->FontSize + spacing;
+			top += GetLineHeight(g_large_font) + spacing;
 
-			ImGui::PushFont(g_large_font);
-			ImGui::RenderTextClipped(title_bb.Min, title_bb.Max, text.c_str(), text.end_ptr(), nullptr, ImVec2(0.0f, 0.0f), &title_bb);
+			ImGui::PushFont(g_large_font.first, g_large_font.second);
+			ImGuiFullscreen::RenderTextClippedWithShadow(
+				title_bb.Min, title_bb.Max, text.c_str(), text.end_ptr(), nullptr, ImVec2(0.0f, 0.0f), &title_bb);
 			ImGui::PopFont();
 
-			const ImRect summary_bb(ImVec2(left, top), ImVec2(right, top + g_medium_font->FontSize));
-			if (s_game_summary.num_core_achievements > 0)
+			const ImRect summary_bb(ImVec2(left, top), ImVec2(right, top + GetLineHeight(g_medium_font)));
+			UpdateGameSummary();
+
+			rc_client_user_game_summary_t display_summary = {};
+			const rc_client_user_game_summary_t* summary_ptr = &s_game_summary;
+			if (s_open_subset)
 			{
-				if (s_game_summary.num_unlocked_achievements == s_game_summary.num_core_achievements)
+				rc_client_get_user_subset_summary(s_client, s_open_subset->id, &display_summary);
+				summary_ptr = &display_summary;
+			}
+
+			if (summary_ptr->num_core_achievements > 0)
+			{
+				if (summary_ptr->num_unlocked_achievements == summary_ptr->num_core_achievements)
 				{
 					text.format(TRANSLATE_FS("Achievements", "You have unlocked all achievements and earned {} points!"),
-						s_game_summary.points_unlocked);
+						summary_ptr->points_unlocked);
 				}
 				else
 				{
 					text.format(TRANSLATE_FS("Achievements", "You have unlocked {0} of {1} achievements, earning {2} of {3} possible points."),
-						s_game_summary.num_unlocked_achievements, s_game_summary.num_core_achievements, s_game_summary.points_unlocked,
-						s_game_summary.points_core);
+						summary_ptr->num_unlocked_achievements, summary_ptr->num_core_achievements, summary_ptr->points_unlocked,
+						summary_ptr->points_core);
 				}
 			}
 			else
@@ -2303,30 +2699,30 @@ void Achievements::DrawAchievementsWindow()
 				text.assign(TRANSLATE_SV("Achievements", "This game has no achievements."));
 			}
 
-			top += g_medium_font->FontSize + spacing;
+			top += GetLineHeight(g_medium_font) + spacing;
 
-			ImGui::PushFont(g_medium_font);
+			ImGui::PushFont(g_medium_font.first, g_medium_font.second);
 			ImGui::RenderTextClipped(
 				summary_bb.Min, summary_bb.Max, text.c_str(), text.end_ptr(), nullptr, ImVec2(0.0f, 0.0f), &summary_bb);
 			ImGui::PopFont();
 
-			if (s_game_summary.num_core_achievements > 0)
+			if (summary_ptr->num_core_achievements > 0)
 			{
 				const float progress_height = ImGuiFullscreen::LayoutScale(20.0f);
 				const ImRect progress_bb(ImVec2(left, top), ImVec2(right, top + progress_height));
 				const float fraction =
-					static_cast<float>(s_game_summary.num_unlocked_achievements) / static_cast<float>(s_game_summary.num_core_achievements);
+					static_cast<float>(summary_ptr->num_unlocked_achievements) / static_cast<float>(summary_ptr->num_core_achievements);
 				dl->AddRectFilled(progress_bb.Min, progress_bb.Max, ImGui::GetColorU32(ImGuiFullscreen::UIPrimaryDarkColor));
 				dl->AddRectFilled(progress_bb.Min, ImVec2(progress_bb.Min.x + fraction * progress_bb.GetWidth(), progress_bb.Max.y),
 					ImGui::GetColorU32(ImGuiFullscreen::UISecondaryColor));
 
 				text.format("{}%", static_cast<int>(std::round(fraction * 100.0f)));
-				ImGui::PushFont(g_medium_font);
+				ImGui::PushFont(g_medium_font.first, g_medium_font.second);
 				text_size = ImGui::CalcTextSize(text.c_str(), text.end_ptr());
 				ImGui::PopFont();
 				const ImVec2 text_pos(progress_bb.Min.x + ((progress_bb.Max.x - progress_bb.Min.x) / 2.0f) - (text_size.x / 2.0f),
 					progress_bb.Min.y + ((progress_bb.Max.y - progress_bb.Min.y) / 2.0f) - (text_size.y / 2.0f));
-				dl->AddText(g_medium_font, g_medium_font->FontSize, text_pos, ImGui::GetColorU32(ImGuiFullscreen::UIPrimaryTextColor),
+				dl->AddText(g_medium_font.first, g_medium_font.second, text_pos, ImGui::GetColorU32(ImGuiFullscreen::UIPrimaryTextColor),
 					text.c_str(), text.end_ptr());
 				top += progress_height + spacing;
 			}
@@ -2336,60 +2732,102 @@ void Achievements::DrawAchievementsWindow()
 
 	ImGui::SetNextWindowBgAlpha(alpha);
 
+	const float sidebar_width = has_multiple_subsets ? LayoutScale(200.0f) : 0.0f;
+
+	if (has_multiple_subsets && !s_open_subset)
+	{
+		OpenSubset(s_subset_list->subsets[0]);
+	}
+
 	if (ImGuiFullscreen::BeginFullscreenWindow(
 			ImVec2(0.0f, heading_height),
 			ImVec2(display_size.x, display_size.y - heading_height - LayoutScale(ImGuiFullscreen::LAYOUT_FOOTER_HEIGHT)),
-			"achievements", background, 0.0f, ImVec2(ImGuiFullscreen::LAYOUT_MENU_WINDOW_X_PADDING, 0.0f), 0))
+			"achievements", background, 0.0f, ImVec2(0.0f, 0.0f), 0))
 	{
-		static bool buckets_collapsed[NUM_RC_CLIENT_ACHIEVEMENT_BUCKETS] = {};
-		static const char* bucket_names[NUM_RC_CLIENT_ACHIEVEMENT_BUCKETS] = {
-			TRANSLATE_NOOP("Achievements", "Unknown"),
-			TRANSLATE_NOOP("Achievements", "Locked"),
-			TRANSLATE_NOOP("Achievements", "Unlocked"),
-			TRANSLATE_NOOP("Achievements", "Unsupported"),
-			TRANSLATE_NOOP("Achievements", "Unofficial"),
-			TRANSLATE_NOOP("Achievements", "Recently Unlocked"),
-			TRANSLATE_NOOP("Achievements", "Active Challenges"),
-			TRANSLATE_NOOP("Achievements", "Almost There"),
-		};
-
-		ImGuiFullscreen::BeginMenuButtons();
-
-		for (u32 bucket_type : {RC_CLIENT_ACHIEVEMENT_BUCKET_ACTIVE_CHALLENGE, RC_CLIENT_ACHIEVEMENT_BUCKET_RECENTLY_UNLOCKED,
-				 RC_CLIENT_ACHIEVEMENT_BUCKET_UNLOCKED, RC_CLIENT_ACHIEVEMENT_BUCKET_ALMOST_THERE, RC_CLIENT_ACHIEVEMENT_BUCKET_LOCKED,
-				 RC_CLIENT_ACHIEVEMENT_BUCKET_UNOFFICIAL, RC_CLIENT_ACHIEVEMENT_BUCKET_UNSUPPORTED})
+		if (has_multiple_subsets)
 		{
-			for (u32 bucket_idx = 0; bucket_idx < s_achievement_list->num_buckets; bucket_idx++)
+			if (focus_sidebar)
 			{
-				const rc_client_achievement_bucket_t& bucket = s_achievement_list->buckets[bucket_idx];
-				if (bucket.bucket_type != bucket_type)
-					continue;
-
-				pxAssert(bucket.bucket_type < NUM_RC_CLIENT_ACHIEVEMENT_BUCKETS);
-
-				// TODO: Once subsets are supported, this will need to change.
-				bool& bucket_collapsed = buckets_collapsed[bucket.bucket_type];
-				bucket_collapsed ^=
-					ImGuiFullscreen::MenuHeadingButton(Host::TranslateToCString("Achievements", bucket_names[bucket.bucket_type]),
-						bucket_collapsed ? ICON_FA_CHEVRON_DOWN : ICON_FA_CHEVRON_UP);
-				if (!bucket_collapsed)
-				{
-					for (u32 i = 0; i < bucket.num_achievements; i++)
-						DrawAchievement(bucket.achievements[i]);
-				}
+				ImGui::SetNextWindowFocus();
+				focus_sidebar = false;
 			}
+			if (DrawSubsetSidebar(sidebar_width, sidebar_has_focus, false))
+				ImGui::SetNextWindowFocus();
 		}
 
-		ImGuiFullscreen::EndMenuButtons();
+		const float content_width = has_multiple_subsets ? (display_size.x - sidebar_width) : display_size.x;
+		ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(ImGuiFullscreen::LAYOUT_MENU_WINDOW_X_PADDING, 0.0f));
+		ImGui::PushStyleColor(ImGuiCol_ChildBg, background);
+		ImGui::PushStyleColor(ImGuiCol_Header, ImGui::GetColorU32(ImGuiFullscreen::UIPrimaryDarkColor));
+		ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImGui::GetColorU32(ImGuiFullscreen::UIPrimaryColor));
+		ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImGui::GetColorU32(ImGuiFullscreen::UISecondaryColor));
+
+		if (ImGui::BeginChild("achievements_content", ImVec2(content_width, 0.0f), 0, 0))
+		{
+
+			static const char* bucket_names[NUM_RC_CLIENT_ACHIEVEMENT_BUCKETS] = {
+				TRANSLATE_NOOP("Achievements", "Unknown"),
+				TRANSLATE_NOOP("Achievements", "Locked"),
+				TRANSLATE_NOOP("Achievements", "Unlocked"),
+				TRANSLATE_NOOP("Achievements", "Unsupported"),
+				TRANSLATE_NOOP("Achievements", "Unofficial"),
+				TRANSLATE_NOOP("Achievements", "Recently Unlocked"),
+				TRANSLATE_NOOP("Achievements", "Active Challenges"),
+				TRANSLATE_NOOP("Achievements", "Almost There"),
+			};
+
+			ImGuiFullscreen::BeginMenuButtons();
+
+			for (u32 bucket_type : {RC_CLIENT_ACHIEVEMENT_BUCKET_ACTIVE_CHALLENGE, RC_CLIENT_ACHIEVEMENT_BUCKET_RECENTLY_UNLOCKED,
+					 RC_CLIENT_ACHIEVEMENT_BUCKET_UNLOCKED, RC_CLIENT_ACHIEVEMENT_BUCKET_ALMOST_THERE, RC_CLIENT_ACHIEVEMENT_BUCKET_LOCKED,
+					 RC_CLIENT_ACHIEVEMENT_BUCKET_UNOFFICIAL, RC_CLIENT_ACHIEVEMENT_BUCKET_UNSUPPORTED})
+			{
+				for (u32 bucket_idx = 0; bucket_idx < s_achievement_list->num_buckets; bucket_idx++)
+				{
+					const rc_client_achievement_bucket_t& bucket = s_achievement_list->buckets[bucket_idx];
+					if (bucket.bucket_type != bucket_type)
+						continue;
+
+					if (s_open_subset && bucket.subset_id != 0 && bucket.subset_id != s_open_subset->id)
+						continue;
+
+					pxAssert(bucket.bucket_type < NUM_RC_CLIENT_ACHIEVEMENT_BUCKETS);
+
+					bool& bucket_collapsed = s_achievement_buckets_collapsed[std::make_pair(bucket.subset_id, bucket.bucket_type)];
+					const char* translated_bucket_name = Host::TranslateToCString("Achievements", bucket_names[bucket.bucket_type]);
+
+					bucket_collapsed ^=
+						ImGuiFullscreen::MenuHeadingButton(translated_bucket_name,
+							bucket_collapsed ? ICON_FA_CHEVRON_DOWN : ICON_FA_CHEVRON_UP);
+
+					if (!bucket_collapsed)
+					{
+						for (u32 i = 0; i < bucket.num_achievements; i++)
+							DrawAchievement(bucket.achievements[i]);
+					}
+				}
+			}
+
+			ImGuiFullscreen::EndMenuButtons();
+		}
+		ImGui::EndChild();
+
+		ImGui::PopStyleColor(4);
+		ImGui::PopStyleVar();
 	}
 	ImGuiFullscreen::EndFullscreenWindow();
-	FullscreenUI::SetStandardSelectionFooterText(true);
+
+	if (has_multiple_subsets)
+		DrawSubsetSidebarFooter(sidebar_has_focus);
+	else
+		FullscreenUI::SetStandardSelectionFooterText(true);
 }
 
 void Achievements::DrawAchievement(const rc_client_achievement_t* cheevo)
 {
 	using ImGuiFullscreen::g_large_font;
 	using ImGuiFullscreen::g_medium_font;
+	using ImGuiFullscreen::GetLineHeight;
 	using ImGuiFullscreen::LayoutScale;
 	using ImGuiFullscreen::LayoutUnscale;
 
@@ -2404,16 +2842,16 @@ void Achievements::DrawAchievement(const rc_client_achievement_t* cheevo)
 	const bool is_measured = !is_unlocked && !measured_progress.empty();
 	const float unlock_size = is_unlocked ? (spacing + ImGuiFullscreen::LAYOUT_MEDIUM_FONT_SIZE) : 0.0f;
 	const ImVec2 points_template_size(
-		g_medium_font->CalcTextSizeA(g_medium_font->FontSize, FLT_MAX, 0.0f, TRANSLATE("Achievements", "XXX points")));
+		g_medium_font.first->CalcTextSizeA(g_medium_font.second, FLT_MAX, 0.0f, TRANSLATE("Achievements", "XXX points")));
 
 	const size_t summary_length = std::strlen(cheevo->description);
 	const float summary_wrap_width = (ImGui::GetCurrentWindow()->WorkRect.GetWidth() - (ImGui::GetStyle().FramePadding.x * 2.0f) -
 									  LayoutScale(ImGuiFullscreen::LAYOUT_MENU_BUTTON_HEIGHT + 30.0f) - points_template_size.x);
-	const ImVec2 summary_text_size(g_medium_font->CalcTextSizeA(g_medium_font->FontSize, FLT_MAX, summary_wrap_width, cheevo->description,
+	const ImVec2 summary_text_size(g_medium_font.first->CalcTextSizeA(g_medium_font.second, FLT_MAX, summary_wrap_width, cheevo->description,
 		cheevo->description + summary_length));
 
 	// Messy, but need to undo LayoutScale in MenuButtonFrame()...
-	const float extra_summary_height = LayoutUnscale(std::max(summary_text_size.y - g_medium_font->FontSize, 0.0f));
+	const float extra_summary_height = LayoutUnscale(std::max(summary_text_size.y - GetLineHeight(g_medium_font), 0.0f));
 
 	ImRect bb;
 	bool visible, hovered;
@@ -2451,69 +2889,130 @@ void Achievements::DrawAchievement(const rc_client_achievement_t* cheevo)
 
 	SmallString text;
 
-	const float midpoint = bb.Min.y + g_large_font->FontSize + spacing;
+	const float midpoint = bb.Min.y + GetLineHeight(g_large_font) + spacing;
 	text.format((cheevo->points != 1) ? TRANSLATE_FS("Achievements", "{} points") : TRANSLATE_FS("Achievements", "{} point"), cheevo->points);
 
-	const ImVec2 points_size(g_medium_font->CalcTextSizeA(g_medium_font->FontSize, FLT_MAX, 0.0f, text.c_str(), text.end_ptr()));
+	const ImVec2 points_size(g_medium_font.first->CalcTextSizeA(g_medium_font.second, FLT_MAX, 0.0f, text.c_str(), text.end_ptr()));
 	const float points_template_start = bb.Max.x - points_template_size.x;
 	const float points_start = points_template_start + ((points_template_size.x - points_size.x) * 0.5f);
 
 	const char* right_icon_text;
+	const char* badge_text;
+	const char* badge_icon;
+	ImVec4 badge_color;
 	switch (cheevo->type)
 	{
 		case RC_CLIENT_ACHIEVEMENT_TYPE_MISSABLE:
-			right_icon_text = ICON_PF_ACHIEVEMENTS_MISSABLE; // Missable
+			badge_text = TRANSLATE("Achievements", "Missable");
+			badge_icon = ICON_PF_ACHIEVEMENTS_MISSABLE;
+			badge_color = ImVec4(0.78f, 0.55f, 0.30f, 1.0f);
+			right_icon_text = is_unlocked ? ICON_FA_LOCK_OPEN : ICON_FA_LOCK;
 			break;
 
 		case RC_CLIENT_ACHIEVEMENT_TYPE_PROGRESSION:
-			right_icon_text = ICON_PF_ACHIEVEMENTS_PROGRESSION; // Progression
+			badge_text = TRANSLATE("Achievements", "Progression");
+			badge_icon = ICON_PF_ACHIEVEMENTS_PROGRESSION;
+			badge_color = ImVec4(0.62f, 0.48f, 0.80f, 1.0f);
+			right_icon_text = is_unlocked ? ICON_FA_LOCK_OPEN : ICON_FA_LOCK;
 			break;
 
 		case RC_CLIENT_ACHIEVEMENT_TYPE_WIN:
-			right_icon_text = ICON_PF_ACHIEVEMENTS_WIN; // Win Condition
+			badge_text = TRANSLATE("Achievements", "Win Condition");
+			badge_icon = ICON_PF_ACHIEVEMENTS_WIN;
+			badge_color = ImVec4(0.36f, 0.62f, 0.36f, 1.0f);
+			right_icon_text = is_unlocked ? ICON_FA_LOCK_OPEN : ICON_FA_LOCK;
 			break;
 
-			// Just use the lock for standard achievements.
 		case RC_CLIENT_ACHIEVEMENT_TYPE_STANDARD:
 		default:
+			badge_text = nullptr;
+			badge_icon = nullptr;
 			right_icon_text = is_unlocked ? ICON_FA_LOCK_OPEN : ICON_FA_LOCK;
 			break;
 	}
 
-	const ImVec2 right_icon_size(g_large_font->CalcTextSizeA(g_large_font->FontSize, FLT_MAX, 0.0f, right_icon_text));
+	const ImVec2 right_icon_size(g_large_font.first->CalcTextSizeA(g_large_font.second, FLT_MAX, 0.0f, right_icon_text));
 
 	const float text_start_x = bb.Min.x + image_size.x + LayoutScale(15.0f);
-	const ImRect title_bb(ImVec2(text_start_x, bb.Min.y), ImVec2(points_start, midpoint));
-	const ImRect summary_bb(ImVec2(text_start_x, midpoint), ImVec2(points_start, midpoint + g_medium_font->FontSize + extra_summary_height));
+
+	const float badge_padding = LayoutScale(6.0f);
+	const float icon_text_spacing = LayoutScale(4.0f);
+	const float badge_title_spacing = LayoutScale(6.0f);
+	ImVec2 badge_size = ImVec2(0.0f, 0.0f);
+	ImVec2 badge_icon_size = ImVec2(0.0f, 0.0f);
+	ImVec2 badge_text_size = ImVec2(0.0f, 0.0f);
+	if (badge_text && badge_icon)
+	{
+		badge_icon_size = g_medium_font.first->CalcTextSizeA(g_medium_font.second, FLT_MAX, 0.0f, badge_icon);
+		badge_text_size = g_medium_font.first->CalcTextSizeA(g_medium_font.second, FLT_MAX, 0.0f, badge_text);
+		badge_size = ImVec2(badge_icon_size.x + icon_text_spacing + badge_text_size.x + (badge_padding * 2.0f),
+			g_medium_font.second + badge_padding);
+	}
+
+	const ImVec2 title_size(g_large_font.first->CalcTextSizeA(g_large_font.second, FLT_MAX, 0.0f, cheevo->title));
+	const float title_text_end_x = text_start_x + title_size.x;
+
+	float title_max_x = points_start;
+	float badge_x = 0.0f;
+	if (badge_text && badge_icon)
+	{
+		const float effective_title_max_x = points_start - (badge_size.x + badge_title_spacing);
+		badge_x = std::min(title_text_end_x + badge_title_spacing, effective_title_max_x);
+		title_max_x = badge_x - badge_title_spacing;
+	}
+
+	const ImRect title_bb(ImVec2(text_start_x, bb.Min.y), ImVec2(title_max_x, midpoint));
+	const ImRect summary_bb(ImVec2(text_start_x, midpoint), ImVec2(points_start, midpoint + GetLineHeight(g_medium_font) + extra_summary_height));
 	const ImRect points_bb(ImVec2(points_start, midpoint), bb.Max);
 	const ImRect lock_bb(
 		ImVec2(points_template_start + ((points_template_size.x - right_icon_size.x) * 0.5f), bb.Min.y), ImVec2(bb.Max.x, midpoint));
 
-	ImGui::PushFont(g_large_font);
-	ImGui::RenderTextClipped(title_bb.Min, title_bb.Max, cheevo->title, nullptr, nullptr, ImVec2(0.0f, 0.0f), &title_bb);
-	ImGui::RenderTextClipped(lock_bb.Min, lock_bb.Max, right_icon_text, nullptr, &right_icon_size, ImVec2(0.0f, 0.0f), &lock_bb);
+	ImGui::PushFont(g_large_font.first, g_large_font.second);
+	ImGuiFullscreen::RenderTextClippedWithShadow(title_bb.Min, title_bb.Max, cheevo->title, nullptr, nullptr, ImVec2(0.0f, 0.0f), &title_bb);
+	ImGuiFullscreen::RenderTextClippedWithShadow(
+		lock_bb.Min, lock_bb.Max, right_icon_text, nullptr, &right_icon_size, ImVec2(0.0f, 0.0f), &lock_bb);
 	ImGui::PopFont();
 
-	ImGui::PushFont(g_medium_font);
+	if (badge_text && badge_icon)
+	{
+		ImDrawList* dl = ImGui::GetWindowDrawList();
+		const ImVec2 badge_min(badge_x, bb.Min.y + ((midpoint - bb.Min.y) / 2.0f) - (badge_size.y / 2.0f));
+		const ImVec2 badge_max(badge_min.x + badge_size.x, badge_min.y + badge_size.y);
+
+		dl->AddRectFilled(badge_min, badge_max, ImGui::GetColorU32(badge_color), LayoutScale(3.0f));
+
+		const float icon_y = badge_min.y + ((badge_size.y - badge_icon_size.y) * 0.5f);
+		const float text_y = badge_min.y + ((badge_size.y - badge_text_size.y) * 0.5f);
+
+		const ImVec2 icon_pos(badge_min.x + badge_padding, icon_y);
+		dl->AddText(g_medium_font.first, g_medium_font.second, icon_pos, IM_COL32(255, 255, 255, 255), badge_icon);
+
+		const ImVec2 text_pos(icon_pos.x + badge_icon_size.x + icon_text_spacing, text_y);
+		dl->AddText(g_medium_font.first, g_medium_font.second, text_pos, IM_COL32(255, 255, 255, 255), badge_text);
+	}
+
+	ImGui::PushFont(g_medium_font.first, g_medium_font.second);
 	if (cheevo->description && summary_length > 0)
 	{
 		ImGui::RenderTextWrapped(summary_bb.Min, cheevo->description, cheevo->description + summary_length, summary_wrap_width);
 	}
-	ImGui::RenderTextClipped(points_bb.Min, points_bb.Max, text.c_str(), text.end_ptr(), &points_size, ImVec2(0.0f, 0.0f), &points_bb);
+	ImGuiFullscreen::RenderTextClippedWithShadow(
+		points_bb.Min, points_bb.Max, text.c_str(), text.end_ptr(), &points_size, ImVec2(0.0f, 0.0f), &points_bb);
 
 	if (is_unlocked)
 	{
 		text.format(TRANSLATE_FS("Achievements", "Unlocked: {}"), FullscreenUI::TimeToPrintableString(cheevo->unlock_time));
 
 		const ImRect unlock_bb(summary_bb.Min.x, summary_bb.Max.y + spacing, summary_bb.Max.x, bb.Max.y);
-		ImGui::RenderTextClipped(unlock_bb.Min, unlock_bb.Max, text.c_str(), text.end_ptr(), nullptr, ImVec2(0.0f, 0.0f), &unlock_bb);
+		ImGuiFullscreen::RenderTextClippedWithShadow(
+			unlock_bb.Min, unlock_bb.Max, text.c_str(), text.end_ptr(), nullptr, ImVec2(0.0f, 0.0f), &unlock_bb);
 	}
 	else if (is_measured)
 	{
 		ImDrawList* dl = ImGui::GetWindowDrawList();
 		const float progress_height = LayoutScale(progress_height_unscaled);
 		const float progress_spacing = LayoutScale(progress_spacing_unscaled);
-		const float top = midpoint + g_medium_font->FontSize + progress_spacing;
+		const float top = midpoint + GetLineHeight(g_medium_font) + progress_spacing;
 		const ImRect progress_bb(ImVec2(text_start_x, top), ImVec2(bb.Max.x, top + progress_height));
 		const float fraction = cheevo->measured_percent * 0.01f;
 		dl->AddRectFilled(progress_bb.Min, progress_bb.Max, ImGui::GetColorU32(ImGuiFullscreen::UIPrimaryDarkColor));
@@ -2523,7 +3022,7 @@ void Achievements::DrawAchievement(const rc_client_achievement_t* cheevo)
 		const ImVec2 text_size = ImGui::CalcTextSize(measured_progress.data(), measured_progress.data() + measured_progress.size());
 		const ImVec2 text_pos(progress_bb.Min.x + ((progress_bb.Max.x - progress_bb.Min.x) / 2.0f) - (text_size.x / 2.0f),
 			progress_bb.Min.y + ((progress_bb.Max.y - progress_bb.Min.y) / 2.0f) - (text_size.y / 2.0f));
-		dl->AddText(g_medium_font, g_medium_font->FontSize, text_pos, ImGui::GetColorU32(ImGuiFullscreen::UIPrimaryTextColor),
+		dl->AddText(g_medium_font.first, g_medium_font.second, text_pos, ImGui::GetColorU32(ImGuiFullscreen::UIPrimaryTextColor),
 			measured_progress.data(), measured_progress.data() + measured_progress.size());
 	}
 
@@ -2537,13 +3036,43 @@ bool Achievements::PrepareLeaderboardsWindow()
 
 	s_achievement_badge_paths = {};
 	CloseLeaderboard();
+
+	if (s_subset_list)
+	{
+		rc_client_destroy_subset_list(s_subset_list);
+		s_subset_list = nullptr;
+	}
+	CloseSubset();
+	s_subset_list = rc_client_create_subset_list(client);
+	if (!s_subset_list)
+		Console.Warning("Achievements: rc_client_create_subset_list() returned null");
+	s_leaderboard_buckets_collapsed.clear();
+
 	if (s_leaderboard_list)
 		rc_client_destroy_leaderboard_list(s_leaderboard_list);
-	s_leaderboard_list = rc_client_create_leaderboard_list(client, RC_CLIENT_LEADERBOARD_LIST_GROUPING_NONE);
+	s_leaderboard_list = rc_client_create_leaderboard_list(client, RC_CLIENT_LEADERBOARD_LIST_GROUPING_TRACKING);
 	if (!s_leaderboard_list)
 	{
 		Console.Error("Achievements: rc_client_create_leaderboard_list() returned null");
 		return false;
+	}
+
+	s_has_last_selected_leaderboard = false;
+	s_restore_leaderboard_focus = false;
+	s_last_selected_leaderboard_id = 0;
+	s_restore_leaderboard_scroll = false;
+	s_leaderboard_list_scroll = 0.0f;
+
+	if (s_subset_list)
+	{
+		for (u32 i = 0; i < s_subset_list->num_subsets; i++)
+		{
+			if (s_subset_list->subsets[i]->num_leaderboards > 0)
+			{
+				OpenSubset(s_subset_list->subsets[i]);
+				break;
+			}
+		}
 	}
 
 	return true;
@@ -2553,6 +3082,7 @@ void Achievements::DrawLeaderboardsWindow()
 {
 	using ImGuiFullscreen::g_large_font;
 	using ImGuiFullscreen::g_medium_font;
+	using ImGuiFullscreen::GetLineHeight;
 	using ImGuiFullscreen::LayoutScale;
 
 	static constexpr float alpha = 0.8f;
@@ -2567,6 +3097,14 @@ void Achievements::DrawLeaderboardsWindow()
 
 	const bool is_leaderboard_open = (s_open_leaderboard != nullptr);
 	bool close_leaderboard_on_exit = false;
+
+	const bool has_multiple_subsets = (s_subset_list && std::count_if(s_subset_list->subsets, 
+		s_subset_list->subsets + s_subset_list->num_subsets,
+		[](const rc_client_subset_t* subset) { return subset->num_leaderboards > 0; }) > 1);
+	static bool sidebar_has_focus = false;
+	static bool focus_sidebar = false;
+	if (!has_multiple_subsets || is_leaderboard_open)
+		sidebar_has_focus = false;
 
 	ImRect bb;
 
@@ -2586,12 +3124,16 @@ void Achievements::DrawLeaderboardsWindow()
 		heading_height += LayoutScale(ImGuiFullscreen::LAYOUT_MENU_BUTTON_HEIGHT_NO_SUMMARY) + spacing;
 	}
 
-	const float rank_column_width =
-		g_large_font->CalcTextSizeA(g_large_font->FontSize, std::numeric_limits<float>::max(), -1.0f, "99999").x;
+	const float rank_column_width = std::max(
+		g_large_font.first->CalcTextSizeA(g_large_font.second, std::numeric_limits<float>::max(), -1.0f, "99999").x,
+		g_large_font.first
+			->CalcTextSizeA(
+				g_large_font.second, std::numeric_limits<float>::max(), -1.0f, TRANSLATE("Achievements", "Rank"))
+			.x);
 	const float name_column_width =
-		g_large_font->CalcTextSizeA(g_large_font->FontSize, std::numeric_limits<float>::max(), -1.0f, "WWWWWWWWWWWWWWWWWWWWWW").x;
+		g_large_font.first->CalcTextSizeA(g_large_font.second, std::numeric_limits<float>::max(), -1.0f, "WWWWWWWWWWWWWWWWWWWWWW").x;
 	const float time_column_width =
-		g_large_font->CalcTextSizeA(g_large_font->FontSize, std::numeric_limits<float>::max(), -1.0f, "WWWWWWWWWWW").x;
+		g_large_font.first->CalcTextSizeA(g_large_font.second, std::numeric_limits<float>::max(), -1.0f, "WWWWWWWWWWW").x;
 	const float column_spacing = spacing * 2.0f;
 
 	if (ImGuiFullscreen::BeginFullscreenWindow(ImVec2(), ImVec2(display_size.x, heading_height), "leaderboards_heading",
@@ -2626,40 +3168,54 @@ void Achievements::DrawLeaderboardsWindow()
 
 			if (!is_leaderboard_open)
 			{
-				if (ImGuiFullscreen::FloatingButton(ICON_FA_WINDOW_CLOSE, 10.0f, 10.0f, -1.0f, -1.0f, 1.0f, 0.0f, true, g_large_font) ||
-					ImGuiFullscreen::WantsToCloseMenu())
+				const bool wants_close = ImGuiFullscreen::WantsToCloseMenu();
+				if (ImGuiFullscreen::FloatingButton(ICON_FA_SQUARE_XMARK, 10.0f, 10.0f, -1.0f, -1.0f, 1.0f, 0.0f, true, g_large_font) ||
+					(wants_close && (!has_multiple_subsets || sidebar_has_focus)))
 				{
+					sidebar_has_focus = false;
 					FullscreenUI::ReturnToPreviousWindow();
+				}
+				else if (has_multiple_subsets && !sidebar_has_focus && wants_close)
+				{
+					sidebar_has_focus = true;
+					focus_sidebar = true;
 				}
 			}
 			else
 			{
-				if (ImGuiFullscreen::FloatingButton(
-						ICON_FA_CARET_SQUARE_LEFT, 10.0f, 10.0f, -1.0f, -1.0f, 1.0f, 0.0f, true, g_large_font) ||
-					ImGuiFullscreen::WantsToCloseMenu())
+				const bool wants_to_go_back = ImGuiFullscreen::FloatingButton(
+												  ICON_FA_SQUARE_CARET_LEFT, 10.0f, 10.0f, -1.0f, -1.0f, 1.0f, 0.0f, true, g_large_font) ||
+												ImGuiFullscreen::WantsToCloseMenu();
+				if (wants_to_go_back)
 				{
 					close_leaderboard_on_exit = true;
+					if (s_has_last_selected_leaderboard)
+					{
+						s_restore_leaderboard_focus = true;
+						s_restore_leaderboard_scroll = true;
+					}
 				}
 			}
 
-			const ImRect title_bb(ImVec2(left, top), ImVec2(right, top + g_large_font->FontSize));
+			const ImRect title_bb(ImVec2(left, top), ImVec2(right, top + GetLineHeight(g_large_font)));
 			text.assign(Achievements::GetGameTitle());
 
-			top += g_large_font->FontSize + spacing;
+			top += GetLineHeight(g_large_font) + spacing;
 
-			ImGui::PushFont(g_large_font);
-			ImGui::RenderTextClipped(title_bb.Min, title_bb.Max, text.c_str(), text.end_ptr(), nullptr, ImVec2(0.0f, 0.0f), &title_bb);
+			ImGui::PushFont(g_large_font.first, g_large_font.second);
+			ImGuiFullscreen::RenderTextClippedWithShadow(
+				title_bb.Min, title_bb.Max, text.c_str(), text.end_ptr(), nullptr, ImVec2(0.0f, 0.0f), &title_bb);
 			ImGui::PopFont();
 
 			if (is_leaderboard_open)
 			{
-				const ImRect subtitle_bb(ImVec2(left, top), ImVec2(right, top + g_large_font->FontSize));
+				const ImRect subtitle_bb(ImVec2(left, top), ImVec2(right, top + GetLineHeight(g_large_font)));
 				text.assign(s_open_leaderboard->title);
 
-				top += g_large_font->FontSize + spacing_small;
+				top += GetLineHeight(g_large_font) + spacing_small;
 
-				ImGui::PushFont(g_large_font);
-				ImGui::RenderTextClipped(
+				ImGui::PushFont(g_large_font.first, g_large_font.second);
+				ImGuiFullscreen::RenderTextClippedWithShadow(
 					subtitle_bb.Min, subtitle_bb.Max, text.c_str(), text.end_ptr(), nullptr, ImVec2(0.0f, 0.0f), &subtitle_bb);
 				ImGui::PopFont();
 
@@ -2673,21 +3229,21 @@ void Achievements::DrawLeaderboardsWindow()
 				text.format(TRANSLATE_FS("Achievements", "This game has {} leaderboards."), count);
 			}
 
-			const ImRect summary_bb(ImVec2(left, top), ImVec2(right, top + g_medium_font->FontSize));
-			top += g_medium_font->FontSize + spacing_small;
+			const ImRect summary_bb(ImVec2(left, top), ImVec2(right, top + GetLineHeight(g_medium_font)));
+			top += GetLineHeight(g_medium_font) + spacing_small;
 
-			ImGui::PushFont(g_medium_font);
-			ImGui::RenderTextClipped(
+			ImGui::PushFont(g_medium_font.first, g_medium_font.second);
+			ImGuiFullscreen::RenderTextClippedWithShadow(
 				summary_bb.Min, summary_bb.Max, text.c_str(), text.end_ptr(), nullptr, ImVec2(0.0f, 0.0f), &summary_bb);
 
 			if (!is_leaderboard_open && !Achievements::IsHardcoreModeActive())
 			{
-				const ImRect hardcore_warning_bb(ImVec2(left, top), ImVec2(right, top + g_medium_font->FontSize));
-				top += g_medium_font->FontSize + spacing_small;
+				const ImRect hardcore_warning_bb(ImVec2(left, top), ImVec2(right, top + GetLineHeight(g_medium_font)));
+				top += GetLineHeight(g_medium_font) + spacing_small;
 
-				ImGui::RenderTextClipped(hardcore_warning_bb.Min, hardcore_warning_bb.Max,
-					TRANSLATE("Achievements", "Submitting scores is disabled because hardcore mode is off. Leaderboards are read-only."),
-					nullptr, nullptr, ImVec2(0.0f, 0.0f), &hardcore_warning_bb);
+				ImGuiFullscreen::RenderTextClippedWithShadow(hardcore_warning_bb.Min, hardcore_warning_bb.Max,
+					TRANSLATE("Achievements", "Submitting scores is disabled because hardcore mode is off. Leaderboards are read-only."), nullptr,
+					nullptr, ImVec2(0.0f, 0.0f), &hardcore_warning_bb);
 			}
 
 			ImGui::PopFont();
@@ -2697,8 +3253,14 @@ void Achievements::DrawLeaderboardsWindow()
 				const float tab_width = (ImGui::GetWindowWidth() / ImGuiFullscreen::g_layout_scale) * 0.5f;
 				ImGui::SetCursorPos(ImVec2(0.0f, top + spacing_small));
 
-				if (ImGui::IsKeyPressed(ImGuiKey_NavGamepadTweakSlow, false) || ImGui::IsKeyPressed(ImGuiKey_NavGamepadTweakFast, false))
+				if (ImGui::IsKeyPressed(ImGuiKey_NavGamepadTweakSlow, false) || ImGui::IsKeyPressed(ImGuiKey_NavGamepadTweakFast, false) ||
+					ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft, false) || ImGui::IsKeyPressed(ImGuiKey_GamepadDpadRight, false) ||
+					ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false) || ImGui::IsKeyPressed(ImGuiKey_RightArrow, false))
+				{
 					s_is_showing_all_leaderboard_entries = !s_is_showing_all_leaderboard_entries;
+				}
+
+				ImGuiFullscreen::BeginNavBar();
 
 				for (const bool show_all : {false, true})
 				{
@@ -2710,6 +3272,8 @@ void Achievements::DrawLeaderboardsWindow()
 					}
 				}
 
+				ImGuiFullscreen::EndNavBar();
+
 				const ImVec2 bg_pos = ImVec2(0.0f, ImGui::GetCurrentWindow()->DC.CursorPos.y + LayoutScale(tab_height_unscaled));
 				const ImVec2 bg_size =
 					ImVec2(ImGui::GetWindowWidth(), spacing + LayoutScale(ImGuiFullscreen::LAYOUT_MENU_BUTTON_HEIGHT_NO_SUMMARY) + spacing);
@@ -2720,20 +3284,26 @@ void Achievements::DrawLeaderboardsWindow()
 				ImGuiFullscreen::MenuButtonFrame(
 					"legend", false, ImGuiFullscreen::LAYOUT_MENU_BUTTON_HEIGHT_NO_SUMMARY, &visible, &hovered, &bb.Min, &bb.Max, 0, alpha);
 
-				const float midpoint = bb.Min.y + g_large_font->FontSize + LayoutScale(4.0f);
-				float text_start_x = bb.Min.x + LayoutScale(15.0f) + padding;
+				const float midpoint = bb.Min.y + GetLineHeight(g_large_font) + LayoutScale(4.0f);
+				const float icon_column_width = bb.Max.y - bb.Min.y;
+				float column_left = bb.Min.x + LayoutScale(15.0f) + padding;
 
-				ImGui::PushFont(g_large_font);
+				ImGui::PushFont(g_large_font.first, g_large_font.second);
 
-				const ImRect rank_bb(ImVec2(text_start_x, bb.Min.y), ImVec2(bb.Max.x, midpoint));
-				ImGui::RenderTextClipped(
-					rank_bb.Min, rank_bb.Max, TRANSLATE("Achievements", "Rank"), nullptr, nullptr, ImVec2(0.0f, 0.0f), &rank_bb);
-				text_start_x += rank_column_width + column_spacing;
+				const auto render_centered_heading = [&](const char* text, float width) {
+					const ImRect rect(ImVec2(column_left, bb.Min.y), ImVec2(column_left + width, midpoint));
+					ImGuiFullscreen::RenderTextClippedWithShadow(rect.Min, rect.Max, text, nullptr, nullptr, ImVec2(0.5f, 0.0f), &rect);
+					column_left += width + column_spacing;
+				};
 
-				const ImRect user_bb(ImVec2(text_start_x, bb.Min.y), ImVec2(bb.Max.x, midpoint));
-				ImGui::RenderTextClipped(
-					user_bb.Min, user_bb.Max, TRANSLATE("Achievements", "Name"), nullptr, nullptr, ImVec2(0.0f, 0.0f), &user_bb);
-				text_start_x += name_column_width + column_spacing;
+				render_centered_heading(TRANSLATE("Achievements", "Rank"), rank_column_width);
+
+				const float name_column_total_width = icon_column_width + column_spacing + name_column_width;
+				const ImRect user_bb(ImVec2(column_left + icon_column_width + column_spacing, bb.Min.y),
+					ImVec2(column_left + name_column_total_width, midpoint));
+				ImGuiFullscreen::RenderTextClippedWithShadow(
+					user_bb.Min, user_bb.Max, TRANSLATE("Achievements", "Name"), nullptr, nullptr, ImVec2(0.5f, 0.0f), &user_bb);
+				column_left += name_column_total_width + column_spacing;
 
 				static const char* value_headings[NUM_RC_CLIENT_LEADERBOARD_FORMATS] = {
 					TRANSLATE_NOOP("Achievements", "Time"),
@@ -2741,49 +3311,130 @@ void Achievements::DrawLeaderboardsWindow()
 					TRANSLATE_NOOP("Achievements", "Value"),
 				};
 
-				const ImRect score_bb(ImVec2(text_start_x, bb.Min.y), ImVec2(bb.Max.x, midpoint));
-				ImGui::RenderTextClipped(score_bb.Min, score_bb.Max,
+				render_centered_heading(
 					Host::TranslateToCString(
 						"Achievements", value_headings[std::min<u8>(s_open_leaderboard->format, NUM_RC_CLIENT_LEADERBOARD_FORMATS - 1)]),
-					nullptr, nullptr, ImVec2(0.0f, 0.0f), &score_bb);
-				text_start_x += time_column_width + column_spacing;
+					time_column_width);
 
-				const ImRect date_bb(ImVec2(text_start_x, bb.Min.y), ImVec2(bb.Max.x, midpoint));
-				ImGui::RenderTextClipped(
-					date_bb.Min, date_bb.Max, TRANSLATE("Achievements", "Date Submitted"), nullptr, nullptr, ImVec2(0.0f, 0.0f), &date_bb);
+				const float date_column_width = std::max(bb.Max.x - column_left, 0.0f);
+				const ImRect date_bb(ImVec2(column_left, bb.Min.y), ImVec2(column_left + date_column_width, midpoint));
+				ImGuiFullscreen::RenderTextClippedWithShadow(
+					date_bb.Min, date_bb.Max, TRANSLATE("Achievements", "Date Submitted"), nullptr, nullptr, ImVec2(0.5f, 0.0f), &date_bb);
+				column_left += date_column_width;
 
 				ImGui::PopFont();
 
 				const float line_thickness = LayoutScale(1.0f);
 				const float line_padding = LayoutScale(5.0f);
-				const ImVec2 line_start(bb.Min.x, bb.Min.y + g_large_font->FontSize + line_padding);
+				const ImVec2 line_start(bb.Min.x, bb.Min.y + GetLineHeight(g_large_font) + line_padding);
 				const ImVec2 line_end(bb.Max.x, line_start.y);
 				ImGui::GetWindowDrawList()->AddLine(line_start, line_end, ImGui::GetColorU32(ImGuiCol_TextDisabled), line_thickness);
 			}
 		}
 	}
 	ImGuiFullscreen::EndFullscreenWindow();
-	FullscreenUI::SetStandardSelectionFooterText(true);
 
 	if (!is_leaderboard_open)
 	{
+		const float sidebar_width = has_multiple_subsets ? LayoutScale(200.0f) : 0.0f;
+
 		if (ImGuiFullscreen::BeginFullscreenWindow(
 				ImVec2(0.0f, heading_height),
 				ImVec2(display_size.x, display_size.y - heading_height - LayoutScale(ImGuiFullscreen::LAYOUT_FOOTER_HEIGHT)),
-				"leaderboards", background, 0.0f, ImVec2(ImGuiFullscreen::LAYOUT_MENU_WINDOW_X_PADDING, 0.0f), 0))
+				"leaderboards", background, 0.0f, ImVec2(0.0f, 0.0f), 0))
 		{
-			ImGuiFullscreen::BeginMenuButtons();
-
-			for (u32 bucket_index = 0; bucket_index < s_leaderboard_list->num_buckets; bucket_index++)
+			if (has_multiple_subsets)
 			{
-				const rc_client_leaderboard_bucket_t& bucket = s_leaderboard_list->buckets[bucket_index];
-				for (u32 i = 0; i < bucket.num_leaderboards; i++)
-					DrawLeaderboardListEntry(bucket.leaderboards[i]);
+				if (focus_sidebar)
+				{
+					ImGui::SetNextWindowFocus();
+					focus_sidebar = false;
+				}
+				if (DrawSubsetSidebar(sidebar_width, sidebar_has_focus, true))
+					ImGui::SetNextWindowFocus();
 			}
 
-			ImGuiFullscreen::EndMenuButtons();
+			const float content_width = has_multiple_subsets ? (display_size.x - sidebar_width) : display_size.x;
+			ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(ImGuiFullscreen::LAYOUT_MENU_WINDOW_X_PADDING, 0.0f));
+			ImGui::PushStyleColor(ImGuiCol_ChildBg, background);
+			ImGui::PushStyleColor(ImGuiCol_Header, ImGui::GetColorU32(ImGuiFullscreen::UIPrimaryDarkColor));
+			ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImGui::GetColorU32(ImGuiFullscreen::UIPrimaryColor));
+			ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImGui::GetColorU32(ImGuiFullscreen::UISecondaryColor));
+
+			if (ImGui::BeginChild("leaderboards_content", ImVec2(content_width, 0.0f), 0, 0))
+			{
+
+				if (s_restore_leaderboard_scroll)
+				{
+					ImGui::SetScrollY(s_leaderboard_list_scroll);
+					s_restore_leaderboard_scroll = false;
+				}
+
+				const bool had_pending_focus_request = s_restore_leaderboard_focus;
+
+				ImGuiFullscreen::BeginMenuButtons();
+
+				static const char* lboard_bucket_names[NUM_RC_CLIENT_LEADERBOARD_BUCKETS] = {
+					TRANSLATE_NOOP("Achievements", "Unknown"),
+					TRANSLATE_NOOP("Achievements", "Inactive"),
+					TRANSLATE_NOOP("Achievements", "Active"),
+					TRANSLATE_NOOP("Achievements", "Unsupported"),
+					TRANSLATE_NOOP("Achievements", "All"),
+				};
+				const bool show_bucket_headers = (s_leaderboard_list->num_buckets > 1);
+
+				for (u32 bucket_index = 0; bucket_index < s_leaderboard_list->num_buckets; bucket_index++)
+				{
+					const rc_client_leaderboard_bucket_t& bucket = s_leaderboard_list->buckets[bucket_index];
+					if (s_open_subset && bucket.subset_id != 0 && bucket.subset_id != s_open_subset->id)
+						continue;
+					if (show_bucket_headers)
+					{
+						pxAssert(bucket.bucket_type < NUM_RC_CLIENT_LEADERBOARD_BUCKETS);
+						const char* type_name = Host::TranslateToCString("Achievements", lboard_bucket_names[bucket.bucket_type]);
+
+						TinyString bucket_label;
+						if (bucket.subset_id != 0 && !s_open_subset && s_subset_list)
+						{
+							auto subset_iter = std::find_if(s_subset_list->subsets, s_subset_list->subsets + s_subset_list->num_subsets,
+								[&](const rc_client_subset_t* s) { return s->id == bucket.subset_id; });
+							if (subset_iter != s_subset_list->subsets + s_subset_list->num_subsets)
+								bucket_label.format("{} - {}", (*subset_iter)->title, type_name);
+							else
+								bucket_label.assign(type_name);
+						}
+						else
+						{
+							bucket_label.assign(type_name);
+						}
+
+						bool& bucket_collapsed = s_leaderboard_buckets_collapsed[std::make_pair(bucket.subset_id, bucket.bucket_type)];
+						if (ImGuiFullscreen::MenuHeadingButton(
+								bucket_label, bucket_collapsed ? ICON_FA_CHEVRON_DOWN : ICON_FA_CHEVRON_UP))
+							bucket_collapsed = !bucket_collapsed;
+						if (bucket_collapsed)
+							continue;
+					}
+					for (u32 i = 0; i < bucket.num_leaderboards; i++)
+						DrawLeaderboardListEntry(bucket.leaderboards[i]);
+				}
+
+				ImGuiFullscreen::EndMenuButtons();
+
+				if (had_pending_focus_request && s_restore_leaderboard_focus)
+					s_restore_leaderboard_focus = false;
+			}
+			ImGui::EndChild();
+
+			ImGui::PopStyleColor(4);
+			ImGui::PopStyleVar();
 		}
 		ImGuiFullscreen::EndFullscreenWindow();
+
+		if (has_multiple_subsets)
+			DrawSubsetSidebarFooter(sidebar_has_focus);
+		else
+			FullscreenUI::SetStandardSelectionFooterText(true);
 	}
 	else
 	{
@@ -2807,7 +3458,7 @@ void Achievements::DrawLeaderboardsWindow()
 				}
 				else
 				{
-					ImGui::PushFont(g_large_font);
+					ImGui::PushFont(g_large_font.first, g_large_font.second);
 
 					const ImVec2 pos_min(0.0f, heading_height);
 					const ImVec2 pos_max(display_size.x, display_size.y);
@@ -2834,10 +3485,10 @@ void Achievements::DrawLeaderboardsWindow()
 					ImGuiFullscreen::LAYOUT_MENU_BUTTON_HEIGHT_NO_SUMMARY, &visible, &hovered, &bb.Min, &bb.Max);
 				if (visible)
 				{
-					const float midpoint = bb.Min.y + g_large_font->FontSize + LayoutScale(4.0f);
+					const float midpoint = bb.Min.y + GetLineHeight(g_large_font) + LayoutScale(4.0f);
 					const ImRect title_bb(bb.Min, ImVec2(bb.Max.x, midpoint));
 
-					ImGui::PushFont(g_large_font);
+					ImGui::PushFont(g_large_font.first, g_large_font.second);
 					ImGui::RenderTextClipped(
 						title_bb.Min, title_bb.Max, TRANSLATE("Achievements", "Loading..."), nullptr, nullptr, ImVec2(0, 0), &title_bb);
 					ImGui::PopFont();
@@ -2850,6 +3501,25 @@ void Achievements::DrawLeaderboardsWindow()
 			ImGuiFullscreen::EndMenuButtons();
 		}
 		ImGuiFullscreen::EndFullscreenWindow();
+
+		if (ImGuiFullscreen::IsGamepadInputSource())
+		{
+			const bool circleOK = ImGui::GetIO().ConfigNavSwapGamepadButtons;
+			const auto glyphs = ImGuiFullscreen::GetGamepadGlyphs();
+			ImGuiFullscreen::SetFullscreenFooterText(std::array{
+				std::make_pair(glyphs.dpad_lr, TRANSLATE_SV("Achievements", "Switch Rankings")),
+				std::make_pair(glyphs.dpad_ud, TRANSLATE_SV("Achievements", "Change Selection")),
+				std::make_pair(glyphs.cancel(circleOK), TRANSLATE_SV("Achievements", "Back")),
+			});
+		}
+		else
+		{
+			ImGuiFullscreen::SetFullscreenFooterText(std::array{
+				std::make_pair(ICON_PF_ARROW_LEFT ICON_PF_ARROW_RIGHT, TRANSLATE_SV("Achievements", "Switch Rankings")),
+				std::make_pair(ICON_PF_ARROW_UP ICON_PF_ARROW_DOWN, TRANSLATE_SV("Achievements", "Change Selection")),
+				std::make_pair(ICON_PF_ESC, TRANSLATE_SV("Achievements", "Back")),
+			});
+		}
 	}
 
 	if (close_leaderboard_on_exit)
@@ -2860,6 +3530,7 @@ void Achievements::DrawLeaderboardEntry(const rc_client_leaderboard_entry_t& ent
 	float name_column_width, float time_column_width, float column_spacing)
 {
 	using ImGuiFullscreen::g_large_font;
+	using ImGuiFullscreen::GetLineHeight;
 	using ImGuiFullscreen::LayoutScale;
 
 	static constexpr float alpha = 0.8f;
@@ -2871,23 +3542,25 @@ void Achievements::DrawLeaderboardEntry(const rc_client_leaderboard_entry_t& ent
 	if (!visible)
 		return;
 
-	const float midpoint = bb.Min.y + g_large_font->FontSize + LayoutScale(4.0f);
-	float text_start_x = bb.Min.x + LayoutScale(15.0f);
+	const float midpoint = bb.Min.y + GetLineHeight(g_large_font) + LayoutScale(4.0f);
+	const float column_padding = LayoutScale(15.0f);
+	const float icon_column_width = bb.Max.y - bb.Min.y;
+	float column_left = bb.Min.x + column_padding;
 	SmallString text;
 
 	text.format("{}", entry.rank);
 
-	ImGui::PushFont(g_large_font);
+	ImGui::PushFont(g_large_font.first, g_large_font.second);
 
 	if (is_self)
 		ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(255, 242, 0, 255));
 
-	const ImRect rank_bb(ImVec2(text_start_x, bb.Min.y), ImVec2(bb.Max.x, midpoint));
-	ImGui::RenderTextClipped(rank_bb.Min, rank_bb.Max, text.c_str(), text.end_ptr(), nullptr, ImVec2(0.0f, 0.0f), &rank_bb);
-	text_start_x += rank_column_width + column_spacing;
+	const ImRect rank_bb(ImVec2(column_left, bb.Min.y), ImVec2(column_left + rank_column_width, midpoint));
+	ImGuiFullscreen::RenderTextClippedWithShadow(
+		rank_bb.Min, rank_bb.Max, text.c_str(), text.end_ptr(), nullptr, ImVec2(0.0f, 0.0f), &rank_bb);
+	column_left += rank_column_width + column_spacing;
 
-	const float icon_size = bb.Max.y - bb.Min.y;
-	const ImRect icon_bb(ImVec2(text_start_x, bb.Min.y), ImVec2(bb.Max.x, midpoint));
+	const ImRect icon_bb(ImVec2(column_left, bb.Min.y), ImVec2(column_left + icon_column_width, bb.Min.y + icon_column_width));
 	GSTexture* icon_tex = nullptr;
 	if (auto it = std::find_if(s_leaderboard_user_icon_paths.begin(), s_leaderboard_user_icon_paths.end(),
 			[&entry](const auto& it) { return it.first == &entry; });
@@ -2908,20 +3581,24 @@ void Achievements::DrawLeaderboardEntry(const rc_client_leaderboard_entry_t& ent
 	if (icon_tex)
 	{
 		ImGui::GetWindowDrawList()->AddImage(reinterpret_cast<ImTextureID>(icon_tex->GetNativeHandle()),
-			icon_bb.Min, icon_bb.Min + ImVec2(icon_size, icon_size));
+			icon_bb.Min, icon_bb.Min + ImVec2(icon_column_width, icon_column_width));
 	}
 
-	const ImRect user_bb(ImVec2(text_start_x + column_spacing + icon_size, bb.Min.y), ImVec2(bb.Max.x, midpoint));
-	ImGui::RenderTextClipped(user_bb.Min, user_bb.Max, entry.user, nullptr, nullptr, ImVec2(0.0f, 0.0f), &user_bb);
-	text_start_x += name_column_width + column_spacing;
+	column_left += icon_column_width + column_spacing;
 
-	const ImRect score_bb(ImVec2(text_start_x, bb.Min.y), ImVec2(bb.Max.x, midpoint));
-	ImGui::RenderTextClipped(score_bb.Min, score_bb.Max, entry.display, nullptr, nullptr, ImVec2(0.0f, 0.0f), &score_bb);
-	text_start_x += time_column_width + column_spacing;
+	const ImRect user_bb(ImVec2(column_left, bb.Min.y), ImVec2(column_left + name_column_width, midpoint));
+	ImGuiFullscreen::RenderTextClippedWithShadow(user_bb.Min, user_bb.Max, entry.user, nullptr, nullptr, ImVec2(0.0f, 0.0f), &user_bb);
+	column_left += name_column_width + column_spacing;
 
-	const ImRect time_bb(ImVec2(text_start_x, bb.Min.y), ImVec2(bb.Max.x, midpoint));
+	const ImRect score_bb(ImVec2(column_left, bb.Min.y), ImVec2(column_left + time_column_width, midpoint));
+	ImGuiFullscreen::RenderTextClippedWithShadow(
+		score_bb.Min, score_bb.Max, entry.display, nullptr, nullptr, ImVec2(0.0f, 0.0f), &score_bb);
+	column_left += time_column_width + column_spacing;
+
+	const ImRect time_bb(ImVec2(column_left, bb.Min.y), ImVec2(bb.Max.x, midpoint));
 	const auto submit_time = FullscreenUI::TimeToPrintableString(entry.submitted);
-	ImGui::RenderTextClipped(time_bb.Min, time_bb.Max, submit_time.c_str(), submit_time.end_ptr(), nullptr, ImVec2(0.0f, 0.0f), &time_bb);
+	ImGuiFullscreen::RenderTextClippedWithShadow(
+		time_bb.Min, time_bb.Max, submit_time.c_str(), submit_time.end_ptr(), nullptr, ImVec2(0.0f, 0.0f), &time_bb);
 
 	if (is_self)
 		ImGui::PopStyleColor();
@@ -2937,6 +3614,7 @@ void Achievements::DrawLeaderboardListEntry(const rc_client_leaderboard_t* lboar
 {
 	using ImGuiFullscreen::g_large_font;
 	using ImGuiFullscreen::g_medium_font;
+	using ImGuiFullscreen::GetLineHeight;
 	using ImGuiFullscreen::LayoutScale;
 
 	static constexpr float alpha = 0.8f;
@@ -2951,24 +3629,35 @@ void Achievements::DrawLeaderboardListEntry(const rc_client_leaderboard_t* lboar
 	if (!visible)
 		return;
 
-	const float midpoint = bb.Min.y + g_large_font->FontSize + LayoutScale(4.0f);
+	if (s_restore_leaderboard_focus && s_has_last_selected_leaderboard && lboard->id == s_last_selected_leaderboard_id)
+	{
+		ImGui::SetItemDefaultFocus();
+		ImGui::SetScrollHereY(0.5f);
+		s_restore_leaderboard_focus = false;
+	}
+
+	const float midpoint = bb.Min.y + GetLineHeight(g_large_font) + LayoutScale(4.0f);
 	const float text_start_x = bb.Min.x + LayoutScale(15.0f);
 	const ImRect title_bb(ImVec2(text_start_x, bb.Min.y), ImVec2(bb.Max.x, midpoint));
 	const ImRect summary_bb(ImVec2(text_start_x, midpoint), bb.Max);
 
-	ImGui::PushFont(g_large_font);
-	ImGui::RenderTextClipped(title_bb.Min, title_bb.Max, lboard->title, nullptr, nullptr, ImVec2(0.0f, 0.0f), &title_bb);
+	ImGui::PushFont(g_large_font.first, g_large_font.second);
+	ImGuiFullscreen::RenderTextClippedWithShadow(title_bb.Min, title_bb.Max, lboard->title, nullptr, nullptr, ImVec2(0.0f, 0.0f), &title_bb);
 	ImGui::PopFont();
 
 	if (lboard->description && lboard->description[0] != '\0')
 	{
-		ImGui::PushFont(g_medium_font);
-		ImGui::RenderTextClipped(summary_bb.Min, summary_bb.Max, lboard->description, nullptr, nullptr, ImVec2(0.0f, 0.0f), &summary_bb);
+		ImGui::PushFont(g_medium_font.first, g_medium_font.second);
+		ImGuiFullscreen::RenderTextClippedWithShadow(
+			summary_bb.Min, summary_bb.Max, lboard->description, nullptr, nullptr, ImVec2(0.0f, 0.0f), &summary_bb);
 		ImGui::PopFont();
 	}
 
 	if (pressed)
+	{
+		s_leaderboard_list_scroll = ImGui::GetScrollY();
 		OpenLeaderboard(lboard);
+	}
 }
 
 void Achievements::OpenLeaderboard(const rc_client_leaderboard_t* lboard)
@@ -2976,6 +3665,10 @@ void Achievements::OpenLeaderboard(const rc_client_leaderboard_t* lboard)
 	Console.WriteLn("Achievements: Opening leaderboard '%s' (%u)", lboard->title, lboard->id);
 
 	CloseLeaderboard();
+
+	s_last_selected_leaderboard_id = lboard->id;
+	s_has_last_selected_leaderboard = true;
+	s_restore_leaderboard_focus = false;
 
 	s_open_leaderboard = lboard;
 	s_is_showing_all_leaderboard_entries = false;
@@ -3056,6 +3749,29 @@ void Achievements::CloseLeaderboard()
 	}
 
 	s_open_leaderboard = nullptr;
+}
+
+std::string Achievements::GetSubsetBadgePath(const rc_client_subset_t* subset)
+{
+	if (!subset || !subset->badge_name[0])
+		return {};
+
+	std::string path = Path::Combine(s_image_directory, fmt::format("subset_{}.png", subset->badge_name));
+	if (!path.empty() && subset->badge_url && !FileSystem::FileExists(path.c_str()))
+		DownloadImage(subset->badge_url, path);
+
+	return path;
+}
+
+void Achievements::OpenSubset(const rc_client_subset_t* subset)
+{
+	Console.WriteLn("Achievements: Opening subset '%s' (%u)", subset->title, subset->id);
+	s_open_subset = subset;
+}
+
+void Achievements::CloseSubset()
+{
+	s_open_subset = nullptr;
 }
 
 #ifdef ENABLE_RAINTEGRATION
@@ -3184,7 +3900,13 @@ void Achievements::RAIntegration::RACallbackCausePause()
 
 void Achievements::RAIntegration::RACallbackRebuildMenu()
 {
-	// unused, we build the menu on demand
+	// Sync hardcore state in case the user changed it via the RA menu.
+	const bool ra_hardcore = (RA_HardcoreModeIsActive() != 0);
+	if (ra_hardcore != s_hardcore_mode)
+	{
+		s_hardcore_mode = ra_hardcore;
+		Host::OnAchievementsHardcoreModeChanged(ra_hardcore);
+	}
 }
 
 void Achievements::RAIntegration::RACallbackEstimateTitle(char* buf)

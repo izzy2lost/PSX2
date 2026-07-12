@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -561,7 +561,7 @@ extern void hwDmacIrq(int n);
 
 extern void FireMFIFOEmpty();
 extern bool hwMFIFOWrite(u32 addr, const u128* data, uint size_qwc);
-extern void hwMFIFOResume(u32 transferred);
+extern void hwMFIFOResume();
 extern void hwDmacSrcTadrInc(DMACh& dma);
 extern bool hwDmacSrcChainWithStack(DMACh& dma, int id);
 extern bool hwDmacSrcChain(DMACh& dma, int id);

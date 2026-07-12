@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 /*
@@ -16,12 +16,7 @@
  *		sudonim(1@gmail.com)
  */
 
-#if defined(__ANDROID__)
-#include "common/emitter/x86types.h"
-
-#else
 #include "common/emitter/internal.h"
-#endif
 #include <functional>
 
 // ------------------------------------------------------------------------
@@ -53,50 +48,15 @@
 //
 
 
+thread_local u8* x86Ptr;
+thread_local u8* xTextPtr;
 thread_local XMMSSEType g_xmmtypes[iREGCNT_XMM] = {XMMT_INT};
 
-#if defined(__ANDROID__)
-
-const a64::VRegister
-    xmm0=a64::QRegister(0), xmm1=a64::QRegister(1),
-    xmm2=a64::QRegister(2), xmm3=a64::QRegister(3),
-    xmm4=a64::QRegister(4), xmm5=a64::QRegister(5),
-    xmm6=a64::QRegister(6), xmm7=a64::QRegister(7),
-    xmm8=a64::QRegister(8), xmm9=a64::QRegister(9),
-    xmm10=a64::QRegister(10), xmm11=a64::QRegister(11),
-    xmm12=a64::QRegister(12), xmm13=a64::QRegister(13),
-    xmm14=a64::QRegister(14), xmm15=a64::QRegister(15);
-
-const a64::XRegister
-//        arg1reg = rcx,
-    arg1reg = a64::XRegister(1),
-//        arg2reg = rdx,
-    arg2reg = a64::XRegister(2),
-//        arg3reg = r8,
-    arg3reg = a64::XRegister(8),
-//        arg4reg = r9,
-    arg4reg = a64::XRegister(9),
-//        calleeSavedReg1 = rdi,
-    calleeSavedReg1 = a64::XRegister(7),
-//        calleeSavedReg2 = rsi;
-    calleeSavedReg2 = a64::XRegister(6);
-
-const a64::WRegister
-//        arg1regd = ecx,
-    arg1regd = a64::WRegister(1),
-//        arg2regd = edx,
-    arg2regd = a64::WRegister(2),
-//        calleeSavedReg1d = edi,
-    calleeSavedReg1d = a64::WRegister(7),
-//        calleeSavedReg2d = esi;
-    calleeSavedReg2d = a64::WRegister(6);
-
-#else
-
-thread_local u8* x86Ptr;
+bool x86Emitter::use_avx;
 
 namespace x86Emitter
 {
+
 	template void xWrite<u8>(u8 val);
 	template void xWrite<u16>(u16 val);
 	template void xWrite<u32>(u32 val);
@@ -338,12 +298,26 @@ const xRegister32
 	void EmitSibMagic(uint regfield, const void* address, int extraRIPOffset)
 	{
 		sptr displacement = (sptr)address;
+		sptr textRelative = (sptr)address - (sptr)xTextPtr;
 		sptr ripRelative = (sptr)address - ((sptr)x86Ptr + sizeof(s8) + sizeof(s32) + extraRIPOffset);
+		// Can we use an 8-bit offset from the text pointer?
+		if (textRelative == (s8)textRelative && xTextPtr)
+		{
+			ModRM(1, regfield, RTEXTPTR.GetId());
+			xWrite<s8>((s8)textRelative);
+			return;
+		}
 		// Can we use a rip-relative address?  (Prefer this over eiz because it's a byte shorter)
-		if (ripRelative == (s32)ripRelative)
+		else if (ripRelative == (s32)ripRelative)
 		{
 			ModRM(0, regfield, ModRm_UseDisp32);
 			displacement = ripRelative;
+		}
+		// How about from the text pointer?
+		else if (textRelative == (s32)textRelative && xTextPtr)
+		{
+			ModRM(2, regfield, RTEXTPTR.GetId());
+			displacement = textRelative;
 		}
 		else
 		{
@@ -545,6 +519,46 @@ const xRegister32
 		EmitRex(w, r, x, b, reg1.IsExtended8Bit());
 	}
 
+	void EmitRex(SIMDInstructionInfo info, const xRegisterBase& reg1, const xRegisterBase& reg2)
+	{
+		bool w = false;
+		if (info.dst_w)
+			w |= reg1.IsWide();
+		if (info.src_w)
+			w |= reg2.IsWide();
+		bool r = reg1.IsExtended();
+		bool x = false;
+		bool b = reg2.IsExtended();
+		EmitRex(w, r, x, b, reg2.IsExtended8Bit());
+	}
+
+	void EmitRex(SIMDInstructionInfo info, const xRegisterBase& reg1, const xIndirectVoid& sib)
+	{
+		bool w = false;
+		if (info.dst_w)
+			w |= reg1.IsWide();
+		if (info.src_w)
+			w |= sib.IsWide();
+		bool r = reg1.IsExtended();
+		bool x = sib.Index.IsExtended();
+		bool b = sib.Base.IsExtended();
+		if (!NeedsSibMagic(sib))
+		{
+			b = x;
+			x = false;
+		}
+		EmitRex(w, r, x, b, reg1.IsExtended8Bit());
+	}
+
+	void EmitRex(SIMDInstructionInfo info, uint reg1, const xRegisterBase& reg2)
+	{
+		bool w = info.src_w ? reg2.IsWide() : false;
+		bool r = false;
+		bool x = false;
+		bool b = reg2.IsExtended();
+		EmitRex(w, r, x, b, reg2.IsExtended8Bit());
+	}
+
 	// For use by instructions that are implicitly wide
 	void EmitRexImplicitlyWide(const xRegisterBase& reg)
 	{
@@ -569,6 +583,89 @@ const xRegister32
 		EmitRex(w, r, x, b);
 	}
 
+	__emitinline static u8 GetVEXRXB(u32 ext, const xRegisterBase& src2)
+	{
+		return src2.IsExtended() << 5;
+	}
+
+	__emitinline static u8 GetVEXRXB(const xRegisterBase& dst, const xIndirectVoid& src2)
+	{
+		bool r = dst.IsExtended();
+		bool x = src2.Index.IsExtended();
+		bool b = src2.Base.IsExtended();
+		if (!NeedsSibMagic(src2))
+		{
+			b = x;
+			x = false;
+		}
+		return (r << 7) | (x << 6) | (b << 5);
+	}
+
+	__emitinline static u8 GetVEXRXB(const xRegisterBase& dst, const xRegisterBase& src2)
+	{
+		return (dst.IsExtended() << 7) | (src2.IsExtended() << 5);
+	}
+
+	__emitinline static u8 GetL(const xRegisterBase& arg) { return arg.IsWideSIMD() ? 4 : 0; }
+	__emitinline static u8 GetL(const xIndirectVoid& arg) { return 0; }
+	__emitinline static u8 GetL(u32 ext) { return 0; }
+
+	__emitinline static u8 GetVEXW(const xRegisterBase& arg) { return arg.GetOperandSize() == 8 ? 0x80 : 0; }
+	__emitinline static u8 GetVEXW(const xIndirectVoid& arg) { return arg.GetOperandSize() == 8 ? 0x80 : 0; }
+	__emitinline static u8 GetVEXW(u32 ext) { return 0; }
+
+	template <typename D, typename S2>
+	__emitinline void xOpWriteVEX(SIMDInstructionInfo info, D dst, u8 src1, const S2& src2, int extraRipOffset)
+	{
+		u8 m = static_cast<u8>(info.map);
+		u8 p = static_cast<u8>(info.prefix);
+		u8 w = 0;
+		if (info.src_w || info.dst_w) {
+			if (info.dst_w)
+				w |= GetVEXW(dst);
+			if (info.src_w)
+				w |= GetVEXW(src2);
+		} else {
+			w = info.w_bit << 7;
+		}
+		u8 l = GetL(dst) | GetL(src2); // Needed for 256-bit movemask.
+		u8 rxb = GetVEXRXB(dst, src2);
+		u8 b2 = p | l | (src1 << 3);
+		if (!w && info.map == SIMDInstructionInfo::Map::M0F && !(rxb & 0x7F))
+		{
+			// Can use a C5 VEX
+			u8 b1 = rxb | b2;
+			xWrite8(0xC5);
+			xWrite8(b1 ^ 0xF8);
+			xWrite8(info.opcode);
+		}
+		else
+		{
+			u8 b1 = rxb | m;
+			b2 |= w;
+			xWrite8(0xC4);
+			xWrite8(b1 ^ 0xE0);
+			xWrite8(b2 ^ 0x78);
+			xWrite8(info.opcode);
+		}
+		EmitSibMagic(dst, src2, extraRipOffset);
+	}
+
+	void EmitVEX(SIMDInstructionInfo info, const xRegisterBase& dst, u8 src1, const xRegisterBase& src2, int extraRipOffset)
+	{
+		xOpWriteVEX(info, dst, src1, src2, extraRipOffset);
+	}
+
+	void EmitVEX(SIMDInstructionInfo info, const xRegisterBase& dst, u8 src1, const xIndirectVoid& src2, int extraRipOffset)
+	{
+		xOpWriteVEX(info, dst, src1, src2, extraRipOffset);
+	}
+
+	void EmitVEX(SIMDInstructionInfo info, u32 ext, u8 dst, const xRegisterBase& src2, int extraRipOffset)
+	{
+		xOpWriteVEX(info, ext, dst, src2, extraRipOffset);
+	}
+
 
 	// --------------------------------------------------------------------------------------
 	//  xSetPtr / xAlignPtr / xGetPtr / xAdvancePtr
@@ -582,12 +679,24 @@ const xRegister32
 		x86Ptr = (u8*)ptr;
 	}
 
+	// Assigns the current emitter text base address.
+	__emitinline void xSetTextPtr(void* ptr)
+	{
+		xTextPtr = (u8*)ptr;
+	}
+
 	// Retrieves the current emitter buffer target address.
 	// This is provided instead of using x86Ptr directly, since we may in the future find
 	// a need to change the storage class system for the x86Ptr 'under the hood.'
 	__emitinline u8* xGetPtr()
 	{
 		return x86Ptr;
+	}
+
+	// Retrieves the current emitter text base address.
+	__emitinline u8* xGetTextPtr()
+	{
+		return xTextPtr;
 	}
 
 	__emitinline void xAlignPtr(uint bytes)
@@ -936,7 +1045,7 @@ const xRegister32
 			}
 			else if (displacement_size == 0)
 			{
-				_xMovRtoR(to, src.Index.MatchSizeTo(to));
+				xMOV(to, src.Index.MatchSizeTo(to));
 				return;
 			}
 			else if (!preserve_flags)
@@ -944,7 +1053,7 @@ const xRegister32
 				// encode as MOV and ADD combo.  Make sure to use the immediate on the
 				// ADD since it can encode as an 8-bit sign-extended value.
 
-				_xMovRtoR(to, src.Index.MatchSizeTo(to));
+				xMOV(to, src.Index.MatchSizeTo(to));
 				xADD(to, src.Displacement);
 				return;
 			}
@@ -962,7 +1071,7 @@ const xRegister32
 					// (this does not apply to older model P4s with the broken barrel shifter,
 					//  but we currently aren't optimizing for that target anyway).
 
-					_xMovRtoR(to, src.Index);
+					xMOV(to, src.Index);
 					xSHL(to, src.Scale);
 					return;
 				}
@@ -976,15 +1085,15 @@ const xRegister32
 						if (src.Index == rsp)
 						{
 							// ESP is not encodable as an index (ix86 ignores it), thus:
-							_xMovRtoR(to, src.Base.MatchSizeTo(to)); // will do the trick!
+							xMOV(to, src.Base.MatchSizeTo(to)); // will do the trick!
 							if (src.Displacement)
 								xADD(to, src.Displacement);
 							return;
 						}
 						else if (src.Displacement == 0)
 						{
-							_xMovRtoR(to, src.Base.MatchSizeTo(to));
-							_g1_EmitOp(G1Type_ADD, to, src.Index.MatchSizeTo(to));
+							xMOV(to, src.Base.MatchSizeTo(to));
+							xADD(to, src.Index.MatchSizeTo(to));
 							return;
 						}
 					}
@@ -993,7 +1102,7 @@ const xRegister32
 						// special case handling of ESP as Index, which is replaceable with
 						// a single MOV even when preserve_flags is set! :D
 
-						_xMovRtoR(to, src.Base.MatchSizeTo(to));
+						xMOV(to, src.Base.MatchSizeTo(to));
 						return;
 					}
 				}
@@ -1280,6 +1389,8 @@ const xRegister32
 		// Align for any following instructions
 		stackAlign(m_offset, true);
 #endif
+		if (u8* ptr = xGetTextPtr())
+			xLoadFarAddr(RTEXTPTR, ptr);
 	}
 
 	xScopedStackFrame::~xScopedStackFrame()
@@ -1341,11 +1452,14 @@ const xRegister32
 		{
 			return offset + base;
 		}
-		else
+		if (u8* ptr = xGetTextPtr())
 		{
-			xLEA(tmpRegister, ptr[base]);
-			return offset + tmpRegister;
+			sptr tbase = (sptr)base - (sptr)ptr;
+			if (tbase == (s32)tbase)
+				return offset + RTEXTPTR + tbase;
 		}
+		xLEA(tmpRegister, ptr[base]);
+		return offset + tmpRegister;
 	}
 
 	void xLoadFarAddr(const xAddressReg& dst, void* addr)
@@ -1353,9 +1467,23 @@ const xRegister32
 		sptr iaddr = (sptr)addr;
 		sptr rip = (sptr)xGetPtr() + 7; // LEA will be 7 bytes
 		sptr disp = iaddr - rip;
-		if (disp == (s32)disp)
+		u8* textPtr = xGetTextPtr();
+		sptr textdisp = iaddr - (sptr)textPtr;
+		bool isRTextPtr = dst == RTEXTPTR;
+		bool canUseTextPtr = textPtr && !isRTextPtr;
+		if (disp == (s32)disp || (canUseTextPtr && (textdisp == (s32)textdisp)))
 		{
-			xLEA(dst, ptr[addr]);
+			if (isRTextPtr && textPtr)
+			{
+				// Prevent LEA from trying to use RTEXTPTR to load RTEXTPTR
+				xSetTextPtr(nullptr);
+				xLEA(dst, ptr[addr]);
+				xSetTextPtr(textPtr);
+			}
+			else
+			{
+				xLEA(dst, ptr[addr]);
+			}
 		}
 		else
 		{
@@ -1369,5 +1497,3 @@ const xRegister32
 	}
 
 } // End namespace x86Emitter
-
-#endif

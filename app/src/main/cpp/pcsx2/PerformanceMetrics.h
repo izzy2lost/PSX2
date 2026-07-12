@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #pragma once
@@ -22,6 +22,10 @@ namespace PerformanceMetrics
 	void Reset();
 	void Update(bool gs_register_write, bool fb_blit, bool is_skipping_present);
 	void OnGPUPresent(float gpu_time);
+
+	/// Logs the whole-session average framerate (frames since Clear() over
+	/// wall time). Called at VM shutdown so every -logfile run records it.
+	void LogSessionSummary();
 
 	/// Sets the EE thread for CPU usage calculations.
 	void SetCPUThread(Threading::ThreadHandle thread);

@@ -1,7 +1,8 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Host.h"
+#include "IconsPromptFont.h"
 #include "Input/InputManager.h"
 #include "StateWrapper.h"
 #include "USB/USB.h"
@@ -127,6 +128,11 @@ namespace usb_pad
 	const char* TranceVibratorDevice::TypeName() const
 	{
 		return "TranceVibrator";
+	}
+
+	const char* TranceVibratorDevice::IconName() const
+	{
+		return ICON_PF_REZ_VIBRATOR;
 	}
 
 	bool TranceVibratorDevice::Freeze(USBDevice* dev, StateWrapper& sw) const

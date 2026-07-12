@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "common/Assertions.h"
@@ -11,21 +11,19 @@
 #include "common/Threading.h"
 #include "common/WindowInfo.h"
 #include "common/HostSys.h"
+#include "fmt/format.h"
 
 #include <csignal>
 #include <cstring>
 #include <cstdlib>
 #include <optional>
-#include <sys/mman.h>
-#include <sys/types.h>
 #include <sys/sysctl.h>
+#include <thread>
 #include <time.h>
-#include <mach/mach_init.h>
-#include <mach/mach_port.h>
 #include <mach/mach_time.h>
-#include <mach/mach_vm.h>
+#include <mach/message.h>
 #include <mach/task.h>
-#include <mach/vm_map.h>
+#include <mach/thread_state.h>
 #include <mutex>
 #include <ApplicationServices/ApplicationServices.h>
 #include <IOKit/pwr_mgt/IOPMLib.h>
@@ -271,7 +269,7 @@ std::vector<DarwinMisc::CPUClass> DarwinMisc::GetCPUClasses()
 	}
 	else if (std::optional<u32> physcpu = sysctlbyname_T<u32>("hw.physicalcpu"))
 	{
-		out.push_back({"Default", *physcpu, sysctlbyname_T<u32>("hw.logicalcpu").value_or(0)});
+		out.push_back({"Default", *physcpu, sysctlbyname_T<u32>("hw.logicalcpu").value_or(*physcpu)});
 	}
 	else
 	{
@@ -279,6 +277,35 @@ std::vector<DarwinMisc::CPUClass> DarwinMisc::GetCPUClasses()
 	}
 
 	return out;
+}
+
+static CPUInfo CalcCPUInfo()
+{
+	CPUInfo out;
+	char name[256];
+	size_t name_size = sizeof(name);
+	if (0 != sysctlbyname("machdep.cpu.brand_string", name, &name_size, nullptr, 0))
+		strcpy(name, "Unknown");
+	out.name = name;
+	if (sysctlbyname_T<u32>("sysctl.proc_translated").value_or(0))
+		out.name += " (Rosetta)";
+	std::vector<DarwinMisc::CPUClass> classes = DarwinMisc::GetCPUClasses();
+	out.num_clusters = static_cast<u32>(classes.size());
+	out.num_big_cores = classes.empty() ? 0 : classes[0].num_physical;
+	out.num_threads   = classes.empty() ? 0 : classes[0].num_logical;
+	out.num_small_cores = 0;
+	for (std::size_t i = 1; i < classes.size(); i++)
+	{
+		out.num_small_cores += classes[i].num_physical;
+		out.num_threads += classes[i].num_logical;
+	}
+	return out;
+}
+
+const CPUInfo& GetCPUInfo()
+{
+	static const CPUInfo info = CalcCPUInfo();
+	return info;
 }
 
 size_t HostSys::GetRuntimePageSize()
@@ -291,201 +318,7 @@ size_t HostSys::GetRuntimeCacheLineSize()
 	return static_cast<size_t>(std::max<s64>(sysctlbyname_T<s64>("hw.cachelinesize").value_or(0), 0));
 }
 
-static __ri vm_prot_t MachProt(const PageProtectionMode& mode)
-{
-	vm_prot_t machmode = (mode.CanWrite()) ? VM_PROT_WRITE : 0;
-	machmode |= (mode.CanRead()) ? VM_PROT_READ : 0;
-	machmode |= (mode.CanExecute()) ? (VM_PROT_EXECUTE | VM_PROT_READ) : 0;
-	return machmode;
-}
-
-void* HostSys::Mmap(void* base, size_t size, const PageProtectionMode& mode)
-{
-	pxAssertMsg((size & (__pagesize - 1)) == 0, "Size is page aligned");
-	if (mode.IsNone())
-		return nullptr;
-
-#ifdef __aarch64__
-	// We can't allocate executable memory with mach_vm_allocate() on Apple Silicon.
-	// Instead, we need to use MAP_JIT with mmap(), which does not support fixed mappings.
-	if (mode.CanExecute())
-	{
-		if (base)
-			return nullptr;
-
-		const u32 mmap_prot = mode.CanWrite() ? (PROT_READ | PROT_WRITE | PROT_EXEC) : (PROT_READ | PROT_EXEC);
-		const u32 flags = MAP_PRIVATE | MAP_ANON | MAP_JIT;
-		void* const res = mmap(nullptr, size, mmap_prot, flags, -1, 0);
-		return (res == MAP_FAILED) ? nullptr : res;
-	}
-#endif
-
-	kern_return_t ret = mach_vm_allocate(mach_task_self(), reinterpret_cast<mach_vm_address_t*>(&base), size,
-		base ? VM_FLAGS_FIXED : VM_FLAGS_ANYWHERE);
-	if (ret != KERN_SUCCESS)
-	{
-		DEV_LOG("mach_vm_allocate() returned {}", ret);
-		return nullptr;
-	}
-
-	ret = mach_vm_protect(mach_task_self(), reinterpret_cast<mach_vm_address_t>(base), size, false, MachProt(mode));
-	if (ret != KERN_SUCCESS)
-	{
-		DEV_LOG("mach_vm_protect() returned {}", ret);
-		mach_vm_deallocate(mach_task_self(), reinterpret_cast<mach_vm_address_t>(base), size);
-		return nullptr;
-	}
-
-	return base;
-}
-
-void HostSys::Munmap(void* base, size_t size)
-{
-	if (!base)
-		return;
-
-	mach_vm_deallocate(mach_task_self(), reinterpret_cast<mach_vm_address_t>(base), size);
-}
-
-void HostSys::MemProtect(void* baseaddr, size_t size, const PageProtectionMode& mode)
-{
-	pxAssertMsg((size & (__pagesize - 1)) == 0, "Size is page aligned");
-
-	kern_return_t res = mach_vm_protect(mach_task_self(), reinterpret_cast<mach_vm_address_t>(baseaddr), size, false,
-		MachProt(mode));
-	if (res != KERN_SUCCESS) [[unlikely]]
-	{
-		ERROR_LOG("mach_vm_protect() failed: {}", res);
-		pxFailRel("mach_vm_protect() failed");
-	}
-}
-
-std::string HostSys::GetFileMappingName(const char* prefix)
-{
-	// name actually is not used.
-	return {};
-}
-
-void* HostSys::CreateSharedMemory(const char* name, size_t size)
-{
-	mach_vm_size_t vm_size = size;
-	mach_port_t port;
-	const kern_return_t res = mach_make_memory_entry_64(
-		mach_task_self(), &vm_size, 0, MAP_MEM_NAMED_CREATE | VM_PROT_READ | VM_PROT_WRITE, &port, MACH_PORT_NULL);
-	if (res != KERN_SUCCESS)
-	{
-		ERROR_LOG("mach_make_memory_entry_64() failed: {}", res);
-		return nullptr;
-	}
-
-	return reinterpret_cast<void*>(static_cast<uintptr_t>(port));
-}
-
-void HostSys::DestroySharedMemory(void* ptr)
-{
-	mach_port_deallocate(mach_task_self(), static_cast<mach_port_t>(reinterpret_cast<uintptr_t>(ptr)));
-}
-
-void* HostSys::MapSharedMemory(void* handle, size_t offset, void* baseaddr, size_t size, const PageProtectionMode& mode)
-{
-	mach_vm_address_t ptr = reinterpret_cast<mach_vm_address_t>(baseaddr);
-	const kern_return_t res = mach_vm_map(mach_task_self(), &ptr, size, 0, baseaddr ? VM_FLAGS_FIXED : VM_FLAGS_ANYWHERE,
-		static_cast<mach_port_t>(reinterpret_cast<uintptr_t>(handle)), offset, FALSE,
-		MachProt(mode), VM_PROT_READ | VM_PROT_WRITE, VM_INHERIT_NONE);
-	if (res != KERN_SUCCESS)
-	{
-		ERROR_LOG("mach_vm_map() failed: {}", res);
-		return nullptr;
-	}
-
-	return reinterpret_cast<void*>(ptr);
-}
-
-void HostSys::UnmapSharedMemory(void* baseaddr, size_t size)
-{
-	const kern_return_t res = mach_vm_deallocate(mach_task_self(), reinterpret_cast<mach_vm_address_t>(baseaddr), size);
-	if (res != KERN_SUCCESS)
-		pxFailRel("Failed to unmap shared memory");
-}
-
-#ifdef _M_ARM64
-
-void HostSys::FlushInstructionCache(void* address, u32 size)
-{
-	__builtin___clear_cache(reinterpret_cast<char*>(address), reinterpret_cast<char*>(address) + size);
-}
-
-#endif
-
-SharedMemoryMappingArea::SharedMemoryMappingArea(u8* base_ptr, size_t size, size_t num_pages)
-	: m_base_ptr(base_ptr)
-	, m_size(size)
-	, m_num_pages(num_pages)
-{
-}
-
-SharedMemoryMappingArea::~SharedMemoryMappingArea()
-{
-	pxAssertRel(m_num_mappings == 0, "No mappings left");
-
-	if (mach_vm_deallocate(mach_task_self(), reinterpret_cast<mach_vm_address_t>(m_base_ptr), m_size) != KERN_SUCCESS)
-		pxFailRel("Failed to release shared memory area");
-}
-
-
-std::unique_ptr<SharedMemoryMappingArea> SharedMemoryMappingArea::Create(size_t size)
-{
-	pxAssertRel(Common::IsAlignedPow2(size, __pagesize), "Size is page aligned");
-
-	mach_vm_address_t alloc = 0;
-	const kern_return_t res =
-		mach_vm_map(mach_task_self(), &alloc, size, 0, VM_FLAGS_ANYWHERE,
-			MEMORY_OBJECT_NULL, 0, false, VM_PROT_NONE, VM_PROT_NONE, VM_INHERIT_NONE);
-	if (res != KERN_SUCCESS)
-	{
-		ERROR_LOG("mach_vm_map() failed: {}", res);
-		return {};
-	}
-
-	return std::unique_ptr<SharedMemoryMappingArea>(new SharedMemoryMappingArea(reinterpret_cast<u8*>(alloc), size, size / __pagesize));
-}
-
-u8* SharedMemoryMappingArea::Map(void* file_handle, size_t file_offset, void* map_base, size_t map_size, const PageProtectionMode& mode)
-{
-	pxAssert(static_cast<u8*>(map_base) >= m_base_ptr && static_cast<u8*>(map_base) < (m_base_ptr + m_size));
-
-	const kern_return_t res =
-		mach_vm_map(mach_task_self(), reinterpret_cast<mach_vm_address_t*>(&map_base), map_size, 0, VM_FLAGS_OVERWRITE,
-			static_cast<mach_port_t>(reinterpret_cast<uintptr_t>(file_handle)), file_offset, false,
-			MachProt(mode), VM_PROT_READ | VM_PROT_WRITE, VM_INHERIT_NONE);
-	if (res != KERN_SUCCESS) [[unlikely]]
-	{
-		ERROR_LOG("mach_vm_map() failed: {}", res);
-		return nullptr;
-	}
-
-	m_num_mappings++;
-	return static_cast<u8*>(map_base);
-}
-
-bool SharedMemoryMappingArea::Unmap(void* map_base, size_t map_size)
-{
-	pxAssert(static_cast<u8*>(map_base) >= m_base_ptr && static_cast<u8*>(map_base) < (m_base_ptr + m_size));
-
-	const kern_return_t res =
-		mach_vm_map(mach_task_self(), reinterpret_cast<mach_vm_address_t*>(&map_base), map_size, 0, VM_FLAGS_OVERWRITE,
-			MEMORY_OBJECT_NULL, 0, false, VM_PROT_NONE, VM_PROT_NONE, VM_INHERIT_NONE);
-	if (res != KERN_SUCCESS) [[unlikely]]
-	{
-		ERROR_LOG("mach_vm_map() failed: {}", res);
-		return false;
-	}
-
-	m_num_mappings--;
-	return true;
-}
-
-#ifdef _M_ARM64
+#ifdef ARCH_ARM64
 
 static thread_local int s_code_write_depth = 0;
 
@@ -537,25 +370,214 @@ void HostSys::EndCodeWrite()
 	}
 }
 
-#endif // _M_ARM64
+#endif // ARCH_ARM64
+
+#define USE_MACH_EXCEPTION_PORTS
 
 namespace PageFaultHandler
 {
+#ifdef USE_MACH_EXCEPTION_PORTS
+	static void SignalHandler(mach_port_t port);
+	static mach_port_t s_port = 0;
+#else
 	static void SignalHandler(int sig, siginfo_t* info, void* ctx);
+#endif
 
 	static std::recursive_mutex s_exception_handler_mutex;
 	static bool s_in_exception_handler = false;
 	static bool s_installed = false;
 } // namespace PageFaultHandler
 
+#ifdef USE_MACH_EXCEPTION_PORTS
+
+#if defined(ARCH_X86)
+#define THREAD_STATE64_COUNT x86_THREAD_STATE64_COUNT
+#define THREAD_STATE64 x86_THREAD_STATE64
+#define thread_state64_t x86_thread_state64_t
+#elif defined(ARCH_ARM64)
+#define THREAD_STATE64_COUNT ARM_THREAD_STATE64_COUNT
+#define THREAD_STATE64 ARM_THREAD_STATE64
+#define thread_state64_t arm_thread_state64_t
+#else
+#error Unknown Darwin Platform
+#endif
+
+void PageFaultHandler::SignalHandler(mach_port_t port)
+{
+	Threading::SetNameOfCurrentThread("Mach Exception Thread");
+
+#pragma pack(4)
+	struct
+	{
+		mach_msg_header_t Head;
+		NDR_record_t NDR;
+		exception_type_t exception;
+		mach_msg_type_number_t codeCnt;
+		int64_t code[2];
+		int flavor;
+		mach_msg_type_number_t old_stateCnt;
+		natural_t old_state[THREAD_STATE64_COUNT];
+		mach_msg_trailer_t trailer;
+	} msg_in;
+
+	struct
+	{
+		mach_msg_header_t Head;
+		NDR_record_t NDR;
+		kern_return_t RetCode;
+		int flavor;
+		mach_msg_type_number_t new_stateCnt;
+		natural_t new_state[THREAD_STATE64_COUNT];
+	} msg_out;
+#pragma pack()
+	memset(&msg_in, 0xee, sizeof(msg_in));
+	memset(&msg_out, 0xee, sizeof(msg_out));
+	mach_msg_size_t send_size = 0;
+	mach_msg_option_t option = MACH_RCV_MSG;
+	while (true)
+	{
+		kern_return_t r;
+		if ((r = mach_msg_overwrite(&msg_out.Head, option, send_size, sizeof(msg_in), port,
+				 MACH_MSG_TIMEOUT_NONE, MACH_PORT_NULL, &msg_in.Head, 0)))
+		{
+			pxFail(fmt::format("CRITICAL: mach_msg_overwrite: {:x}", r).c_str());
+		}
+
+		if (msg_in.Head.msgh_id == MACH_NOTIFY_NO_SENDERS)
+		{
+			// the other thread exited
+			mach_port_deallocate(mach_task_self(), port);
+			return;
+		}
+
+		if (msg_in.Head.msgh_id != 2406)
+		{
+			pxFailRel("unknown message received");
+			return;
+		}
+
+		if (msg_in.flavor != THREAD_STATE64)
+		{
+			pxFailRel(fmt::format("unknown flavour {}, expected {}", msg_in.flavor, THREAD_STATE64).c_str());
+			return;
+		}
+
+		thread_state64_t* state = (thread_state64_t*)msg_in.old_state;
+
+		HandlerResult result = HandlerResult::ExecuteNextHandler;
+		if (!s_in_exception_handler)
+		{
+			s_in_exception_handler = true;
+
+#ifdef ARCH_ARM64
+			result = HandlePageFault(reinterpret_cast<void*>(state->__pc), reinterpret_cast<void*>(msg_in.code[1]), (msg_in.code[0] & 2) != 0);
+#else
+			result = HandlePageFault(reinterpret_cast<void*>(state->__rip), reinterpret_cast<void*>(msg_in.code[1]), (msg_in.code[0] & 2) != 0);
+#endif
+			s_in_exception_handler = false;
+		}
+
+		// Set up the reply.
+		msg_out.Head.msgh_bits = MACH_MSGH_BITS(MACH_MSGH_BITS_REMOTE(msg_in.Head.msgh_bits), 0);
+		msg_out.Head.msgh_remote_port = msg_in.Head.msgh_remote_port;
+		msg_out.Head.msgh_local_port = MACH_PORT_NULL;
+		msg_out.Head.msgh_id = msg_in.Head.msgh_id + 100;
+		msg_out.NDR = msg_in.NDR;
+
+		if (result != HandlerResult::ContinueExecution) // cooked
+		{
+			// Continue to the next exception handler (debugger or crash)
+			msg_out.RetCode = KERN_FAILURE;
+			msg_out.flavor = 0;
+			msg_out.new_stateCnt = 0;
+		}
+		else
+		{
+			// Resumes execution right where we left off (re-executes instruction that caused the SIGSEGV)
+			msg_out.RetCode = KERN_SUCCESS;
+			msg_out.flavor = THREAD_STATE64;
+			msg_out.new_stateCnt = THREAD_STATE64_COUNT;
+			memcpy(msg_out.new_state, msg_in.old_state, THREAD_STATE64_COUNT * sizeof(natural_t));
+		}
+
+		msg_out.Head.msgh_size =
+			offsetof(__typeof__(msg_out), new_state) + msg_out.new_stateCnt * sizeof(natural_t);
+		send_size = msg_out.Head.msgh_size;
+		option |= MACH_SEND_MSG;
+	}
+}
+
+bool PageFaultHandler::Install(Error* error)
+{
+	exception_mask_t masks[EXC_TYPES_COUNT];
+	mach_port_t ports[EXC_TYPES_COUNT];
+	exception_behavior_t behaviors[EXC_TYPES_COUNT];
+	thread_state_flavor_t flavors[EXC_TYPES_COUNT];
+	mach_msg_type_number_t count = EXC_TYPES_COUNT;
+
+	kern_return_t r = task_get_exception_ports(mach_task_self(), EXC_MASK_ALL,
+		masks, &count, ports, behaviors, flavors);
+
+	mach_port_t port;
+	if ((r = mach_port_allocate(mach_task_self(), MACH_PORT_RIGHT_RECEIVE, &port)))
+	{
+		pxFailRel(fmt::format("mach_port_allocate: {:x}", r).c_str());
+		return false;
+	}
+
+	std::thread sig_thread(PageFaultHandler::SignalHandler, port);
+	sig_thread.detach();
+
+	if ((r = mach_port_insert_right(mach_task_self(), port, port, MACH_MSG_TYPE_MAKE_SEND)))
+	{
+		mach_port_deallocate(mach_task_self(), port);
+		pxFailRel(fmt::format("mach_port_insert_right: {:x}", r).c_str());
+		return false;
+	}
+
+	task_set_exception_ports(mach_task_self(), EXC_MASK_BAD_ACCESS, MACH_PORT_NULL, EXCEPTION_DEFAULT, THREAD_STATE_NONE);
+
+	if ((r = thread_set_exception_ports(mach_thread_self(), EXC_MASK_BAD_ACCESS, port, EXCEPTION_STATE | MACH_EXCEPTION_CODES, THREAD_STATE64)))
+	{
+		mach_port_deallocate(mach_task_self(), port);
+		pxFailRel(fmt::format("thread_set_exception_ports: {:x}", r).c_str());
+		return false;
+	}
+
+	mach_port_t previous;
+	if ((r = mach_port_request_notification(mach_task_self(), port, MACH_NOTIFY_NO_SENDERS, 0, port, MACH_MSG_TYPE_MAKE_SEND_ONCE, &previous)))
+	{
+		mach_port_deallocate(mach_task_self(), port);
+		pxFailRel(fmt::format("mach_port_request_notification: {:x}", r).c_str());
+		return false;
+	}
+
+	s_installed = true;
+	s_port = port;
+	return true;
+}
+
+bool PageFaultHandler::InstallSecondaryThread()
+{
+	kern_return_t r = thread_set_exception_ports(mach_thread_self(), EXC_MASK_BAD_ACCESS, s_port, EXCEPTION_STATE | MACH_EXCEPTION_CODES, THREAD_STATE64);
+	if (r)
+	{
+		pxFailRel(fmt::format("thread_set_exception_ports(secondary): {:x}", r).c_str());
+		return false;
+	}
+	return true;
+}
+
+#else
+
 void PageFaultHandler::SignalHandler(int sig, siginfo_t* info, void* ctx)
 {
-#if defined(_M_X86)
+#if defined(ARCH_X86)
 	void* const exception_address =
 		reinterpret_cast<void*>(static_cast<ucontext_t*>(ctx)->uc_mcontext->__es.__faultvaddr);
 	void* const exception_pc = reinterpret_cast<void*>(static_cast<ucontext_t*>(ctx)->uc_mcontext->__ss.__rip);
 	const bool is_write = (static_cast<ucontext_t*>(ctx)->uc_mcontext->__es.__err & 2) != 0;
-#elif defined(_M_ARM64)
+#elif defined(ARCH_ARM64)
 	void* const exception_address = reinterpret_cast<void*>(static_cast<ucontext_t*>(ctx)->uc_mcontext->__es.__far);
 	void* const exception_pc = reinterpret_cast<void*>(static_cast<ucontext_t*>(ctx)->uc_mcontext->__ss.__pc);
 	const bool is_write = IsStoreInstruction(exception_pc);
@@ -601,7 +623,7 @@ bool PageFaultHandler::Install(Error* error)
 		return false;
 	}
 
-#ifdef _M_ARM64
+#ifdef ARCH_ARM64
 	if (sigaction(SIGSEGV, &sa, nullptr) != 0)
 	{
 		Error::SetErrno(error, "sigaction() for SIGSEGV failed: ", errno);
@@ -615,3 +637,6 @@ bool PageFaultHandler::Install(Error* error)
 	s_installed = true;
 	return true;
 }
+
+bool PageFaultHandler::InstallSecondaryThread() { return true; }
+#endif

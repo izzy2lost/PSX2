@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "Common.h"
@@ -39,7 +39,7 @@ alignas(16) const int non_linear_quantizer_scale[32] =
 	56, 64, 72, 80, 88, 96, 104, 112
 };
 
-uint eecount_on_last_vdec = 0;
+u64 eecount_on_last_vdec = 0;
 bool FMVstarted = false;
 bool EnableFMV = false;
 
@@ -313,6 +313,13 @@ void ipuSoftReset()
 	coded_block_pattern = 0;
 	g_ipu_thresh[0] = 0;
 	g_ipu_thresh[1] = 0;
+
+	if (!decoder.intra_dc_precision)
+	{
+		decoder.dc_dct_pred[0] =
+		decoder.dc_dct_pred[1] =
+		decoder.dc_dct_pred[2] = 128 << decoder.intra_dc_precision;
+	}
 
 	ipuRegs.ctrl.reset();
 	ipuRegs.top = 0;

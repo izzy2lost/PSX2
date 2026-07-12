@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "GS/Renderers/Vulkan/GSDeviceVK.h"
@@ -59,10 +59,6 @@ bool VKStreamBuffer::Create(VkBufferUsageFlags usage, u32 size)
 
 	VmaAllocationCreateInfo aci = {};
 	aci.flags = VMA_ALLOCATION_CREATE_MAPPED_BIT;
-#ifdef VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT
-	// Hint the allocator that we write sequentially from CPU to GPU
-	aci.flags |= VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
-#endif
 	aci.usage = VMA_MEMORY_USAGE_CPU_TO_GPU;
 	aci.preferredFlags = VK_MEMORY_PROPERTY_HOST_COHERENT_BIT;
 
@@ -88,10 +84,6 @@ bool VKStreamBuffer::Create(VkBufferUsageFlags usage, u32 size)
 	m_allocation = new_allocation;
 	m_buffer = new_buffer;
 	m_host_pointer = static_cast<u8*>(ai.pMappedData);
-	// Cache coherency so we can avoid redundant flushes on HOST_COHERENT memory
-	VkMemoryPropertyFlags mem_props = 0;
-	vmaGetAllocationMemoryProperties(GSDeviceVK::GetInstance()->GetAllocator(), m_allocation, &mem_props);
-	m_allocation_is_coherent = (mem_props & VK_MEMORY_PROPERTY_HOST_COHERENT_BIT) != 0;
 	return true;
 }
 
@@ -189,8 +181,7 @@ void VKStreamBuffer::CommitMemory(u32 final_num_bytes)
 	pxAssert(final_num_bytes <= m_current_space);
 
 	// For non-coherent mappings, flush the memory range
-	if (!m_allocation_is_coherent)
-		vmaFlushAllocation(GSDeviceVK::GetInstance()->GetAllocator(), m_allocation, m_current_offset, final_num_bytes);
+	vmaFlushAllocation(GSDeviceVK::GetInstance()->GetAllocator(), m_allocation, m_current_offset, final_num_bytes);
 
 	m_current_offset += final_num_bytes;
 	m_current_space -= final_num_bytes;
@@ -243,20 +234,18 @@ bool VKStreamBuffer::WaitForClearSpace(u32 num_bytes)
 	u32 new_space = 0;
 	u32 new_gpu_position = 0;
 
-	auto iter = m_tracked_fences.begin();
-	for (; iter != m_tracked_fences.end(); ++iter)
-	{
+	auto iter = std::find_if(m_tracked_fences.begin(), m_tracked_fences.end(), [&, this](const auto& iter) {
 		// Would this fence bring us in line with the GPU?
 		// This is the "last resort" case, where a command buffer execution has been forced
 		// after no additional data has been written to it, so we can assume that after the
 		// fence has been signaled the entire buffer is now consumed.
-		u32 gpu_position = iter->second;
+		u32 gpu_position = iter.second;
 		if (m_current_offset == gpu_position)
 		{
 			new_offset = 0;
 			new_space = m_size;
 			new_gpu_position = 0;
-			break;
+			return true;
 		}
 
 		// Assuming that we wait for this fence, are we allocating in front of the GPU?
@@ -271,7 +260,7 @@ bool VKStreamBuffer::WaitForClearSpace(u32 num_bytes)
 				new_offset = m_current_offset;
 				new_space = m_size - m_current_offset;
 				new_gpu_position = gpu_position;
-				break;
+				return true;
 			}
 
 			// We can wrap around to the start, behind the GPU, if there is enough space.
@@ -282,7 +271,7 @@ bool VKStreamBuffer::WaitForClearSpace(u32 num_bytes)
 				new_offset = 0;
 				new_space = gpu_position - 1;
 				new_gpu_position = gpu_position;
-				break;
+				return true;
 			}
 		}
 		else
@@ -297,10 +286,11 @@ bool VKStreamBuffer::WaitForClearSpace(u32 num_bytes)
 				new_offset = m_current_offset;
 				new_space = available_space_inbetween - 1;
 				new_gpu_position = gpu_position;
-				break;
+				return true;
 			}
 		}
-	}
+		return false;
+	});
 
 	// Did any fences satisfy this condition?
 	// Has the command buffer been executed yet? If not, the caller should execute it.

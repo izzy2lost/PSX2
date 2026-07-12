@@ -103,6 +103,9 @@
     <ClCompile Include="HTTPDownloaderWinHTTP.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="MemoryInterface.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
     <ClCompile Include="MemorySettingsInterface.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
@@ -125,6 +128,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="SmallString.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="YAML.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
@@ -300,6 +306,9 @@
     <ClInclude Include="HeterogeneousContainers.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="MemoryInterface.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="MemorySettingsInterface.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -335,6 +344,9 @@
     </ClInclude>
     <ClInclude Include="SingleRegisterTypes.h" />
     <ClInclude Include="FPControl.h" />
+    <ClInclude Include="YAML.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Source Files">

@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "GS/Renderers/DX12/D3D12Builders.h"
@@ -349,6 +349,31 @@ u32 D3D12::RootSignatureBuilder::AddDescriptorTable(
 	m_params[index].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
 	m_params[index].DescriptorTable.pDescriptorRanges = &m_descriptor_ranges[dr_index];
 	m_params[index].DescriptorTable.NumDescriptorRanges = 1;
+	m_params[index].ShaderVisibility = visibility;
+
+	return index;
+}
+
+// Allows using ranges of non-contiguous shader registers in a single descriptor table.
+u32 D3D12::RootSignatureBuilder::AddDescriptorTableMultiRange(u32 num_ranges,
+	D3D12_DESCRIPTOR_RANGE_TYPE* rt, u32* start_shader_reg, u32* num_shader_regs, D3D12_SHADER_VISIBILITY visibility)
+{
+	const u32 index = m_desc.NumParameters++;
+	const u32 dr_index = m_num_descriptor_ranges;
+	m_num_descriptor_ranges += num_ranges;
+
+	for (u32 i = 0; i < num_ranges; i++)
+	{
+		m_descriptor_ranges[dr_index + i].RangeType = rt[i];
+		m_descriptor_ranges[dr_index + i].NumDescriptors = num_shader_regs[i];
+		m_descriptor_ranges[dr_index + i].BaseShaderRegister = start_shader_reg[i];
+		m_descriptor_ranges[dr_index + i].RegisterSpace = 0;
+		m_descriptor_ranges[dr_index + i].OffsetInDescriptorsFromTableStart = D3D12_DESCRIPTOR_RANGE_OFFSET_APPEND;
+	}
+
+	m_params[index].ParameterType = D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE;
+	m_params[index].DescriptorTable.pDescriptorRanges = &m_descriptor_ranges[dr_index];
+	m_params[index].DescriptorTable.NumDescriptorRanges = num_ranges;
 	m_params[index].ShaderVisibility = visibility;
 
 	return index;

@@ -7,10 +7,37 @@ include(GNUInstallDirs)
 # Misc option
 #-------------------------------------------------------------------------------
 option(ENABLE_TESTS "Enables building the unit tests" ON)
+option(ENABLE_RECOMPILER_TEST_HOOKS
+	"Compile harness hooks (recEeExecuteBlock, recEeIsBlockLinked, etc.) into the EE recompiler. Required by tests/ctest/core/recompilers; release builds should turn this off."
+	${ENABLE_TESTS})
+option(ENABLE_QT_UI "Enables building the PCSX2 Qt interface." ON)
 option(ENABLE_GSRUNNER "Enables building the GSRunner by default.  It can still be built with `make pcsx2-gsrunner` otherwise." OFF)
+option(ENABLE_VURUNNER "Enables building pcsx2-vurunner (headless VU microprogram replayer for codegen iteration). Requires ENABLE_RECOMPILER_TEST_HOOKS=ON." OFF)
+option(ENABLE_EERUNNER "Enables building pcsx2-eerunner (headless EE JIT-vs-interpreter divergence localizer) by default.  It can still be built with `make pcsx2-eerunner` otherwise." OFF)
+option(ENABLE_SDL_FRONTEND "Enables building the SDL3 / kmsdrm frontend (pcsx2-sdl) by default.  It can still be built with `make pcsx2-sdl` otherwise." OFF)
 option(LTO_PCSX2_CORE "Enable LTO/IPO/LTCG on the subset of pcsx2 that benefits most from it but not anything else")
 option(USE_VTUNE "Plug VTUNE to profile GS JIT.")
+option(USE_PERF_JITDUMP "Emit Linux perf jitdump (jit-<pid>.dump) for recompiled JIT blocks; use with perf record/inject." OFF)
+option(USE_PERF_MAP "Emit simple /tmp/perf-<pid>.map symbol table for recompiled JIT blocks." OFF)
 option(PACKAGE_MODE "Use this option to ease packaging of PCSX2 (developer/distribution option)")
+option(BUNDLE_EMOJI_FONT "Bundles Noto Color Emoji for systems whose system emoji font isn't usable by freetype" ON)
+option(POSITION_INDEPENDENT_CODE "Generate position-independent code. It is recommended that you leave this on." ON)
+
+if(ANDROID)
+	set(ENABLE_TESTS OFF CACHE BOOL "" FORCE)
+	set(ENABLE_RECOMPILER_TEST_HOOKS OFF CACHE BOOL "" FORCE)
+	set(ENABLE_QT_UI OFF CACHE BOOL "" FORCE)
+	set(ENABLE_QT_DEBUGGER OFF CACHE BOOL "" FORCE)
+	set(ENABLE_GSRUNNER OFF CACHE BOOL "" FORCE)
+	set(ENABLE_VURUNNER OFF CACHE BOOL "" FORCE)
+	set(ENABLE_EERUNNER OFF CACHE BOOL "" FORCE)
+	set(ENABLE_SDL_FRONTEND OFF CACHE BOOL "" FORCE)
+	# YAPS2's current GL backend targets desktop OpenGL. The app's previous
+	# Android GLES adapter is not ABI-compatible with the updated GS backend;
+	# keep Vulkan as the supported Android renderer for this core revision.
+	set(USE_OPENGL OFF CACHE BOOL "" FORCE)
+	set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
 
 #-------------------------------------------------------------------------------
 # Graphical option
@@ -85,7 +112,7 @@ if("${CMAKE_HOST_SYSTEM_PROCESSOR}" STREQUAL "x86_64" OR "${CMAKE_HOST_SYSTEM_PR
 	option(DISABLE_ADVANCE_SIMD "Disable advance use of SIMD (SSE2+ & AVX)" OFF)
 
 	list(APPEND PCSX2_DEFS _M_X86=1)
-	set(_M_X86 TRUE)
+	set(ARCH_X86 TRUE)
 	if(DISABLE_ADVANCE_SIMD)
 		message(STATUS "Building for x86-64 (Multi-ISA).")
 	else()
@@ -114,17 +141,27 @@ if("${CMAKE_HOST_SYSTEM_PROCESSOR}" STREQUAL "x86_64" OR "${CMAKE_HOST_SYSTEM_PR
 elseif("${CMAKE_HOST_SYSTEM_PROCESSOR}" STREQUAL "arm64" OR "${CMAKE_HOST_SYSTEM_PROCESSOR}" STREQUAL "aarch64" OR
        "${CMAKE_OSX_ARCHITECTURES}" STREQUAL "arm64")
 	message(STATUS "Building for Apple Silicon (ARM64).")
-	list(APPEND PCSX2_DEFS _M_ARM64=1)
+	set(ARCH_ARM64 TRUE)
 	set(_M_ARM64 TRUE)
-#	add_compile_options("-march=armv8.4-a" "-mcpu=apple-m1")
-
-	set(CMAKE_POSITION_INDEPENDENT_CODE ON)
-	if(ANDROID)
-		# CRC32 is optional on ARMv8.0 Android devices. Enabling it globally can
-		# make Play-installed builds crash with SIGILL on devices without CRC.
+	if(APPLE)
+		# Min spec is an M1
+		add_compile_options("-march=armv8.4-a" "-mcpu=apple-m1")
+	elseif(ANDROID)
+		# Keep Play-distributed builds compatible with ARMv8.0 devices. The
+		# recompiler does not require CRC or LSE instructions.
 		add_compile_options("-march=armv8-a")
 	else()
-		add_compile_options("-march=armv8-a+crc")
+		# Require atomic rmw instructions (LSE, ARMv8.1+). This is the upstream
+		# default and targets the broad arm64 ecosystem. In-order ARMv8.0 cores
+		# without LSE (e.g. Cortex-A53 handhelds, RK3562) must build with
+		# -march=armv8-a (+ -moutline-atomics) in CMAKE_CXX_FLAGS — LSE atomics
+		# fault on them. Only apply the v8.1 default when the user hasn't chosen
+		# an -march: add_compile_options lands AFTER CMAKE_CXX_FLAGS on the
+		# compile line, so unconditionally adding it here silently overrides any
+		# user -march (proven by a casal SIGILL on a real A53 device).
+		if(NOT CMAKE_CXX_FLAGS MATCHES "-march=")
+			add_compile_options("-march=armv8.1-a")
+		endif()
 	endif()
 
 	# If we're running on Linux, we need to detect the page/cache line size.
@@ -145,6 +182,16 @@ elseif("${CMAKE_HOST_SYSTEM_PROCESSOR}" STREQUAL "arm64" OR "${CMAKE_HOST_SYSTEM
 else()
 	message(FATAL_ERROR "Unsupported architecture: ${CMAKE_HOST_SYSTEM_PROCESSOR}")
 endif()
+
+# The Qt debugger UI depends on KDDockWidgets. Handheld/ARM64 targets don't ship
+# the debugger, so default it off there to drop the dependency; on elsewhere to
+# match upstream. Only meaningful when ENABLE_QT_UI is on.
+if(ARCH_ARM64)
+	set(_ENABLE_QT_DEBUGGER_DEFAULT OFF)
+else()
+	set(_ENABLE_QT_DEBUGGER_DEFAULT ON)
+endif()
+option(ENABLE_QT_DEBUGGER "Build the Qt debugger UI (requires KDDockWidgets)." ${_ENABLE_QT_DEBUGGER_DEFAULT})
 
 # Require C++20.
 set(CMAKE_CXX_STANDARD 20)
@@ -169,6 +216,14 @@ else()
 	add_compile_options(
 		"$<$<COMPILE_LANGUAGE:CXX>:-fno-exceptions>"
 	)
+	# GCC/Clang warn on every __fi (always_inline) function definition that lacks
+	# an explicit `inline` keyword. PCSX2 deliberately defines __fi without
+	# `inline` so that .cpp-defined __fi functions still emit a strong external
+	# symbol; adding `inline` to the macro globally breaks linkage for those. The
+	# attribute itself works correctly either way, so suppress the noise.
+	# Unconditional (not the GNU-only DEFAULT_WARNINGS entry below) because the
+	# primary toolchain here is Clang, which the GCC-gated list does not cover.
+	add_compile_options(-Wno-attributes)
 endif()
 
 set(CONFIG_REL_NO_DEB $<OR:$<CONFIG:Release>,$<CONFIG:MinSizeRel>>)
@@ -227,6 +282,22 @@ if(USE_VTUNE)
 	list(APPEND PCSX2_DEFS ENABLE_VTUNE)
 endif()
 
+if(USE_PERF_JITDUMP AND USE_PERF_MAP)
+	message(FATAL_ERROR "USE_PERF_JITDUMP and USE_PERF_MAP are mutually exclusive; pick one.")
+endif()
+if(USE_PERF_JITDUMP)
+	if(NOT UNIX OR APPLE)
+		message(FATAL_ERROR "USE_PERF_JITDUMP is Linux-only.")
+	endif()
+	list(APPEND PCSX2_DEFS ENABLE_PERF_JITDUMP)
+endif()
+if(USE_PERF_MAP)
+	if(NOT UNIX OR APPLE)
+		message(FATAL_ERROR "USE_PERF_MAP is Linux-only.")
+	endif()
+	list(APPEND PCSX2_DEFS ENABLE_PERF_MAP)
+endif()
+
 if(USE_OPENGL)
 	list(APPEND PCSX2_DEFS ENABLE_OPENGL)
 endif()
@@ -243,6 +314,10 @@ if(WAYLAND_API)
 	list(APPEND PCSX2_DEFS WAYLAND_API)
 endif()
 
+if(ENABLE_SDL_FRONTEND)
+	list(APPEND PCSX2_DEFS ENABLE_SDL_FRONTEND)
+endif()
+
 # -Wno-attributes: "always_inline function might not be inlinable" <= real spam (thousand of warnings!!!)
 # -Wno-missing-field-initializers: standard allow to init only the begin of struct/array in static init. Just a silly warning.
 # -Wno-unused-function: warn for function not used in release build
@@ -251,6 +326,9 @@ if (MSVC)
 	set(DEFAULT_WARNINGS)
 else()
 	set(DEFAULT_WARNINGS -Wall -Wextra -Wno-unused-function -Wno-unused-parameter -Wno-missing-field-initializers)
+endif()
+if (CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+	list(APPEND DEFAULT_WARNINGS -Wno-attributes)
 endif()
 
 if (USE_PGO_GENERATE OR USE_PGO_OPTIMIZE)
@@ -280,6 +358,34 @@ if(USE_CLANG AND TIMETRACE)
 endif()
 
 set(PCSX2_WARNINGS ${DEFAULT_WARNINGS})
+
+if(POSITION_INDEPENDENT_CODE)
+	# Make sure position-independent code is enabled properly.
+	# Without this check, on some platforms (e.g. Fedora 43) the right flags
+	# won't be passed to the linker, resulting in a broken build when link time
+	# optimization is enabled (even with a cmake version >= 3.14).
+	if(NOT MSVC)
+		include(CheckPIESupported)
+		check_pie_supported(OUTPUT_VARIABLE PIE_SUPPORTED_OUTPUT LANGUAGES C CXX)
+
+		if((NOT CMAKE_C_LINK_PIE_SUPPORTED) OR (NOT CMAKE_CXX_LINK_PIE_SUPPORTED))
+			message(WARNING
+				"The POSITION_INDEPENDENT_CODE option is enabled but is not "
+				"supported at link time:\n${PIE_SUPPORTED_OUTPUT}")
+		endif()
+	endif()
+
+	set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+else()
+	if(CMAKE_INTERPROCEDURAL_OPTIMIZATION)
+		message(WARNING
+			"The CMAKE_INTERPROCEDURAL_OPTIMIZATION option is enabled but the "
+			"POSITION_INDEPENDENT_CODE option is disabled. This has been found "
+			"to result in broken builds on certain platforms.")
+	endif()
+
+	set(CMAKE_POSITION_INDEPENDENT_CODE OFF)
+endif()
 
 #-------------------------------------------------------------------------------
 # MacOS-specific things

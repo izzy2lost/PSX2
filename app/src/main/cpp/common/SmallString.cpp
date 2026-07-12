@@ -1,4 +1,4 @@
-// SPDX-FileCopyrightText: 2002-2025 PCSX2 Dev Team
+// SPDX-FileCopyrightText: 2002-2026 PCSX2 Dev Team
 // SPDX-License-Identifier: GPL-3.0+
 
 #include "SmallString.h"
@@ -392,7 +392,8 @@ void SmallStringBase::vsprintf(const char* format, va_list ap)
 
 void SmallStringBase::assign(const SmallStringBase& copy)
 {
-	assign(copy.c_str(), copy.length());
+	if (this != &copy)
+		assign(copy.c_str(), copy.length());
 }
 
 void SmallStringBase::assign(const char* str)
@@ -600,7 +601,7 @@ bool SmallStringBase::starts_with(const char* str, bool case_sensitive) const
 		return false;
 
 	return (case_sensitive) ? (std::strncmp(str, m_buffer, other_length) == 0) :
-							  (CASE_N_COMPARE(str, m_buffer, other_length) == 0);
+	                          (CASE_N_COMPARE(str, m_buffer, other_length) == 0);
 }
 
 bool SmallStringBase::starts_with(const SmallStringBase& str, bool case_sensitive) const
@@ -610,7 +611,7 @@ bool SmallStringBase::starts_with(const SmallStringBase& str, bool case_sensitiv
 		return false;
 
 	return (case_sensitive) ? (std::strncmp(str.m_buffer, m_buffer, other_length) == 0) :
-							  (CASE_N_COMPARE(str.m_buffer, m_buffer, other_length) == 0);
+	                          (CASE_N_COMPARE(str.m_buffer, m_buffer, other_length) == 0);
 }
 
 bool SmallStringBase::starts_with(const std::string_view str, bool case_sensitive) const
@@ -620,7 +621,7 @@ bool SmallStringBase::starts_with(const std::string_view str, bool case_sensitiv
 		return false;
 
 	return (case_sensitive) ? (std::strncmp(str.data(), m_buffer, other_length) == 0) :
-							  (CASE_N_COMPARE(str.data(), m_buffer, other_length) == 0);
+	                          (CASE_N_COMPARE(str.data(), m_buffer, other_length) == 0);
 }
 
 bool SmallStringBase::starts_with(const std::string& str, bool case_sensitive) const
@@ -630,7 +631,7 @@ bool SmallStringBase::starts_with(const std::string& str, bool case_sensitive) c
 		return false;
 
 	return (case_sensitive) ? (std::strncmp(str.data(), m_buffer, other_length) == 0) :
-							  (CASE_N_COMPARE(str.data(), m_buffer, other_length) == 0);
+	                          (CASE_N_COMPARE(str.data(), m_buffer, other_length) == 0);
 }
 
 bool SmallStringBase::ends_with(const char* str, bool case_sensitive) const
@@ -641,7 +642,7 @@ bool SmallStringBase::ends_with(const char* str, bool case_sensitive) const
 
 	u32 start_offset = m_length - other_length;
 	return (case_sensitive) ? (std::strncmp(str, m_buffer + start_offset, other_length) == 0) :
-							  (CASE_N_COMPARE(str, m_buffer + start_offset, other_length) == 0);
+	                          (CASE_N_COMPARE(str, m_buffer + start_offset, other_length) == 0);
 }
 
 bool SmallStringBase::ends_with(const SmallStringBase& str, bool case_sensitive) const
@@ -652,7 +653,7 @@ bool SmallStringBase::ends_with(const SmallStringBase& str, bool case_sensitive)
 
 	const u32 start_offset = m_length - other_length;
 	return (case_sensitive) ? (std::strncmp(str.m_buffer, m_buffer + start_offset, other_length) == 0) :
-							  (CASE_N_COMPARE(str.m_buffer, m_buffer + start_offset, other_length) == 0);
+	                          (CASE_N_COMPARE(str.m_buffer, m_buffer + start_offset, other_length) == 0);
 }
 
 bool SmallStringBase::ends_with(const std::string_view str, bool case_sensitive) const
@@ -663,7 +664,7 @@ bool SmallStringBase::ends_with(const std::string_view str, bool case_sensitive)
 
 	const u32 start_offset = m_length - other_length;
 	return (case_sensitive) ? (std::strncmp(str.data(), m_buffer + start_offset, other_length) == 0) :
-							  (CASE_N_COMPARE(str.data(), m_buffer + start_offset, other_length) == 0);
+	                          (CASE_N_COMPARE(str.data(), m_buffer + start_offset, other_length) == 0);
 }
 
 bool SmallStringBase::ends_with(const std::string& str, bool case_sensitive) const
@@ -674,7 +675,7 @@ bool SmallStringBase::ends_with(const std::string& str, bool case_sensitive) con
 
 	const u32 start_offset = m_length - other_length;
 	return (case_sensitive) ? (std::strncmp(str.data(), m_buffer + start_offset, other_length) == 0) :
-							  (CASE_N_COMPARE(str.data(), m_buffer + start_offset, other_length) == 0);
+	                          (CASE_N_COMPARE(str.data(), m_buffer + start_offset, other_length) == 0);
 }
 
 void SmallStringBase::clear()
