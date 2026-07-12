@@ -1489,18 +1489,34 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
                 }
             });
 
-    // Copies assets/resources under the selected SAF data root (resources/..)
+    // Guards against running the (slow) SAF seed on more than one thread at once.
+    private final java.util.concurrent.atomic.AtomicBoolean mSeedingSafResources =
+            new java.util.concurrent.atomic.AtomicBoolean(false);
+
+    // Copies assets/resources under the selected SAF data root (resources/..).
+    // The copy walks hundreds of files through the Storage Access Framework, and
+    // every SAF write is an IPC round-trip - on the UI thread this froze the app
+    // for ~60s (ANR) during the setup wizard's data-folder step. Run it on a
+    // background thread instead.
     private void copyAssetsToSafDataRoot() {
         Uri root = SafManager.getDataRootUri(this);
         if (root == null) return;
         // Only seed once
         SharedPreferences prefs = getSharedPreferences("app_prefs", MODE_PRIVATE);
         if (prefs.getBoolean("saf_resources_seeded", false)) return;
-        // Flatten copy of assets/resources directory to SAF
-        try {
-            copyAssetAllToSaf(getApplicationContext(), "resources");
-            prefs.edit().putBoolean("saf_resources_seeded", true).apply();
-        } catch (Throwable ignored) {}
+        // Don't start a second seed if one is already running.
+        if (!mSeedingSafResources.compareAndSet(false, true)) return;
+
+        final Context appContext = getApplicationContext();
+        new Thread(() -> {
+            try {
+                copyAssetAllToSaf(appContext, "resources");
+                prefs.edit().putBoolean("saf_resources_seeded", true).apply();
+            } catch (Throwable ignored) {
+            } finally {
+                mSeedingSafResources.set(false);
+            }
+        }, "SafResourceSeed").start();
     }
 
     private static class BiosImportStats {
