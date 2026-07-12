@@ -9,6 +9,7 @@ import android.view.LayoutInflater;
 import android.view.View;
 import android.widget.ArrayAdapter;
 import android.widget.ListView;
+import android.widget.TextView;
 import android.widget.Toast;
 
 import androidx.activity.result.ActivityResultLauncher;
@@ -72,6 +73,8 @@ public class MemoryCardManagerDialogFragment extends DialogFragment {
         memcardListView = view.findViewById(R.id.memcard_list);
         MaterialButton btnImport = view.findViewById(R.id.btn_import_memcard);
         MaterialButton btnExport = view.findViewById(R.id.btn_export_memcard);
+        MaterialButton btnSlot1 = view.findViewById(R.id.btn_use_memcard_slot1);
+        MaterialButton btnSlot2 = view.findViewById(R.id.btn_use_memcard_slot2);
         
         // Load existing memory cards
         loadMemoryCards();
@@ -92,6 +95,9 @@ public class MemoryCardManagerDialogFragment extends DialogFragment {
                 showExportDialog();
             }
         });
+        btnSlot1.setOnClickListener(v -> assignSelectedCardToSlot(1, view));
+        btnSlot2.setOnClickListener(v -> assignSelectedCardToSlot(2, view));
+        refreshSlotLabels(view);
         
         return new MaterialAlertDialogBuilder(requireContext())
             .setCustomTitle(UiUtils.centeredDialogTitle(requireContext(), "MEMORY CARD MANAGER"))
@@ -104,7 +110,7 @@ public class MemoryCardManagerDialogFragment extends DialogFragment {
         memcardFiles = new ArrayList<>();
         
         // Always use the internal Android/data location where the emulator actually stores memory cards
-        File memcardDir = new File(requireContext().getExternalFilesDir(null), "memcards");
+        File memcardDir = MemoryCardSettings.getDirectory(requireContext());
         if (memcardDir.exists() && memcardDir.isDirectory()) {
             File[] files = memcardDir.listFiles();
             if (files != null) {
@@ -166,9 +172,8 @@ public class MemoryCardManagerDialogFragment extends DialogFragment {
             if (in == null) return false;
             
             // Always import to internal Android/data location where emulator uses them
-            File memcardDir = new File(requireContext().getExternalFilesDir(null), "memcards");
-            if (!memcardDir.exists()) memcardDir.mkdirs();
-            File destFile = new File(memcardDir, filename);
+            File memcardDir = MemoryCardSettings.getDirectory(requireContext());
+            File destFile = uniqueDestination(memcardDir, filename);
             
             boolean success;
             try (OutputStream out = new FileOutputStream(destFile)) {
@@ -205,7 +210,7 @@ public class MemoryCardManagerDialogFragment extends DialogFragment {
             if (destFile == null) return;
             
             // Always export from internal Android/data location
-            File memcardFile = new File(new File(requireContext().getExternalFilesDir(null), "memcards"), selectedMemcard);
+            File memcardFile = new File(MemoryCardSettings.getDirectory(requireContext()), selectedMemcard);
             InputStream in = new FileInputStream(memcardFile);
             
             if (in == null) {
@@ -247,7 +252,7 @@ public class MemoryCardManagerDialogFragment extends DialogFragment {
     private void deleteMemoryCard() {
         try {
             // Always delete from internal Android/data location
-            File memcardFile = new File(new File(requireContext().getExternalFilesDir(null), "memcards"), selectedMemcard);
+            File memcardFile = new File(MemoryCardSettings.getDirectory(requireContext()), selectedMemcard);
             boolean success = memcardFile.delete();
             
             if (success) {
@@ -305,8 +310,7 @@ public class MemoryCardManagerDialogFragment extends DialogFragment {
             byte[] emptyCard = new byte[8 * 1024 * 1024];
             
             // Always create in internal Android/data location
-            File memcardDir = new File(requireContext().getExternalFilesDir(null), "memcards");
-            if (!memcardDir.exists()) memcardDir.mkdirs();
+            File memcardDir = MemoryCardSettings.getDirectory(requireContext());
             File memcardFile = new File(memcardDir, filename);
             
             boolean success;
@@ -351,5 +355,40 @@ public class MemoryCardManagerDialogFragment extends DialogFragment {
             }
         }
         return result;
+    }
+
+    private void assignSelectedCardToSlot(int slot, View root) {
+        if (selectedMemcard == null) {
+            Toast.makeText(requireContext(), "Select a memory card first", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        MemoryCardSettings.setGlobalCard(requireContext(), slot, selectedMemcard);
+        Activity activity = getActivity();
+        if (activity instanceof MainActivity) {
+            ((MainActivity) activity).applyCurrentMemoryCardSettings();
+        } else {
+            MemoryCardSettings.applyForGame(requireContext(), "");
+        }
+        refreshSlotLabels(root);
+        Toast.makeText(requireContext(), selectedMemcard + " assigned to Slot " + slot, Toast.LENGTH_SHORT).show();
+    }
+
+    private void refreshSlotLabels(View root) {
+        TextView slot1 = root.findViewById(R.id.tv_memcard_slot1);
+        TextView slot2 = root.findViewById(R.id.tv_memcard_slot2);
+        slot1.setText("Global Slot 1: " + MemoryCardSettings.describeGlobalSlot(requireContext(), 1));
+        slot2.setText("Global Slot 2: " + MemoryCardSettings.describeGlobalSlot(requireContext(), 2));
+    }
+
+    private static File uniqueDestination(File directory, String filename) {
+        File destination = new File(directory, filename);
+        if (!destination.exists()) return destination;
+        int dot = filename.lastIndexOf('.');
+        String base = dot > 0 ? filename.substring(0, dot) : filename;
+        String extension = dot > 0 ? filename.substring(dot) : "";
+        for (int copy = 2; ; copy++) {
+            destination = new File(directory, base + " (" + copy + ")" + extension);
+            if (!destination.exists()) return destination;
+        }
     }
 }

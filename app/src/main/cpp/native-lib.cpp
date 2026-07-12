@@ -284,6 +284,23 @@ Java_com_izzy2lost_psx2_NativeApp_setHudVisible(JNIEnv* env, jclass clazz, jbool
 
 extern "C"
 JNIEXPORT void JNICALL
+Java_com_izzy2lost_psx2_NativeApp_setMemoryCardSlots(JNIEnv* env, jclass,
+                                                      jstring slot1_filename, jboolean slot1_enabled,
+                                                      jstring slot2_filename, jboolean slot2_enabled)
+{
+    const std::string slot1 = GetJavaString(env, slot1_filename);
+    const std::string slot2 = GetJavaString(env, slot2_filename);
+    s_settings_interface.SetBoolValue("MemoryCards", "Slot1_Enable", slot1_enabled == JNI_TRUE);
+    s_settings_interface.SetStringValue("MemoryCards", "Slot1_Filename", slot1.c_str());
+    s_settings_interface.SetBoolValue("MemoryCards", "Slot2_Enable", slot2_enabled == JNI_TRUE);
+    s_settings_interface.SetStringValue("MemoryCards", "Slot2_Filename", slot2.c_str());
+
+    if (VMManager::HasValidVM())
+        VMManager::ApplySettings();
+}
+
+extern "C"
+JNIEXPORT void JNICALL
 Java_com_izzy2lost_psx2_NativeApp_setBlendingAccuracy(JNIEnv* env, jclass, jint level)
 {
     // level: 0..5 -> numeric string

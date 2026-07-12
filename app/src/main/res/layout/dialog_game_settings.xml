@@ -82,6 +82,47 @@
             app:iconPadding="12dp"
             app:iconTint="@android:color/white" />
 
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Memory Cards"
+            android:textStyle="bold"
+            android:textSize="16sp"
+            android:textColor="@color/brand_primary"
+            android:paddingBottom="8dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Choose cards for this game file. This also keeps mod variants with the same serial separate. Changes apply on the next boot."
+            android:textSize="12sp"
+            android:textColor="@color/md_theme_tertiaryFixedDim"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Slot 1"
+            android:textColor="@color/brand_primary" />
+
+        <Spinner
+            android:id="@+id/sp_memcard_slot1"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Slot 2"
+            android:textColor="@color/brand_primary" />
+
+        <Spinner
+            android:id="@+id/sp_memcard_slot2"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp" />
+
         <!-- Graphics Settings -->
         <TextView
             android:layout_width="wrap_content"

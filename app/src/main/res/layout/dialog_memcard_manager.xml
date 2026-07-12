@@ -14,7 +14,7 @@
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Manage your PS2 memory cards. Import existing Mcd001.ps2 or Mcd002.ps2 files, or export them for backup."
+            android:text="Import or export PS2 memory cards. Select a card below, then assign it to Slot 1 or Slot 2."
             android:textSize="14sp"
             android:layout_marginBottom="16dp"
             android:textColor="?android:attr/textColorSecondary" />
@@ -26,6 +26,46 @@
             android:layout_marginBottom="16dp"
             android:background="?attr/colorSurfaceVariant"
             android:padding="8dp" />
+
+        <TextView
+            android:id="@+id/tv_memcard_slot1"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textColor="?android:attr/textColorPrimary"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/tv_memcard_slot2"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            android:textColor="?android:attr/textColorPrimary"
+            android:textStyle="bold" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginBottom="8dp">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_use_memcard_slot1"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginEnd="4dp"
+                android:text="Use in Slot 1" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btn_use_memcard_slot2"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="4dp"
+                android:text="Use in Slot 2" />
+        </LinearLayout>
 
         <LinearLayout
             android:layout_width="match_parent"

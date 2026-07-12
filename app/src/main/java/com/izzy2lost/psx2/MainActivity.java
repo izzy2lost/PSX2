@@ -1882,9 +1882,11 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
                 return;
             }
 
+            final String gameFile = m_szGamefile;
+            // Restore global cards, then apply this exact file URI's overrides before boot.
+            MemoryCardSettings.applyForGame(this, gameFile);
             NativeApp.prepareVMStart();
 
-            final String gameFile = m_szGamefile;
             Thread emulationThread = new Thread(() -> {
                 try {
                     NativeApp.runVMThread(gameFile);
@@ -1908,6 +1910,10 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
                 btn_pause_play.setIcon(ContextCompat.getDrawable(this, R.drawable.pause_circle_24px));
             }
         });
+    }
+
+    public void applyCurrentMemoryCardSettings() {
+        MemoryCardSettings.applyForGameAsync(this, m_szGamefile);
     }
 
     private void restartEmuThread() {
@@ -2721,6 +2727,8 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
             // Apply renderer setting
             int renderer = prefs.getInt("renderer", -1);
             NativeApp.renderGpu(renderer);
+
+            MemoryCardSettings.applyForGame(this, "");
 
             applyOrientationPreference();
             

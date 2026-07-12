@@ -249,6 +249,8 @@ public class NativeApp {
     // Get list of saves on a memory card
     // Returns array of strings in format "filename|size|isDirectory"
     public static native String[] getMemoryCardSaves(String memcardPath);
+    public static native void setMemoryCardSlots(String slot1Filename, boolean slot1Enabled,
+                                                 String slot2Filename, boolean slot2Enabled);
 
     // RetroAchievements native methods
     public static native boolean achievementsIsActive();

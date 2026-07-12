@@ -254,6 +254,13 @@ public class GameSettingsDialogFragment extends DialogFragment {
         resolutionAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         spResolution.setAdapter(resolutionAdapter);
 
+        Spinner spMemoryCard1 = view.findViewById(R.id.sp_memcard_slot1);
+        Spinner spMemoryCard2 = view.findViewById(R.id.sp_memcard_slot2);
+        java.util.ArrayList<String> memoryCardValues1 = configureMemoryCardSpinner(
+                ctx, spMemoryCard1, gameUri, 1);
+        java.util.ArrayList<String> memoryCardValues2 = configureMemoryCardSpinner(
+                ctx, spMemoryCard2, gameUri, 2);
+
         // Switches
         MaterialSwitch swWidescreenPatches = view.findViewById(R.id.sw_widescreen_patches);
         MaterialSwitch swNoInterlacingPatches = view.findViewById(R.id.sw_no_interlacing_patches);
@@ -424,6 +431,11 @@ public class GameSettingsDialogFragment extends DialogFragment {
                    final boolean enableCheats = swEnableCheats.isChecked();
                    final boolean loadTex = (swLoadTextures != null && swLoadTextures.isChecked());
                    final boolean asyncTex = (swAsyncTextures != null && swAsyncTextures.isChecked());
+                   final String memoryCard1 = memoryCardValues1.get(spMemoryCard1.getSelectedItemPosition());
+                   final String memoryCard2 = memoryCardValues2.get(spMemoryCard2.getSelectedItemPosition());
+
+                   MemoryCardSettings.setGameCard(ctx, gameUri, 1, memoryCard1);
+                   MemoryCardSettings.setGameCard(ctx, gameUri, 2, memoryCard2);
 
                    // Persist per-game INI explicitly (supports Auto as well)
                    writeGameSettingsIni(ctx, gameSerial, gameCrc,
@@ -465,6 +477,8 @@ public class GameSettingsDialogFragment extends DialogFragment {
                .setNeutralButton("Reset to Global", (d, w) -> {
                    // Delete game-specific settings file so globals apply
                    deleteGameSettingsIni(ctx, gameSerial, gameCrc);
+                   MemoryCardSettings.setGameCard(ctx, gameUri, 1, MemoryCardSettings.USE_GLOBAL);
+                   MemoryCardSettings.setGameCard(ctx, gameUri, 2, MemoryCardSettings.USE_GLOBAL);
                    d.dismiss();
                });
 
@@ -525,6 +539,35 @@ public class GameSettingsDialogFragment extends DialogFragment {
         }
 
         return builder.create();
+    }
+
+    private static java.util.ArrayList<String> configureMemoryCardSpinner(
+            Context context, Spinner spinner, String gameUri, int slot) {
+        java.util.ArrayList<String> labels = new java.util.ArrayList<>();
+        java.util.ArrayList<String> values = new java.util.ArrayList<>();
+        labels.add("Use global (" + MemoryCardSettings.describeGlobalSlot(context, slot) + ")");
+        values.add(MemoryCardSettings.USE_GLOBAL);
+        labels.add("No card (ejected)");
+        values.add(MemoryCardSettings.EJECTED);
+        for (String card : MemoryCardSettings.listCards(context)) {
+            labels.add(card);
+            values.add(card);
+        }
+
+        String selected = MemoryCardSettings.getGameCard(context, gameUri, slot);
+        int selectedIndex = values.indexOf(selected);
+        if (selectedIndex < 0) {
+            labels.add(selected + " (missing)");
+            values.add(selected);
+            selectedIndex = values.size() - 1;
+        }
+
+        ArrayAdapter<String> adapter = new ArrayAdapter<>(
+                context, android.R.layout.simple_spinner_item, labels);
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinner.setAdapter(adapter);
+        spinner.setSelection(selectedIndex);
+        return values;
     }
 
     private void saveGameSettings(String gameSerial, String gameCrc,
