@@ -41,8 +41,8 @@ android {
         applicationId = "com.izzy2lost.psx2"
         minSdk = 26
         targetSdk = 36
-        versionCode 24
-        versionName "1.2.2"
+        versionCode 25
+        versionName "1.2.3"
         // APK
         base.archivesName = "PSX2_${versionCode}_${new Date().format('yyyyMMddHHmm')}"
 
@@ -66,8 +66,9 @@ android {
 
     buildTypes {
         release {
-            minifyEnabled = false
-            shrinkResources = false
+            // R8 primarily trims dependencies; app/JNI classes are preserved by proguard-rules.pro.
+            minifyEnabled = true
+            shrinkResources = true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             signingConfig hasReleaseSigning ? signingConfigs.release : signingConfigs.debug
             ndk {
@@ -111,7 +112,6 @@ android {
     packagingOptions {
         jniLibs {
             useLegacyPackaging = true
-            keepDebugSymbols += ['**/*.so']
         }
         resources {
             excludes += ['META-INF/DEPENDENCIES', 'META-INF/LICENSE', 'META-INF/NOTICE', 'META-INF/NOTICE.txt']
@@ -142,4 +142,3 @@ tasks.withType(org.gradle.api.tasks.compile.JavaCompile).configureEach {
         languageVersion = org.gradle.jvm.toolchain.JavaLanguageVersion.of(21)
     }
 }
-
