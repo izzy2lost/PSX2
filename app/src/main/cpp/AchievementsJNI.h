@@ -41,6 +41,9 @@ namespace AchievementsJNI
 	/// Show a generic notification
 	void ShowNotification(const char* message, int duration);
 
+	/// Play a short notification sound from an absolute file path
+	void PlaySound(const char* path);
+
 	/// Get the JavaVM instance (for internal use)
 	JavaVM* GetJavaVM();
 

@@ -467,13 +467,16 @@ bool Achievements::Initialize()
 	const std::string username = Host::GetBaseStringSettingValue("Achievements", "Username");
 
 	// Check the base settings file to see if the token is defined inside. Move if found.
+	// If no secrets layer exists, leave the token in the base settings rather than losing it.
 	std::string oldToken = Host::GetBaseStringSettingValue("Achievements", "Token");
-	if (!oldToken.empty())
+	if (!oldToken.empty() && Host::Internal::GetSecretsSettingsLayer())
 	{
-		auto secretsLock = Host::GetSecretsSettingsLock();
-		SettingsInterface* secretsInterface = Host::Internal::GetSecretsSettingsLayer();
-		secretsInterface->SetStringValue("Achievements", "Token", oldToken.c_str());
-		secretsInterface->Save();
+		{
+			auto secretsLock = Host::GetSecretsSettingsLock();
+			SettingsInterface* secretsInterface = Host::Internal::GetSecretsSettingsLayer();
+			secretsInterface->SetStringValue("Achievements", "Token", oldToken.c_str());
+			secretsInterface->Save();
+		}
 
 		oldToken.clear();
 
@@ -1891,8 +1894,18 @@ void Achievements::ClientLoginWithPasswordCallback(int result, const char* error
 	Host::CommitBaseSettingChanges();
 
 	SettingsInterface* secretsInterface = Host::Internal::GetSecretsSettingsLayer();
-	secretsInterface->SetStringValue("Achievements", "Token", user->token);
-	secretsInterface->Save();
+	if (secretsInterface)
+	{
+		secretsInterface->SetStringValue("Achievements", "Token", user->token);
+		secretsInterface->Save();
+	}
+	else
+	{
+		// No secrets layer on this host - store the token in base settings so
+		// the login still persists instead of crashing.
+		Host::SetBaseStringSettingValue("Achievements", "Token", user->token);
+		Host::CommitBaseSettingChanges();
+	}
 
 	ShowLoginSuccess(client);
 }
@@ -1993,12 +2006,16 @@ void Achievements::Logout()
 	Console.WriteLn("Achievements: Clearing credentials...");
 	Host::RemoveBaseSettingValue("Achievements", "Username");
 	Host::RemoveBaseSettingValue("Achievements", "LoginTimestamp");
+	Host::RemoveBaseSettingValue("Achievements", "Token");
 	Host::CommitBaseSettingChanges();
 
 	auto secretsLock = Host::GetSecretsSettingsLock();
 	SettingsInterface* secretsInterface = Host::Internal::GetSecretsSettingsLayer();
-	secretsInterface->DeleteValue("Achievements", "Token");
-	secretsInterface->Save();
+	if (secretsInterface)
+	{
+		secretsInterface->DeleteValue("Achievements", "Token");
+		secretsInterface->Save();
+	}
 }
 
 

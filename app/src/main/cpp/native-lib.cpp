@@ -313,6 +313,15 @@ Java_com_izzy2lost_psx2_NativeApp_initialize(JNIEnv *env, jclass clazz,
         MemorySettingsInterface &si = s_settings_interface;
         Host::Internal::SetBaseSettingsLayer(&si);
 
+        // The achievements code stores the RetroAchievements token in the
+        // secrets settings layer and dereferences it unconditionally, so it
+        // must exist. Back it with an INI file so the login survives restarts.
+        static std::unique_ptr<INISettingsInterface> s_secrets_settings_interface;
+        s_secrets_settings_interface =
+            std::make_unique<INISettingsInterface>(Path::Combine(EmuFolders::DataRoot, "secrets.ini"));
+        s_secrets_settings_interface->Load();
+        Host::Internal::SetSecretsSettingsLayer(s_secrets_settings_interface.get());
+
         // Initialize emulator folders and ensure they exist (including GameSettings)
         EmuFolders::SetDefaults(si);
         EmuFolders::LoadConfig(si);
@@ -372,7 +381,7 @@ Java_com_izzy2lost_psx2_NativeApp_initialize(JNIEnv *env, jclass clazz,
         si.SetBoolValue("Achievements", "HardcoreMode", false);
         si.SetBoolValue("Achievements", "Notifications", true);
         si.SetBoolValue("Achievements", "LeaderboardNotifications", true);
-        si.SetBoolValue("Achievements", "SoundEffects", false); // No sound on Android
+        si.SetBoolValue("Achievements", "SoundEffects", true);
         si.SetBoolValue("Achievements", "EncoreMode", false);
         si.SetBoolValue("Achievements", "SpectatorMode", false);
         si.SetBoolValue("Achievements", "UnofficialTestMode", false);
@@ -1808,7 +1817,8 @@ bool Common::InhibitScreensaver(bool inhibit)
 
 bool Common::PlaySoundAsync(const char* path)
 {
-    return false;
+    AchievementsJNI::PlaySound(path);
+    return true;
 }
 
 bool Host::CopyTextToClipboard(const std::string_view text)

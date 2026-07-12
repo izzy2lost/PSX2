@@ -27,6 +27,7 @@ namespace AchievementsJNI
 	static jmethodID s_on_progress_indicator_update = nullptr;
 	static jmethodID s_on_game_summary = nullptr;
 	static jmethodID s_show_notification = nullptr;
+	static jmethodID s_play_sound = nullptr;
 
 	bool Initialize(JNIEnv* env)
 	{
@@ -90,6 +91,10 @@ namespace AchievementsJNI
 		
 		s_show_notification = env->GetStaticMethodID(s_achievements_class, "showNotification",
 			"(Ljava/lang/String;I)V");
+		if (env->ExceptionCheck()) env->ExceptionClear();
+
+		s_play_sound = env->GetStaticMethodID(s_achievements_class, "playSound",
+			"(Ljava/lang/String;)V");
 		if (env->ExceptionCheck()) env->ExceptionClear();
 
 		if (!s_on_achievement_unlocked || !s_on_game_complete || !s_on_leaderboard_started ||
@@ -277,6 +282,20 @@ namespace AchievementsJNI
 		env->CallStaticVoidMethod(s_achievements_class, s_show_notification, j_message, duration);
 
 		env->DeleteLocalRef(j_message);
+	}
+
+	void PlaySound(const char* path)
+	{
+		std::lock_guard<std::mutex> lock(s_jni_mutex);
+		JNIEnv* env = GetEnv();
+		if (!env || !s_achievements_class || !s_play_sound)
+			return;
+
+		jstring j_path = env->NewStringUTF(path);
+
+		env->CallStaticVoidMethod(s_achievements_class, s_play_sound, j_path);
+
+		env->DeleteLocalRef(j_path);
 	}
 
 	JavaVM* GetJavaVM()

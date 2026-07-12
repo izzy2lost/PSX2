@@ -216,4 +216,27 @@ public class RetroAchievementsManager {
     private static Activity getActivity() {
         return sActivity != null ? sActivity.get() : null;
     }
+
+    /**
+     * Called from native code (Common::PlaySoundAsync) to play a short
+     * notification sound (achievement unlock, etc.) from an absolute path.
+     */
+    public static void playSound(final String path) {
+        sMainHandler.post(() -> {
+            try {
+                final android.media.MediaPlayer player = new android.media.MediaPlayer();
+                player.setAudioAttributes(new android.media.AudioAttributes.Builder()
+                        .setUsage(android.media.AudioAttributes.USAGE_GAME)
+                        .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build());
+                player.setDataSource(path);
+                player.setOnCompletionListener(android.media.MediaPlayer::release);
+                player.setOnErrorListener((mp, what, extra) -> { mp.release(); return true; });
+                player.prepare();
+                player.start();
+            } catch (Exception e) {
+                android.util.Log.w("RetroAchievements", "Failed to play sound: " + path, e);
+            }
+        });
+    }
 }
