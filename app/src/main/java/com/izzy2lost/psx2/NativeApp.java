@@ -130,6 +130,10 @@ public class NativeApp {
     public static void setBlendingAccuracyAsync(int level) {
         runNativeSettingAsync("setBlendingAccuracy", () -> setBlendingAccuracy(level));
     }
+    public static native void setVsyncEnabled(boolean enabled);
+    public static void setVsyncEnabledAsync(boolean enabled) {
+        runNativeSettingAsync("setVsyncEnabled", () -> setVsyncEnabled(enabled));
+    }
     
     // Shade Boost (brightness/contrast/saturation)
     public static native void setShadeBoost(boolean enabled);
@@ -158,6 +162,7 @@ public class NativeApp {
                                                        boolean noInterlacingPatches,
                                                        boolean loadTextures,
                                                        boolean asyncTextureLoading,
+                                                       boolean vsyncEnabled,
                                                        boolean hudVisible);
     public static void applyGlobalSettingsBatchAsync(int renderer,
                                                      float upscaleMultiplier,
@@ -167,10 +172,12 @@ public class NativeApp {
                                                      boolean noInterlacingPatches,
                                                      boolean loadTextures,
                                                      boolean asyncTextureLoading,
+                                                     boolean vsyncEnabled,
                                                      boolean hudVisible) {
         runNativeSettingAsync("applyGlobalSettingsBatch", () ->
                 applyGlobalSettingsBatch(renderer, upscaleMultiplier, aspectRatio, blendingAccuracy,
-                        widescreenPatches, noInterlacingPatches, loadTextures, asyncTextureLoading, hudVisible));
+                        widescreenPatches, noInterlacingPatches, loadTextures, asyncTextureLoading,
+                        vsyncEnabled, hudVisible));
     }
     
     // Apply per-game settings (subset) in one batch

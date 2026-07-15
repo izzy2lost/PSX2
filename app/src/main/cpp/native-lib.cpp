@@ -314,6 +314,15 @@ Java_com_izzy2lost_psx2_NativeApp_setBlendingAccuracy(JNIEnv* env, jclass, jint 
 
 extern "C"
 JNIEXPORT void JNICALL
+Java_com_izzy2lost_psx2_NativeApp_setVsyncEnabled(JNIEnv* env, jclass, jboolean enabled)
+{
+    s_settings_interface.SetBoolValue("EmuCore/GS", "VsyncEnable", enabled == JNI_TRUE);
+    if (VMManager::HasValidVM())
+        VMManager::ApplySettings();
+}
+
+extern "C"
+JNIEXPORT void JNICALL
 Java_com_izzy2lost_psx2_NativeApp_initialize(JNIEnv *env, jclass clazz,
                                                 jstring p_szpath, jint p_apiVer) {
     std::string _szPath = GetJavaString(env, p_szpath);
@@ -348,7 +357,7 @@ Java_com_izzy2lost_psx2_NativeApp_initialize(JNIEnv *env, jclass clazz,
 
         // complete as quickly as possible
         si.SetBoolValue("EmuCore/GS", "FrameLimitEnable", false);
-        si.SetIntValue("EmuCore/GS", "VsyncEnable", false);
+        si.SetBoolValue("EmuCore/GS", "VsyncEnable", false);
 
         // ensure all input sources are disabled, we're not using them
         si.SetBoolValue("InputSources", "SDL", true);
@@ -944,6 +953,7 @@ Java_com_izzy2lost_psx2_NativeApp_applyGlobalSettingsBatch(JNIEnv* env, jclass,
                                                             jboolean noInterlacingPatches,
                                                             jboolean loadTextures,
                                                             jboolean asyncTextureLoading,
+                                                            jboolean vsyncEnabled,
                                                             jboolean hudVisible)
 {
 	renderer = NormalizeAndroidRenderer(renderer);
@@ -973,6 +983,7 @@ Java_com_izzy2lost_psx2_NativeApp_applyGlobalSettingsBatch(JNIEnv* env, jclass,
     s_settings_interface.SetBoolValue("EmuCore", "EnableNoInterlacingPatches", (noInterlacingPatches == JNI_TRUE));
     s_settings_interface.SetBoolValue("EmuCore/GS", "LoadTextureReplacements", (loadTextures == JNI_TRUE));
     s_settings_interface.SetBoolValue("EmuCore/GS", "LoadTextureReplacementsAsync", (asyncTextureLoading == JNI_TRUE));
+    s_settings_interface.SetBoolValue("EmuCore/GS", "VsyncEnable", (vsyncEnabled == JNI_TRUE));
 
     // HUD/OSD bundle
     const bool hv = (hudVisible == JNI_TRUE);
