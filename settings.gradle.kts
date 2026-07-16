@@ -5,6 +5,7 @@ pluginManagement {
         gradlePluginPortal()
     }
 }
+
 dependencyResolutionManagement {
     repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
     repositories {
@@ -14,4 +15,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "PSX2"
-include ':app'
+include(":app")
