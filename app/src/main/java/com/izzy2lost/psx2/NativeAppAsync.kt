@@ -1,3 +1,6 @@
+// SPDX-FileCopyrightText: 2025 Android Port Contributors
+// SPDX-License-Identifier: GPL-3.0+
+
 package com.izzy2lost.psx2
 
 import kotlinx.coroutines.*
