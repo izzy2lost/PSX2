@@ -26,6 +26,8 @@ public class GameSettingsDialogFragment extends DialogFragment {
     private static final String ARG_GAME_URI = "game_uri";
     private static final String ARG_GAME_SERIAL = "game_serial";
     private static final String ARG_GAME_CRC = "game_crc";
+    private static final int COVER_WIDTH = 567;
+    private static final int COVER_HEIGHT = 878;
 
     // File picker state
     private ActivityResultLauncher<Intent> mPnachPicker;
@@ -138,22 +140,21 @@ public class GameSettingsDialogFragment extends DialogFragment {
                     
                     // Process in background to avoid blocking UI
                     new Thread(() -> {
+                        com.bumptech.glide.request.FutureTarget<android.graphics.Bitmap> coverTarget = null;
                         try {
-                            // Load and resize the image
-                            android.content.ContentResolver cr = ctx.getContentResolver();
-                            java.io.InputStream in = cr.openInputStream(uri);
-                            if (in == null) throw new Exception("Cannot open image");
-                            
-                            android.graphics.Bitmap original = android.graphics.BitmapFactory.decodeStream(in);
-                            in.close();
-                            if (original == null) throw new Exception("Cannot decode image");
-                            
-                            // Resize to standard cover dimensions (567x878 for PS2 covers)
-                            int targetWidth = 567;
-                            int targetHeight = 878;
-                            android.graphics.Bitmap resized = android.graphics.Bitmap.createScaledBitmap(
-                                original, targetWidth, targetHeight, true);
-                            original.recycle();
+                            // Let Glide decode directly at cover size instead of allocating the
+                            // source image at its full resolution and scaling it afterward.
+                            com.bumptech.glide.RequestManager requestManager =
+                                com.bumptech.glide.Glide.with(ctx.getApplicationContext());
+                            coverTarget = requestManager
+                                .asBitmap()
+                                .load(uri)
+                                .override(COVER_WIDTH, COVER_HEIGHT)
+                                .centerCrop()
+                                .diskCacheStrategy(com.bumptech.glide.load.engine.DiskCacheStrategy.NONE)
+                                .skipMemoryCache(true)
+                                .submit();
+                            android.graphics.Bitmap cover = coverTarget.get();
                             
                             // Save to SAF location only
                             androidx.documentfile.provider.DocumentFile existing = SafManager.getChild(ctx, new String[]{"covers"}, serial + ".png");
@@ -161,15 +162,15 @@ public class GameSettingsDialogFragment extends DialogFragment {
                                 existing.delete();
                             }
                             androidx.documentfile.provider.DocumentFile newFile = SafManager.createChild(ctx, new String[]{"covers"}, serial + ".png", "image/png");
-                            if (newFile != null) {
-                                java.io.OutputStream out = ctx.getContentResolver().openOutputStream(newFile.getUri(), "w");
-                                if (out != null) {
-                                    resized.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out);
-                                    out.flush();
-                                    out.close();
+                            if (newFile == null) {
+                                throw new java.io.IOException("Cannot create cover file");
+                            }
+                            try (java.io.OutputStream out = ctx.getContentResolver().openOutputStream(newFile.getUri(), "w")) {
+                                if (out == null) throw new java.io.IOException("Cannot open cover file");
+                                if (!cover.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)) {
+                                    throw new java.io.IOException("Cannot encode cover image");
                                 }
                             }
-                            resized.recycle();
                             
                             // Mark as custom cover
                             ctx.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
@@ -197,6 +198,11 @@ public class GameSettingsDialogFragment extends DialogFragment {
                                 getActivity().runOnUiThread(() -> {
                                     android.widget.Toast.makeText(ctx, "Failed to save cover: " + e.getMessage(), android.widget.Toast.LENGTH_SHORT).show();
                                 });
+                            }
+                        } finally {
+                            if (coverTarget != null) {
+                                // Return the bitmap to Glide's managed pool when encoding is done.
+                                com.bumptech.glide.Glide.with(ctx.getApplicationContext()).clear(coverTarget);
                             }
                         }
                     }).start();
@@ -674,64 +680,6 @@ public class GameSettingsDialogFragment extends DialogFragment {
             if (ini.exists()) ini.delete();
         } catch (Throwable ignored) {
         }
-    }
-    
-    private void importCustomCover(Context ctx, Uri sourceUri, String gameSerial) throws Exception {
-        // Load the image
-        android.content.ContentResolver cr = ctx.getContentResolver();
-        java.io.InputStream in = cr.openInputStream(sourceUri);
-        if (in == null) throw new Exception("Cannot open image");
-        
-        android.graphics.Bitmap originalBitmap = android.graphics.BitmapFactory.decodeStream(in);
-        in.close();
-        if (originalBitmap == null) throw new Exception("Invalid image format");
-        
-        // Resize to standard PS2 cover dimensions (567x878)
-        final int TARGET_WIDTH = 567;
-        final int TARGET_HEIGHT = 878;
-        android.graphics.Bitmap resizedBitmap = android.graphics.Bitmap.createScaledBitmap(
-            originalBitmap, TARGET_WIDTH, TARGET_HEIGHT, true);
-        originalBitmap.recycle();
-        
-        // Save to both locations
-        String fileName = gameSerial + ".png";
-        
-        // Save to internal storage
-        java.io.File baseDir = ctx.getExternalFilesDir("covers");
-        if (baseDir == null) baseDir = new java.io.File(ctx.getFilesDir(), "covers");
-        if (!baseDir.exists()) baseDir.mkdirs();
-        java.io.File outFile = new java.io.File(baseDir, fileName);
-        java.io.FileOutputStream fos = new java.io.FileOutputStream(outFile);
-        resizedBitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, fos);
-        fos.flush();
-        fos.close();
-        
-        // Save to SAF location if set
-        android.net.Uri dataRoot = SafManager.getDataRootUri(ctx);
-        if (dataRoot != null) {
-            try {
-                // Delete existing if present
-                androidx.documentfile.provider.DocumentFile existing = SafManager.getChild(ctx, new String[]{"covers"}, fileName);
-                if (existing != null && existing.exists()) {
-                    existing.delete();
-                }
-                
-                // Create new file
-                androidx.documentfile.provider.DocumentFile target = SafManager.createChild(ctx, new String[]{"covers"}, fileName, "image/png");
-                if (target != null) {
-                    java.io.OutputStream os = cr.openOutputStream(target.getUri(), "w");
-                    if (os != null) {
-                        resizedBitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, os);
-                        os.flush();
-                        os.close();
-                    }
-                }
-            } catch (Exception e) {
-                android.util.Log.w("GameSettings", "Failed to save to SAF: " + e.getMessage());
-            }
-        }
-        
-        resizedBitmap.recycle();
     }
     
     private void deleteCustomCover(Context ctx, String gameSerial) {
