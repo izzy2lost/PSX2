@@ -64,6 +64,14 @@ public final class TitleResolver {
             // 4) Lookup in index
             if (serial != null) {
                 serial = normalizeSerial(serial);
+                // Save it to shared preferences to persistent-cache it for fast immediate startups
+                try {
+                    android.content.SharedPreferences prefs = ctx.getSharedPreferences("app_prefs", Context.MODE_PRIVATE);
+                    if (!serial.equals(prefs.getString("serial:" + uriString, null))) {
+                        prefs.edit().putString("serial:" + uriString, serial).apply();
+                    }
+                } catch (Throwable ignored) {}
+
                 String title = sSerialToTitle.get(serial);
                 if (title != null && !title.isEmpty()) {
                     putCachedTitle(ctx, uriString, title);

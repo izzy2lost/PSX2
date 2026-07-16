@@ -14,4 +14,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "PSX2"
-include ':app'
+include(":app")
