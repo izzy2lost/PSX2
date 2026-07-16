@@ -195,21 +195,8 @@ public class GamesCoverDialogFragment extends DialogFragment {
         for (int i = 0; i < uris.length; i++) {
             String saved = prefs.getString("serial:" + uris[i], null);
             String serial = saved;
-            // On first boot, skip native serial extraction to avoid crashes
-            // The background thread will handle it later with proper delays
-            if (serial == null || serial.isEmpty()) {
-                if (!isFirstBoot) {
-                    try {
-                        String nativeSerial = NativeApp.getGameSerialSafe(uris[i]);
-                        if (nativeSerial != null && !nativeSerial.isEmpty()) {
-                            serial = normalizeSerial(nativeSerial);
-                            prefs.edit().putString("serial:" + uris[i], serial).apply();
-                        }
-                    } catch (Throwable e) {
-                        android.util.Log.w("GamesCoverDialog", "Error getting serial for " + uris[i] + ": " + e.getMessage());
-                    }
-                }
-            }
+            // Never execute JNI calls synchronously on the UI Thread.
+            // Fast build from URI; the background thread will resolve and cache the actual serial with proper delays.
             if (serial == null || serial.isEmpty()) {
                 serial = buildSerialFromUri(uris[i]);
             }
@@ -906,27 +893,39 @@ public class GamesCoverDialogFragment extends DialogFragment {
 
     private void showGameSettings(String gameTitle, String gameUri) {
         try {
-            // Prefer native extraction so CHDs work
-            String gameSerial = null;
-            try { gameSerial = NativeApp.getGameSerialSafe(gameUri); } catch (Throwable ignored) {}
-            if (gameSerial == null || gameSerial.isEmpty()) {
-                gameSerial = extractSerialFromUri(gameUri);
-            }
-            if (gameSerial == null || gameSerial.isEmpty()) {
-                gameSerial = buildSerialFromUri(gameUri);
-            }
-            gameSerial = normalizeSerial(gameSerial);
+            // Fetch serial asynchronously to prevent blocking UI Thread
+            NativeAppAsync.getGameSerial(gameUri, new NativeAppAsync.Callback<String>() {
+                @Override
+                public void onResult(String resolvedSerial) {
+                    String gameSerial = resolvedSerial;
+                    if (gameSerial == null || gameSerial.isEmpty()) {
+                        gameSerial = extractSerialFromUri(gameUri);
+                    }
+                    if (gameSerial == null || gameSerial.isEmpty()) {
+                        gameSerial = buildSerialFromUri(gameUri);
+                    }
+                    final String finalSerial = normalizeSerial(gameSerial);
 
-            // CRC (native if available)
-            String gameCrc = null;
-            try { gameCrc = NativeApp.getGameCrc(gameUri); } catch (Throwable ignored) {}
-            if (gameCrc == null || gameCrc.isEmpty()) {
-                gameCrc = String.format(java.util.Locale.ROOT, "%08X", Math.abs(gameUri != null ? gameUri.hashCode() : 0));
-            }
+                    // Fetch CRC asynchronously
+                    NativeAppAsync.getGameCrc(gameUri, new NativeAppAsync.Callback<String>() {
+                        @Override
+                        public void onResult(String resolvedCrc) {
+                            String gameCrc = resolvedCrc;
+                            if (gameCrc == null || gameCrc.isEmpty()) {
+                                gameCrc = String.format(java.util.Locale.ROOT, "%08X", Math.abs(gameUri != null ? gameUri.hashCode() : 0));
+                            }
 
-            GameSettingsDialogFragment dialog = GameSettingsDialogFragment.newInstance(
-                    gameTitle, gameUri, gameSerial, gameCrc);
-            dialog.show(getParentFragmentManager(), "game_settings");
+                            try {
+                                if (isAdded()) {
+                                    GameSettingsDialogFragment dialog = GameSettingsDialogFragment.newInstance(
+                                            gameTitle, gameUri, finalSerial, gameCrc);
+                                    dialog.show(getParentFragmentManager(), "game_settings");
+                                }
+                            } catch (Throwable ignored) {}
+                        }
+                    });
+                }
+            });
         } catch (Throwable ignored) {}
     }
 
@@ -1031,41 +1030,49 @@ public class GamesCoverDialogFragment extends DialogFragment {
     }
 
     private void startDownloadCovers() {
-        // Check if any games have custom covers
-        SharedPreferences prefs = requireContext().getSharedPreferences("app_prefs", Context.MODE_PRIVATE);
-        java.util.ArrayList<String> customCoverGames = new java.util.ArrayList<>();
+        final Context context = requireContext().getApplicationContext();
+        final SharedPreferences prefs = context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE);
         
-        for (int i = 0; i < uris.length; i++) {
-            try {
-                String serial = prefs.getString("serial:" + uris[i], null);
-                if (serial == null || serial.isEmpty()) {
-                    try { serial = NativeApp.getGameSerialSafe(uris[i]); } catch (Throwable ignored) {}
+        // Scan for custom covers asynchronously on Dispatchers.IO to prevent UI thread blocking
+        NativeAppAsync.runOnIO(() -> {
+            java.util.ArrayList<String> customGames = new java.util.ArrayList<>();
+            for (int i = 0; i < uris.length; i++) {
+                try {
+                    String serial = prefs.getString("serial:" + uris[i], null);
+                    if (serial == null || serial.isEmpty()) {
+                        serial = NativeApp.getGameSerialSafe(uris[i]);
+                    }
+                    if (serial == null || serial.isEmpty()) {
+                        serial = buildSerialFromUri(uris[i]);
+                    }
+                    serial = normalizeSerial(serial);
+
+                    if (prefs.getBoolean("custom_cover:" + serial, false)) {
+                        customGames.add(titles[i]);
+                    }
+                } catch (Exception ignored) {}
+            }
+            return customGames;
+        }, new NativeAppAsync.Callback<java.util.ArrayList<String>>() {
+            @Override
+            public void onResult(java.util.ArrayList<String> customCoverGames) {
+                if (!isAdded()) return;
+                // If custom covers exist, ask user what to do
+                if (!customCoverGames.isEmpty()) {
+                    String message = "Found " + customCoverGames.size() + " game(s) with custom covers.\n\nWhat would you like to do?";
+                    new MaterialAlertDialogBuilder(requireContext(),
+                            com.google.android.material.R.style.ThemeOverlay_Material3_MaterialAlertDialog)
+                            .setTitle("Custom Covers Detected")
+                            .setMessage(message)
+                            .setNegativeButton("Cancel", null)
+                            .setNeutralButton("Skip Custom", (d, w) -> downloadCoversInternal(true))
+                            .setPositiveButton("Delete All Custom", (d, w) -> deleteCustomCovers())
+                            .show();
+                } else {
+                    downloadCoversInternal(false);
                 }
-                if (serial == null || serial.isEmpty()) {
-                    serial = buildSerialFromUri(uris[i]);
-                }
-                serial = normalizeSerial(serial);
-                
-                if (prefs.getBoolean("custom_cover:" + serial, false)) {
-                    customCoverGames.add(titles[i]);
-                }
-            } catch (Exception ignored) {}
-        }
-        
-        // If custom covers exist, ask user what to do
-        if (!customCoverGames.isEmpty()) {
-            String message = "Found " + customCoverGames.size() + " game(s) with custom covers.\n\nWhat would you like to do?";
-            new MaterialAlertDialogBuilder(requireContext(),
-                    com.google.android.material.R.style.ThemeOverlay_Material3_MaterialAlertDialog)
-                    .setTitle("Custom Covers Detected")
-                    .setMessage(message)
-                    .setNegativeButton("Cancel", null)
-                    .setNeutralButton("Skip Custom", (d, w) -> downloadCoversInternal(true))
-                    .setPositiveButton("Delete All Custom", (d, w) -> deleteCustomCovers())
-                    .show();
-        } else {
-            downloadCoversInternal(false);
-        }
+            }
+        });
     }
     
     private void downloadCoversInternal(boolean skipCustomCovers) {

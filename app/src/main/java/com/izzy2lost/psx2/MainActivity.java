@@ -546,9 +546,6 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
 
         setSurfaceView(new SDLSurface(this));
 
-        // Ensure consistent ripple across all MaterialButtons
-        tintAllMaterialButtonOutlines();
-
         // Apply orientation-specific constraints once at startup
         int currentOrientation = getResources().getConfiguration().orientation;
         applyConstraintsForOrientation(currentOrientation);
@@ -1156,51 +1153,6 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
         updateRendererButtonLabel();
     }
 
-    private void tintAllMaterialButtonOutlines() {
-        // Ripple + specific color tweaks, no strokes (transparent container style)
-        View root = findViewById(android.R.id.content);
-        if (root instanceof ViewGroup) {
-            traverseAndTintButtons((ViewGroup) root);
-        }
-    }
-
-    private void traverseAndTintButtons(ViewGroup group) {
-        for (int i = 0; i < group.getChildCount(); i++) {
-            View child = group.getChildAt(i);
-            if (child instanceof ViewGroup) {
-                traverseAndTintButtons((ViewGroup) child);
-            }
-            if (child instanceof MaterialButton) {
-                MaterialButton mb = (MaterialButton) child;
-                // Ensure ripple matches brand globally
-                mb.setRippleColor(ColorStateList.valueOf(ContextCompat.getColor(this, R.color.brand_ripple)));
-                int id = mb.getId();
-                if (id == R.id.btn_pad_y) { // Triangle = green
-                    final int base = ContextCompat.getColor(this, R.color.ps2_triangle_green);
-                    ColorStateList stateful = pressedColorStateList(base);
-                    mb.setTextColor(stateful);
-                } else if (id == R.id.btn_pad_b) { // Circle = red
-                    final int base = ContextCompat.getColor(this, R.color.ps2_circle_red);
-                    ColorStateList stateful = pressedColorStateList(base);
-                    mb.setTextColor(stateful);
-                } else if (id == R.id.btn_pad_a) { // Cross = blue
-                    final int base = ContextCompat.getColor(this, R.color.ps2_cross_blue);
-                    ColorStateList stateful = pressedColorStateList(base);
-                    mb.setTextColor(stateful);
-                } else if (id == R.id.btn_pad_x) { // Square = pink
-                    final int base = ContextCompat.getColor(this, R.color.ps2_square_pink);
-                    ColorStateList stateful = pressedColorStateList(base);
-                    mb.setTextColor(stateful);
-                } else if (id == R.id.btn_pad_dir_top || id == R.id.btn_pad_dir_left || id == R.id.btn_pad_dir_right || id == R.id.btn_pad_dir_bottom) {
-                    // D-pad arrow icon tint to brand accent
-                    ColorStateList iconTint = ColorStateList.valueOf(ContextCompat.getColor(this, R.color.brand_accent));
-                    mb.setIconTint(iconTint);
-                }
-                // No stroke; background is transparent per style
-            }
-        }
-    }
-
     // --- BIOS presence check and prompt ---
     private boolean hasAnyBiosFiles(File dir) {
         return BiosVerifier.hasAnyVerifiedBios(this);
@@ -1281,30 +1233,6 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
             android.util.Log.w("MainActivity", "Unable to pass verified BIOS list to native core", t);
         }
         return true;
-    }
-
-    private ColorStateList pressedColorStateList(int base) {
-        int pressed = darkenColor(base, 0.85f); // 15% darker when pressed
-        int[][] states = new int[][]{
-                new int[]{android.R.attr.state_pressed},
-                new int[]{}
-        };
-        int[] colors = new int[]{
-                pressed,
-                base
-        };
-        return new ColorStateList(states, colors);
-    }
-
-    private int darkenColor(int color, float factor) {
-        int a = (color >> 24) & 0xFF;
-        int r = (color >> 16) & 0xFF;
-        int g = (color >> 8) & 0xFF;
-        int b = color & 0xFF;
-        r = Math.max(0, Math.min(255, (int)(r * factor)));
-        g = Math.max(0, Math.min(255, (int)(g * factor)));
-        b = Math.max(0, Math.min(255, (int)(b * factor)));
-        return (a << 24) | (r << 16) | (g << 8) | b;
     }
 
     private void applySavedSettings() {
