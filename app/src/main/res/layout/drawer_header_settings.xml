@@ -267,6 +267,14 @@
             android:layout_height="wrap_content"
             android:layout_marginBottom="8dp"/>
 
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/drawer_sw_vsync"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Vertical Sync (VSync)"
+            android:textColor="@android:color/white"
+            android:layout_marginBottom="8dp"/>
+
         <!-- Resolution Scale -->
         <TextView
             android:layout_width="match_parent"

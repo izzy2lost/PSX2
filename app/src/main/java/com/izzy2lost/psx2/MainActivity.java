@@ -2412,6 +2412,17 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
     }
 
     private void setupDrawerSwitchListeners(View header, SharedPreferences prefs) {
+        // Vertical Sync switch
+        com.google.android.material.materialswitch.MaterialSwitch swVsync = header.findViewById(R.id.drawer_sw_vsync);
+        if (swVsync != null) {
+            swVsync.setTag("setup");
+            swVsync.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                if (isChecked == prefs.getBoolean("vsync_enabled", false)) return;
+                prefs.edit().putBoolean("vsync_enabled", isChecked).apply();
+                NativeApp.setVsyncEnabledAsync(isChecked);
+            });
+        }
+
         // Widescreen Patches switch
         com.google.android.material.materialswitch.MaterialSwitch swWide = header.findViewById(R.id.drawer_sw_widescreen);
         if (swWide != null) {
@@ -2492,6 +2503,7 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
 
     private void clearDrawerSwitchListeners(View header) {
         int[] switchIds = {
+                R.id.drawer_sw_vsync,
                 R.id.drawer_sw_widescreen,
                 R.id.drawer_sw_no_interlacing,
                 R.id.drawer_sw_load_textures,
@@ -2602,6 +2614,15 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
             // Refresh switch states with individual error handling. Detach listeners so
             // programmatic drawer sync never applies native settings from the UI thread.
             clearDrawerSwitchListeners(header);
+            try {
+                com.google.android.material.materialswitch.MaterialSwitch swVsync = header.findViewById(R.id.drawer_sw_vsync);
+                if (swVsync != null) {
+                    swVsync.setChecked(prefs.getBoolean("vsync_enabled", false));
+                }
+            } catch (Exception e) {
+                android.util.Log.e("MainActivity", "Error refreshing VSync switch: " + e.getMessage());
+            }
+
             try {
                 com.google.android.material.materialswitch.MaterialSwitch swWide = header.findViewById(R.id.drawer_sw_widescreen);
                 if (swWide != null) {
@@ -2723,6 +2744,9 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
             
             boolean precacheTextures = prefs.getBoolean("precache_textures", false);
             NativeApp.setPrecacheTextureReplacements(precacheTextures);
+
+            boolean vsyncEnabled = prefs.getBoolean("vsync_enabled", false);
+            NativeApp.setVsyncEnabled(vsyncEnabled);
             
             // Apply renderer setting
             int renderer = prefs.getInt("renderer", -1);

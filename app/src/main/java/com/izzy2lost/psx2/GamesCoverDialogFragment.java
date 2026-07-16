@@ -755,6 +755,17 @@ public class GamesCoverDialogFragment extends DialogFragment {
         // Setup switch listeners only once
         setupDialogDrawerSwitchListeners(header, prefs);
     }private void setupDialogDrawerSwitchListeners(View header, android.content.SharedPreferences prefs) {
+        // Vertical Sync switch
+        com.google.android.material.materialswitch.MaterialSwitch swVsync = header.findViewById(R.id.drawer_sw_vsync);
+        if (swVsync != null && swVsync.getTag() == null) {
+            swVsync.setTag("setup");
+            swVsync.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                if (isChecked == prefs.getBoolean("vsync_enabled", false)) return;
+                prefs.edit().putBoolean("vsync_enabled", isChecked).apply();
+                NativeApp.setVsyncEnabledAsync(isChecked);
+            });
+        }
+
         // Widescreen Patches switch
         com.google.android.material.materialswitch.MaterialSwitch swWide = header.findViewById(R.id.drawer_sw_widescreen);
         if (swWide != null && swWide.getTag() == null) {
@@ -1343,6 +1354,11 @@ public class GamesCoverDialogFragment extends DialogFragment {
             }
             
             // Refresh switch states
+            com.google.android.material.materialswitch.MaterialSwitch swVsync = header.findViewById(R.id.drawer_sw_vsync);
+            if (swVsync != null) {
+                swVsync.setChecked(prefs.getBoolean("vsync_enabled", false));
+            }
+
             com.google.android.material.materialswitch.MaterialSwitch swWide = header.findViewById(R.id.drawer_sw_widescreen);
             if (swWide != null) {
                 swWide.setChecked(prefs.getBoolean("widescreen_patches", true));
