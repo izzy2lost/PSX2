@@ -12,6 +12,10 @@
 #include "common/StringUtil.h"
 #include <bit>
 
+#ifdef __ANDROID__
+#include "AndroidDeviceDetection.h"
+#endif
+
 using PS_ATST  = GSShader::PS_ATST;
 using PS_AFAIL = GSShader::PS_AFAIL;
 
@@ -6776,6 +6780,15 @@ void GSRendererHW::EmulateBlending(int rt_alpha_min, int rt_alpha_max, DATEOptio
 	const bool alpha_eq_one = alpha_c0_eq_one || alpha_c2_eq_one;
 	const bool alpha_high_one = alpha_c0_high_min_one || alpha_c2_high_one;
 	const bool alpha_eq_less_one = alpha_c0_eq_less_max_one || alpha_c2_eq_less_one;
+	// Mali's fixed-function blend path loses or misorders layers for these alpha ranges.
+	// This restores the shader-blending workaround used by the earlier Android core.
+#ifdef __ANDROID__
+	static const bool is_mali =
+		AndroidDeviceDetection::DetectGPUVendor() == AndroidDeviceDetection::GPUVendor::ARM;
+#else
+	static constexpr bool is_mali = false;
+#endif
+	const bool prefer_mali_sw_blend = is_mali && (alpha_eq_less_one || alpha_c0_high_max_one);
 
 	// Optimize blending equations, must be done before index calculation
 	if ((m_conf.ps.blend_a == m_conf.ps.blend_b) || ((m_conf.ps.blend_b == m_conf.ps.blend_d) && alpha_eq_one))
@@ -6953,8 +6966,9 @@ void GSRendererHW::EmulateBlending(int rt_alpha_min, int rt_alpha_max, DATEOptio
 			accumulation_blend &= !prefer_sw_blend;
 			// Enable sw blending for barriers.
 			sw_blending |= blend_requires_barrier || prefer_sw_blend;
-			// Enable sw blending for free blending (non recursive, accumulation).
-			sw_blending |= free_blend;
+			// Enable sw blending for free blending (non recursive, accumulation), and
+			// for alpha ranges which Mali's fixed-function path handles incorrectly.
+			sw_blending |= free_blend || prefer_mali_sw_blend;
 			// Do not run BLEND MIX if sw blending is already present, it's less accurate.
 			blend_mix &= !sw_blending;
 			sw_blending |= blend_mix;
