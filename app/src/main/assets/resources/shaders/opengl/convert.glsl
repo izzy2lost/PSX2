@@ -25,6 +25,22 @@ void vs_main()
 
 #ifdef FRAGMENT_SHADER
 
+#ifndef HAS_INTEGER_OUTPUT
+#define HAS_INTEGER_OUTPUT 0
+#endif
+#ifndef HAS_DEPTH_OUTPUT
+#define HAS_DEPTH_OUTPUT 0
+#endif
+#ifndef HAS_FLOAT32_OUTPUT
+#define HAS_FLOAT32_OUTPUT 0
+#endif
+#ifndef HAS_STENCIL_OUTPUT
+#define HAS_STENCIL_OUTPUT 0
+#endif
+#ifndef HAS_FLOAT32_INPUT
+#define HAS_FLOAT32_INPUT 0
+#endif
+
 in vec4 PSin_p;
 in vec2 PSin_t;
 in vec4 PSin_c;
@@ -166,7 +182,8 @@ void ps_downsample_copy()
 	for (int yoff = 0; yoff < DownsampleFactor; yoff++)
 	{
 		for (int xoff = 0; xoff < DownsampleFactor; xoff++)
-			result += texelFetch(TextureSampler, coord + ivec2(xoff * StepMultiplier, yoff * StepMultiplier), 0);
+			result += texelFetch(TextureSampler,
+				coord + ivec2(vec2(xoff, yoff) * StepMultiplier), 0);
 	}
 	o_col0 = result / Weight;
 }

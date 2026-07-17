@@ -34,10 +34,6 @@
 #include "GS/Renderers/Vulkan/GSDeviceVK.h"
 #endif
 
-#ifdef __ANDROID__
-#include "AndroidDeviceDetection.h"
-#endif
-
 #ifdef _WIN32
 
 #include "GS/Renderers/DX11/GSDevice11.h"
@@ -354,16 +350,6 @@ bool GSopen(const Pcsx2Config::GSOptions& config, GSRendererType renderer, u8* b
 		const GSRendererType base_renderer = static_cast<GSRendererType>(base_renderer_val);
 		renderer = (base_renderer != GSRendererType::Auto) ? base_renderer : GSUtil::GetPreferredRenderer();
 	}
-
-#if defined(__ANDROID__) && defined(ENABLE_OPENGL)
-	// Don't attempt Vulkan first on Mali; it is known unstable on many devices.
-	if (renderer == GSRendererType::VK &&
-		AndroidDeviceDetection::DetectGPUVendor() == AndroidDeviceDetection::GPUVendor::ARM)
-	{
-		Console.Warning("Mali detected with Vulkan selected, forcing OpenGL for startup stability.");
-		renderer = GSRendererType::OGL;
-	}
-#endif
 
 	bool res = OpenGSDevice(renderer, true, false, vsync_mode, allow_present_throttle);
 	if (res)

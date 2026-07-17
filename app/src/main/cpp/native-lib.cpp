@@ -57,12 +57,11 @@ static std::string s_verified_bios_usa;
 static std::string s_verified_bios_europe;
 static std::string s_verified_bios_japan;
 
-// The imported YAPS2 renderer is Vulkan-only on Android for now. Normalize
-// legacy OpenGL preferences so existing installs continue to boot instead of
-// selecting a backend which is not linked into this build.
+// Renderer values already match GSRendererType. OpenGL is linked on Android and
+// must not be silently rewritten to Vulkan.
 static int NormalizeAndroidRenderer(int renderer)
 {
-    return (renderer == 12) ? 14 : renderer;
+    return renderer;
 }
 
 // Fallback JNI access for content:// when SDL's Android env is not yet ready
@@ -118,8 +117,6 @@ static void ApplyPerGameSettingsForSerial(const std::string& serial)
 
     if (per_game.GetStringValue("EmuCore/GS", "Renderer", &s))
     {
-		if (StringUtil::Strcasecmp(s.c_str(), "OpenGL") == 0)
-			s = "Vulkan";
         s_settings_interface.SetStringValue("EmuCore/GS", "Renderer", s.c_str());
         // Defer actual renderer switch until VM is initialized
         int rend = -1;

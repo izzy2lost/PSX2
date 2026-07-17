@@ -66,9 +66,10 @@ static bool LoadGLADEGL(EGLDisplay display, Error* error)
 	return true;
 }
 
-GLContextEGL::GLContextEGL(const WindowInfo& wi)
+GLContextEGL::GLContextEGL(const WindowInfo& wi, bool is_gles)
 	: GLContext(wi)
 {
+	m_is_gles = is_gles;
 	LoadEGL();
 }
 
@@ -325,6 +326,7 @@ bool GLContextEGL::SetSwapInterval(s32 interval)
 std::unique_ptr<GLContext> GLContextEGL::CreateSharedContext(const WindowInfo& wi, Error* error)
 {
 	std::unique_ptr<GLContextEGL> context = std::make_unique<GLContextEGL>(wi);
+	context->m_is_gles = m_is_gles;
 	context->m_display = m_display;
 
 	if (!context->CreateContextAndSurface(m_version, m_context, false))
@@ -435,10 +437,11 @@ void GLContextEGL::DestroySurface()
 
 bool GLContextEGL::CreateContext(const Version& version, EGLContext share_context)
 {
-	DevCon.WriteLnFmt("Trying GL version {}.{}", version.major_version, version.minor_version);
+	DevCon.WriteLnFmt("Trying {} version {}.{}", m_is_gles ? "OpenGL ES" : "OpenGL",
+		version.major_version, version.minor_version);
 	const int surface_attribs[] = {
 		EGL_RENDERABLE_TYPE,
-		EGL_OPENGL_BIT,
+		m_is_gles ? EGL_OPENGL_ES3_BIT : EGL_OPENGL_BIT,
 		EGL_SURFACE_TYPE,
 		(m_wi.type != WindowInfo::Type::Surfaceless) ? EGL_WINDOW_BIT : 0,
 		EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8,
@@ -483,7 +486,7 @@ bool GLContextEGL::CreateContext(const Version& version, EGLContext share_contex
 		EGL_NONE,
 		0};
 
-	if (!eglBindAPI(EGL_OPENGL_API))
+	if (!eglBindAPI(m_is_gles ? EGL_OPENGL_ES_API : EGL_OPENGL_API))
 	{
 		Console.ErrorFmt("eglBindAPI() failed: 0x{:x}", eglGetError());
 		return false;
@@ -496,7 +499,8 @@ bool GLContextEGL::CreateContext(const Version& version, EGLContext share_contex
 		return false;
 	}
 
-	Console.WriteLnFmt("Got GL version {}.{}", version.major_version, version.minor_version);
+	Console.WriteLnFmt("Got {} version {}.{}", m_is_gles ? "OpenGL ES" : "OpenGL",
+		version.major_version, version.minor_version);
 
 	EGLint min_swap_interval, max_swap_interval;
 	m_supports_negative_swap_interval = false;

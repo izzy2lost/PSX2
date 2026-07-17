@@ -105,6 +105,8 @@ namespace AndroidDeviceDetection
 		
 		// Check for other vendors via hardware string
 		std::string hardware = GetSystemProperty("ro.hardware");
+		std::string board = GetSystemProperty("ro.product.board");
+		std::string platform = GetSystemProperty("ro.board.platform");
 		std::string manufacturer = GetSystemProperty("ro.product.manufacturer");
 		
 		auto toLower = [](std::string str) {
@@ -113,7 +115,19 @@ namespace AndroidDeviceDetection
 		};
 		
 		hardware = toLower(hardware);
+		board = toLower(board);
+		platform = toLower(platform);
 		manufacturer = toLower(manufacturer);
+
+		// Tensor Pixels use ARM Mali/Immortalis GPUs, but their system properties
+		// contain Google codenames (gs101/gs201/zuma/etc.) rather than "mali".
+		// Older Qualcomm Pixels were already handled by IsSnapdragon() above.
+		if (manufacturer.find("google") != std::string::npos)
+		{
+			Console.WriteLn("Detected Google Pixel/Tensor (ARM GPU), hardware: %s, board: %s, platform: %s",
+				hardware.c_str(), board.c_str(), platform.c_str());
+			return GPUVendor::ARM;
+		}
 		
 		// Samsung Exynos devices (Mali GPU)
 		if (hardware.find("exynos") != std::string::npos || 

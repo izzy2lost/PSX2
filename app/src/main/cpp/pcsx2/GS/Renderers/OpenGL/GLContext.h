@@ -27,6 +27,7 @@ public:
 	__fi const WindowInfo& GetWindowInfo() const { return m_wi; }
 	__fi u32 GetSurfaceWidth() const { return m_wi.surface_width; }
 	__fi u32 GetSurfaceHeight() const { return m_wi.surface_height; }
+	__fi bool IsGLES() const { return m_is_gles; }
 
 	virtual void* GetProcAddress(const char* name) = 0;
 	virtual bool ChangeSurface(const WindowInfo& new_wi) = 0;
@@ -44,4 +45,5 @@ public:
 protected:
 	WindowInfo m_wi;
 	Version m_version = {};
+	bool m_is_gles = false;
 };

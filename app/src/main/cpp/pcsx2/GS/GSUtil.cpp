@@ -300,12 +300,12 @@ GSRendererType GSUtil::GetPreferredRenderer()
 
 		if (vendor == GPUVendor::ARM)
 		{
-			// Mali/Mediatek: prefer OpenGL for stability.
-			Console.Warning("Mali GPU detected: preferring OpenGL renderer.");
-#if defined(ENABLE_OPENGL)
-			preferred_renderer = GSRendererType::OGL;
-#elif defined(ENABLE_VULKAN)
+			// Vulkan remains the default on Mali; OpenGL is available as an explicit fallback.
+			Console.WriteLn("Mali GPU detected: preferring conservative Vulkan renderer.");
+#if defined(ENABLE_VULKAN)
 			preferred_renderer = GSRendererType::VK;
+#elif defined(ENABLE_OPENGL)
+			preferred_renderer = GSRendererType::OGL;
 #else
 			preferred_renderer = GSRendererType::SW;
 #endif
@@ -324,14 +324,17 @@ GSRendererType GSUtil::GetPreferredRenderer()
 		}
 		else
 		{
-			// Unknown Android GPU: prefer OpenGL for startup stability.
-#if defined(ENABLE_OPENGL)
-			preferred_renderer = GSRendererType::OGL;
-#elif defined(ENABLE_VULKAN)
+			// Vulkan is the primary Android backend. Some devices expose only
+			// product codenames here, so an unknown vendor must not silently make
+			// Auto select OpenGL on an otherwise Vulkan-capable device.
+			Console.WriteLn("Unknown Android GPU vendor: preferring Vulkan renderer.");
+#if defined(ENABLE_VULKAN)
 			preferred_renderer = GSRendererType::VK;
-#else
+#elif defined(ENABLE_OPENGL)
+			preferred_renderer = GSRendererType::OGL;
+		#else
 			preferred_renderer = GSRendererType::SW;
-#endif
+		#endif
 		}
 #else
 		// Linux: Prefer Vulkan if the driver isn't buggy.

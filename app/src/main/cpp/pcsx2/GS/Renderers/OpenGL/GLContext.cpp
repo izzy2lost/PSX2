@@ -5,6 +5,8 @@
 
 #if defined(_WIN32)
 #include "GS/Renderers/OpenGL/GLContextWGL.h"
+#elif defined(__ANDROID__)
+#include "GS/Renderers/OpenGL/GLContextEGLAndroid.h"
 #else // Linux
 #ifdef X11_API
 #include "GS/Renderers/OpenGL/GLContextEGLX11.h"
@@ -39,11 +41,17 @@ std::unique_ptr<GLContext> GLContext::Create(const WindowInfo& wi, Error* error)
 		{4, 0},
 		{3, 3},
 	};
+	static constexpr Version gles_vlist[] = {
+		{3, 2},
+		{3, 1},
+	};
 
 	std::unique_ptr<GLContext> context;
 	Error local_error;
 #if defined(_WIN32)
 	context = GLContextWGL::Create(wi, vlist, error);
+#elif defined(__ANDROID__)
+	context = GLContextEGLAndroid::Create(wi, gles_vlist, error);
 #else // Linux
 #if defined(X11_API)
 	if (wi.type == WindowInfo::Type::X11)
@@ -64,7 +72,11 @@ std::unique_ptr<GLContext> GLContext::Create(const WindowInfo& wi, Error* error)
 	context_being_created = context.get();
 
 	// load up glad
-	if (!gladLoadGL([](const char* name) { return reinterpret_cast<GLADapiproc>(context_being_created->GetProcAddress(name)); }))
+	const auto load_proc = [](const char* name) {
+		return reinterpret_cast<GLADapiproc>(context_being_created->GetProcAddress(name));
+	};
+	const int glad_version = context->IsGLES() ? gladLoadGLES2(load_proc) : gladLoadGL(load_proc);
+	if (!glad_version)
 	{
 		Error::SetStringView(error, "Failed to load GL functions for GLAD");
 		return nullptr;

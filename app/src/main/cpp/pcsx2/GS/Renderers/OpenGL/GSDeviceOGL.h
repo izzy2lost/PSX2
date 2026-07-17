@@ -149,6 +149,7 @@ private:
 	static constexpr u8 NUM_TIMESTAMP_QUERIES = 5;
 
 	std::unique_ptr<GLContext> m_gl_context;
+	bool m_is_gles = false;
 
 	struct
 	{

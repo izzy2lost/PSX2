@@ -403,6 +403,9 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
     }
 
     private void showGamesListOrReselect() {
+        FragmentManager fm = getSupportFragmentManager();
+        if (isFinishing() || isDestroyed() || fm.isStateSaved()) return;
+
         // Re-scan quickly each time to keep list fresh
         String[] names;
         String[] uris;
@@ -430,7 +433,6 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
         }
         // Show covers grid dialog fragment
         GamesCoverDialogFragment frag = GamesCoverDialogFragment.newInstance(namesFinal, urisFinal);
-        FragmentManager fm = getSupportFragmentManager();
         frag.show(fm, "covers_dialog");
     }
 
@@ -626,7 +628,8 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
                     final View decor = (getWindow() != null) ? getWindow().getDecorView() : null;
                     if (decor != null) {
                         decor.postDelayed(() -> {
-                            if (!isFinishing() && !mSetupWizardActive) {
+                            if (!isFinishing() && !isDestroyed() && !mSetupWizardActive
+                                    && !getSupportFragmentManager().isStateSaved()) {
                                 openGamesDialog();
                             }
                         }, 1600); // small delay to let BIOS boot briefly

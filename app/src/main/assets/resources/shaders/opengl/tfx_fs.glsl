@@ -318,7 +318,7 @@ vec4 sample_c_af(vec2 uv, float uv_w)
 #elif PS_MANUAL_LOD == 1
 	float lod = manual_lod(uv_w);
 #else
-	float lod = 0; // No Lod
+	float lod = 0.0; // No Lod
 #endif
 	
 	vec4 colour;

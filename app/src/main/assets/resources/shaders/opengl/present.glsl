@@ -457,11 +457,11 @@ void ps_automagical_supersampling()
 	vec2 ratio = (u_source_size / u_target_size) * 0.5;
 	vec2 steps = floor(ratio);
 	vec3 col = sample_c(PSin_t).rgb;
-	float div = 1;
+	float div = 1.0;
 
-	for (float y = 0; y < steps.y; y++)
+	for (float y = 0.0; y < steps.y; y++)
 	{
-		for (float x = 0; x < steps.x; x++)
+		for (float x = 0.0; x < steps.x; x++)
 		{
 			vec2 offset = vec2(x,y) - ratio * 0.5;
 			col += sample_c(PSin_t + offset * u_rcp_source_resolution * 2.0).rgb;

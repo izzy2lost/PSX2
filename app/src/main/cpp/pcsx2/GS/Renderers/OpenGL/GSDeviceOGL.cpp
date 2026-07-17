@@ -262,6 +262,7 @@ bool GSDeviceOGL::Create(GSVSyncMode vsync_mode, bool allow_present_throttle)
 		Console.Error("GL: Failed to make context current");
 		return false;
 	}
+	m_is_gles = m_gl_context->IsGLES();
 
 	if (!CheckFeatures())
 		return false;
@@ -285,6 +286,9 @@ bool GSDeviceOGL::Create(GSVSyncMode vsync_mode, bool allow_present_throttle)
 		Console.WriteLn("GL: Not using shader cache.");
 	}
 
+	if (m_is_gles && GLAD_GL_KHR_parallel_shader_compile)
+		glMaxShaderCompilerThreadsKHR(4);
+
 	// because of fbo bindings below...
 	GLState::Clear();
 
@@ -293,12 +297,11 @@ bool GSDeviceOGL::Create(GSVSyncMode vsync_mode, bool allow_present_throttle)
 	// ****************************************************************
 	if (GSConfig.UseDebugDevice)
 	{
-		glDebugMessageCallback(DebugMessageCallback, nullptr);
-
-		glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, nullptr, true);
-		// Useless info message on Nvidia driver
-		static constexpr const GLuint ids[] = { 0x20004 };
-		glDebugMessageControl(GL_DEBUG_SOURCE_API_ARB, GL_DEBUG_TYPE_OTHER_ARB, GL_DONT_CARE, std::size(ids), ids, false);
+		if (!m_is_gles || GLAD_GL_KHR_debug)
+		{
+			glDebugMessageCallback(DebugMessageCallback, nullptr);
+			glDebugMessageControl(GL_DONT_CARE, GL_DONT_CARE, GL_DONT_CARE, 0, nullptr, true);
+		}
 
 		// Uncomment synchronous if you want callstacks which match where the error occurred.
 		glEnable(GL_DEBUG_OUTPUT);
@@ -585,10 +588,12 @@ bool GSDeviceOGL::Create(GSVSyncMode vsync_mode, bool allow_present_throttle)
 	{
 		GL_PUSH("GSDeviceOGL::Rasterization");
 
-		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+		if (!m_is_gles)
+			glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 		glDisable(GL_CULL_FACE);
 		glEnable(GL_SCISSOR_TEST);
-		glDisable(GL_MULTISAMPLE);
+		if (!m_is_gles)
+			glDisable(GL_MULTISAMPLE);
 
 		glDisable(GL_DITHER); // Honestly I don't know!
 
@@ -720,7 +725,11 @@ bool GSDeviceOGL::CheckFeatures()
 
 	memset(&m_bugs, 0, sizeof(m_bugs));
 
-	const char* vendor = (const char*)glGetString(GL_VENDOR);
+	const char* const vendor_string = reinterpret_cast<const char*>(glGetString(GL_VENDOR));
+	const char* const renderer_string = reinterpret_cast<const char*>(glGetString(GL_RENDERER));
+	const char* const vendor = vendor_string ? vendor_string : "";
+	const char* const renderer = renderer_string ? renderer_string : "";
+	const bool is_mali = std::strstr(vendor, "ARM") || std::strstr(renderer, "Mali");
 	if (std::strstr(vendor, "Advanced Micro Devices") || std::strstr(vendor, "ATI Technologies Inc.") ||
 		std::strstr(vendor, "ATI"))
 	{
@@ -738,12 +747,16 @@ bool GSDeviceOGL::CheckFeatures()
 		Console.WriteLn(Color_StrongBlue, "GL: Intel GPU detected.");
 		//vendor_id_intel = true;
 	}
+	else if (is_mali)
+	{
+		Console.WriteLn(Color_Yellow, "GL: ARM Mali GPU detected.");
+	}
 
 	GLint major_gl = 0;
 	GLint minor_gl = 0;
 	glGetIntegerv(GL_MAJOR_VERSION, &major_gl);
 	glGetIntegerv(GL_MINOR_VERSION, &minor_gl);
-	if (!GLAD_GL_VERSION_3_3)
+	if ((!m_is_gles && !GLAD_GL_VERSION_3_3) || (m_is_gles && !GLAD_GL_ES_VERSION_3_2))
 	{
 		Host::ReportErrorAsync(
 			"GS", fmt::format(TRANSLATE_FS("GSDeviceOGL", "OpenGL renderer is not supported. Only OpenGL {}.{}\n was found"), major_gl, minor_gl));
@@ -770,7 +783,7 @@ bool GSDeviceOGL::CheckFeatures()
 	}
 	DevCon.WriteLn(std::move(extensions));
 
-	if (!GLAD_GL_ARB_shading_language_420pack)
+	if (!m_is_gles && !GLAD_GL_ARB_shading_language_420pack)
 	{
 		Host::ReportFormattedErrorAsync(
 			"GS", "GL_ARB_shading_language_420pack is not supported, this is required for the OpenGL renderer.");
@@ -832,8 +845,14 @@ bool GSDeviceOGL::CheckFeatures()
 	// optional features based on context
 	m_features.broken_point_sampler = false;
 	m_features.primitive_id = true;
+	m_features.dual_source_blend = !m_is_gles || GLAD_GL_EXT_blend_func_extended;
+	if (!m_features.dual_source_blend)
+	{
+		Console.Warning("GL: Dual-source blending is unavailable; using framebuffer feedback fallbacks.");
+	}
 
-	m_features.framebuffer_fetch = GLAD_GL_EXT_shader_framebuffer_fetch;
+	m_features.framebuffer_fetch =
+		GLAD_GL_EXT_shader_framebuffer_fetch || (m_is_gles && GLAD_GL_ARM_shader_framebuffer_fetch);
 	if (m_features.framebuffer_fetch && GSConfig.DisableFramebufferFetch)
 	{
 		Host::AddOSDMessage(
@@ -866,6 +885,8 @@ bool GSDeviceOGL::CheckFeatures()
 	m_features.bptc_textures =
 		GLAD_GL_VERSION_4_2 || GLAD_GL_ARB_texture_compression_bptc || GLAD_GL_EXT_texture_compression_bptc;
 	m_features.prefer_new_textures = false;
+	if (is_mali)
+		m_features.prefer_new_textures = true;
 	m_features.stencil_buffer = true;
 	m_features.test_and_sample_depth = true;
 	// Auto select chooses depth-as-rt as it appears to be more compatible across hardware.
@@ -1176,6 +1197,11 @@ void GSDeviceOGL::KickTimestampQuery()
 
 bool GSDeviceOGL::SetGPUTimingEnabled(bool enabled)
 {
+	// GLES exposes timer queries through extension entry points which do not match
+	// the desktop query-object calls used below. Do not call null desktop pointers.
+	if (m_is_gles && enabled)
+		return false;
+
 	if (m_gpu_timing_enabled == enabled)
 		return true;
 
@@ -1452,7 +1478,31 @@ std::string GSDeviceOGL::GenGlslHeader(const std::string_view entry, GLenum type
 {
 	std::string header;
 
-	if (m_features.vs_expand && GLAD_GL_VERSION_4_3)
+	if (m_is_gles)
+	{
+		header = "#version 320 es\n";
+		if (GLAD_GL_EXT_blend_func_extended)
+			header += "#extension GL_EXT_blend_func_extended : require\n";
+		else if (GLAD_GL_ARB_blend_func_extended)
+			header += "#extension GL_ARB_blend_func_extended : require\n";
+
+		if (m_features.framebuffer_fetch)
+		{
+			// Prefer EXT when both are advertised. The shader also checks EXT
+			// first, and unlike ARM it supports inout framebuffer attachments.
+			if (GLAD_GL_EXT_shader_framebuffer_fetch)
+				header += "#extension GL_EXT_shader_framebuffer_fetch : require\n";
+			else if (GLAD_GL_ARM_shader_framebuffer_fetch)
+				header += "#extension GL_ARM_shader_framebuffer_fetch : require\n";
+		}
+
+		header += "precision highp float;\n";
+		header += "precision highp int;\n";
+		header += "precision highp sampler2D;\n";
+		header += "precision highp sampler2DMS;\n";
+		header += "precision highp usamplerBuffer;\n";
+	}
+	else if (m_features.vs_expand && GLAD_GL_VERSION_4_3)
 	{
 		// Intel's GL driver doesn't like the readonly qualifier with 3.3 GLSL.
 		header = "#version 430 core\n";
@@ -1467,7 +1517,7 @@ std::string GSDeviceOGL::GenGlslHeader(const std::string_view entry, GLenum type
 			header += "#extension GL_ARB_shader_storage_buffer_object: require\n";
 	}
 
-	if (m_features.framebuffer_fetch && GLAD_GL_EXT_shader_framebuffer_fetch)
+	if (!m_is_gles && m_features.framebuffer_fetch && GLAD_GL_EXT_shader_framebuffer_fetch)
 		header += "#extension GL_EXT_shader_framebuffer_fetch : require\n";
 
 	if (m_features.framebuffer_fetch)
@@ -1475,7 +1525,12 @@ std::string GSDeviceOGL::GenGlslHeader(const std::string_view entry, GLenum type
 	else
 		header += "#define HAS_FRAMEBUFFER_FETCH 0\n";
 
-	if (GLAD_GL_ARB_conservative_depth)
+	if (m_is_gles && GLAD_GL_EXT_conservative_depth)
+	{
+		header += "#extension GL_EXT_conservative_depth : enable\n";
+		header += "#define PS_HAS_CONSERVATIVE_DEPTH 1\n";
+	}
+	else if (!m_is_gles && GLAD_GL_ARB_conservative_depth)
 	{
 		header += "#extension GL_ARB_conservative_depth : enable\n";
 		header += "#define PS_HAS_CONSERVATIVE_DEPTH 1\n";
@@ -1498,7 +1553,7 @@ std::string GSDeviceOGL::GenGlslHeader(const std::string_view entry, GLenum type
 		header += "#define DEPTH_FEEDBACK_SUPPORT 2\n"; // Depth as RT
 	}
 
-	if (GLAD_GL_ARB_clip_control)
+	if (!m_is_gles && GLAD_GL_ARB_clip_control)
 		header += "#define HAS_CLIP_CONTROL 1\n";
 	else
 		header += "#define HAS_CLIP_CONTROL 0\n";
@@ -2317,9 +2372,9 @@ bool GSDeviceOGL::CreateCASPrograms()
 		return false;
 	}
 
-	const char* header =
-		"#version 420\n"
-		"#extension GL_ARB_compute_shader : require\n";
+	const char* header = m_is_gles ?
+		"#version 320 es\nprecision highp float;\nprecision highp int;\nprecision highp image2D;\n" :
+		"#version 420\n#extension GL_ARB_compute_shader : require\n";
 	const char* sharpen_params[2] = {
 		"#define CAS_SHARPEN_ONLY false\n",
 		"#define CAS_SHARPEN_ONLY true\n"};

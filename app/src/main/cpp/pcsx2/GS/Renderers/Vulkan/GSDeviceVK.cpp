@@ -35,15 +35,17 @@ enum : u32
 {
 	MAX_DRAW_CALLS_PER_FRAME = 8192,
 	MAX_COMBINED_IMAGE_SAMPLER_DESCRIPTORS_PER_FRAME = 2 * MAX_DRAW_CALLS_PER_FRAME,
-	MAX_SAMPLED_IMAGE_DESCRIPTORS_PER_FRAME =
-		MAX_DRAW_CALLS_PER_FRAME, // assume at least half our draws aren't going to be shuffle/blending
+	// Without push descriptors, each allocated TFX set reserves every binding in
+	// the layout even when a shader permutation does not read it: palette,
+	// primitive ID, render target and depth.
+	MAX_SAMPLED_IMAGE_DESCRIPTORS_PER_FRAME = 4 * MAX_DRAW_CALLS_PER_FRAME,
 	// CAS uses one storage image per frame, but the TFX texture set also carries the
 	// two ROV storage-image bindings (TFX_TEXTURE_RT_ROV / _DEPTH_ROV), and every
 	// vkAllocateDescriptorSets of that layout reserves both whether written or not.
 	// On the ROV-without-push-descriptor path that is two per TFX draw, so
 	// size to match the draw budget rather than the old CAS-only value of 4.
 	MAX_STORAGE_IMAGE_DESCRIPTORS_PER_FRAME = 2 * MAX_DRAW_CALLS_PER_FRAME,
-	MAX_INPUT_ATTACHMENT_IMAGE_DESCRIPTORS_PER_FRAME = MAX_DRAW_CALLS_PER_FRAME,
+	MAX_INPUT_ATTACHMENT_IMAGE_DESCRIPTORS_PER_FRAME = 2 * MAX_DRAW_CALLS_PER_FRAME,
 	MAX_DESCRIPTOR_SETS_PER_FRAME = MAX_DRAW_CALLS_PER_FRAME * 2,
 
 	VERTEX_BUFFER_SIZE = 32 * 1024 * 1024,
@@ -2840,6 +2842,14 @@ bool GSDeviceVK::CheckFeatures()
 	//const bool isNVIDIA = (vendorID == 0x10DE);
 
 	const bool is_adreno = IsDeviceAdreno();
+	const bool is_mali = IsDeviceARM();
+
+	// This Mali driver advertises dualSrcBlend but produces corrupted source-alpha
+	// output in feedback-heavy games (white/black surfaces in God of War). Route
+	// those draws through the existing framebuffer/two-pass implementations.
+	m_features.dual_source_blend = m_device_features.dualSrcBlend && !is_mali;
+	if (!m_features.dual_source_blend)
+		Console.Warning("VK: Dual-source blending is unavailable or disabled; using feedback fallbacks.");
 
 	m_features.framebuffer_fetch =
 		m_optional_extensions.vk_ext_rasterization_order_attachment_access && !GSConfig.DisableFramebufferFetch;
@@ -2894,10 +2904,9 @@ bool GSDeviceVK::CheckFeatures()
 	if (is_adreno)
 		m_features.stencil_buffer = false;
 
-	// On tiler GPUs, declaring gl_FragDepth (for PS2 32-bit Z quantization) emits
-	// SPIR-V ExecutionMode DepthReplacing, which disables early-ZS for the entire
-	// pipeline. Default-on for ARM GPUs; opt-out via INI for Z-precision-sensitive titles.
-	m_features.no_ps2_z_quantization = GSConfig.DisablePS2DepthQuantization || IsDeviceARM();
+	// Preserve PS2 fixed-point Z behavior by default. Disabling it globally on ARM can
+	// reorder layers in games which rely on exact Z flooring; keep it user-controlled.
+	m_features.no_ps2_z_quantization = GSConfig.DisablePS2DepthQuantization;
 
 	// whether we can do point/line expand depends on the range of the device
 	const float f_upscale = static_cast<float>(GSConfig.UpscaleMultiplier);
@@ -6063,14 +6072,11 @@ bool GSDeviceVK::ApplyTFXState(bool already_execed)
 				return ApplyTFXState(true);
 			}
 
-			// The freshly allocated set contains no valid descriptors, so every
-			// binding the pipeline may access has to be written, not just the
-			// ones whose textures changed since the last draw. Sampling an
-			// unwritten descriptor is undefined behaviour and corrupts the
-			// driver heap on Mali. The ROV bindings keep their dirty flags:
-			// they are only accessed by ROV pipelines, which set them per draw.
-			flags |= DIRTY_FLAG_TFX_TEXTURE_TEX | DIRTY_FLAG_TFX_TEXTURE_PALETTE | DIRTY_FLAG_TFX_TEXTURE_RT |
-			         DIRTY_FLAG_TFX_TEXTURE_PRIMID | DIRTY_FLAG_TFX_TEXTURE_DEPTH;
+			// A fresh set contains no valid descriptors. Write every binding,
+			// including unchanged ROV images; retaining a dirty bit from the
+			// previous set is insufficient because descriptor contents are not
+			// inherited. Mali returns the null/white texture for such stale sets.
+			flags |= DIRTY_FLAG_TFX_TEXTURES;
 		}
 
 		if (flags & DIRTY_FLAG_TFX_TEXTURE_TEX)

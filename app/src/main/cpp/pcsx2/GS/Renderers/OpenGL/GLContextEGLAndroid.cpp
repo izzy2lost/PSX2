@@ -1,27 +1,31 @@
 #include "GLContextEGLAndroid.h"
 #include "common/Console.h"
+#include "common/Error.h"
 #include <android/native_window.h>
 
-GLContextEGLAndroid::GLContextEGLAndroid(const WindowInfo& wi) : GLContextEGL(wi) {}
+GLContextEGLAndroid::GLContextEGLAndroid(const WindowInfo& wi) : GLContextEGL(wi, true) {}
 GLContextEGLAndroid::~GLContextEGLAndroid() = default;
 
-std::unique_ptr<GLContext> GLContextEGLAndroid::Create(const WindowInfo& wi, const Version* versions_to_try,
-                                                       size_t num_versions_to_try)
+std::unique_ptr<GLContext> GLContextEGLAndroid::Create(const WindowInfo& wi,
+                                                       std::span<const Version> versions_to_try, Error* error)
 {
   std::unique_ptr<GLContextEGLAndroid> context = std::make_unique<GLContextEGLAndroid>(wi);
-  if (!context->Initialize(versions_to_try, num_versions_to_try))
+  if (!context->Initialize(versions_to_try, error))
     return nullptr;
 
   return context;
 }
 
-std::unique_ptr<GLContext> GLContextEGLAndroid::CreateSharedContext(const WindowInfo& wi)
+std::unique_ptr<GLContext> GLContextEGLAndroid::CreateSharedContext(const WindowInfo& wi, Error* error)
 {
   std::unique_ptr<GLContextEGLAndroid> context = std::make_unique<GLContextEGLAndroid>(wi);
   context->m_display = m_display;
 
   if (!context->CreateContextAndSurface(m_version, m_context, false))
+  {
+    Error::SetStringView(error, "Failed to create shared OpenGL ES context/surface");
     return nullptr;
+  }
 
   return context;
 }
@@ -31,17 +35,37 @@ void GLContextEGLAndroid::ResizeSurface(u32 new_surface_width, u32 new_surface_h
     GLContextEGL::ResizeSurface(new_surface_width, new_surface_height);
 }
 
-EGLNativeWindowType GLContextEGLAndroid::GetNativeWindow(EGLConfig config)
+EGLDisplay GLContextEGLAndroid::GetPlatformDisplay(Error* error)
+{
+  EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
+  if (display == EGL_NO_DISPLAY)
+  {
+    const EGLint err = eglGetError();
+    Error::SetStringFmt(error, "eglGetDisplay() failed: {} (0x{:X})", err, err);
+  }
+  return display;
+}
+
+EGLSurface GLContextEGLAndroid::CreatePlatformSurface(EGLConfig config, void* win, Error* error)
 {
   EGLint native_visual_id = 0;
-  if (!eglGetConfigAttrib(m_display, m_config, EGL_NATIVE_VISUAL_ID, &native_visual_id))
+  if (!eglGetConfigAttrib(m_display, config, EGL_NATIVE_VISUAL_ID, &native_visual_id))
   {
-    Console.Error("Failed to get native visual ID");
-    return 0;
+    const EGLint err = eglGetError();
+    Error::SetStringFmt(error, "Failed to get native visual ID: {} (0x{:X})", err, err);
+    return EGL_NO_SURFACE;
   }
 
-  ANativeWindow_setBuffersGeometry(static_cast<ANativeWindow*>(m_wi.window_handle), 0, 0, static_cast<int32_t>(native_visual_id));
-  m_wi.surface_width = ANativeWindow_getWidth(static_cast<ANativeWindow*>(m_wi.window_handle));
-  m_wi.surface_height = ANativeWindow_getHeight(static_cast<ANativeWindow*>(m_wi.window_handle));
-  return static_cast<EGLNativeWindowType>(m_wi.window_handle);
+  ANativeWindow* const native_window = static_cast<ANativeWindow*>(win);
+  ANativeWindow_setBuffersGeometry(native_window, 0, 0, static_cast<int32_t>(native_visual_id));
+  m_wi.surface_width = static_cast<u32>(ANativeWindow_getWidth(native_window));
+  m_wi.surface_height = static_cast<u32>(ANativeWindow_getHeight(native_window));
+
+  EGLSurface surface = eglCreateWindowSurface(m_display, config, native_window, nullptr);
+  if (surface == EGL_NO_SURFACE)
+  {
+    const EGLint err = eglGetError();
+    Error::SetStringFmt(error, "eglCreateWindowSurface() failed: {} (0x{:X})", err, err);
+  }
+  return surface;
 }

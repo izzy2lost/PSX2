@@ -32,10 +32,8 @@ if(ANDROID)
 	set(ENABLE_VURUNNER OFF CACHE BOOL "" FORCE)
 	set(ENABLE_EERUNNER OFF CACHE BOOL "" FORCE)
 	set(ENABLE_SDL_FRONTEND OFF CACHE BOOL "" FORCE)
-	# YAPS2's current GL backend targets desktop OpenGL. The app's previous
-	# Android GLES adapter is not ABI-compatible with the updated GS backend;
-	# keep Vulkan as the supported Android renderer for this core revision.
-	set(USE_OPENGL OFF CACHE BOOL "" FORCE)
+	# Keep the OpenGL ES renderer available as an explicit alternative to Vulkan.
+	set(USE_OPENGL ON CACHE BOOL "" FORCE)
 	set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 endif()
 

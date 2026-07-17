@@ -12,10 +12,6 @@
 #include "common/StringUtil.h"
 #include <bit>
 
-#ifdef __ANDROID__
-#include "AndroidDeviceDetection.h"
-#endif
-
 using PS_ATST  = GSShader::PS_ATST;
 using PS_AFAIL = GSShader::PS_AFAIL;
 
@@ -3229,8 +3225,10 @@ void GSRendererHW::Draw()
 
 		// Be careful of being 1 pixel from filled.
 		const bool page_aligned = (m_r.w % pgs.y) == (pgs.y - 1) || (m_r.w % pgs.y) == 0;
-		const bool is_zero_color_clear = (GetConstantDirectWriteMemClearColor() == 0 && !preserve_rt_color && page_aligned);
-		const bool is_zero_depth_clear = (GetConstantDirectWriteMemClearDepth() == 0 && !preserve_depth && page_aligned);
+		const bool is_full_color_cover = !preserve_rt_color && page_aligned;
+		const bool is_full_depth_cover = !preserve_depth && page_aligned;
+		const bool is_zero_color_clear = (GetConstantDirectWriteMemClearColor() == 0 && is_full_color_cover);
+		const bool is_zero_depth_clear = (GetConstantDirectWriteMemClearDepth() == 0 && is_full_depth_cover);
 		bool gs_mem_cleared = false;
 		// If it's an invalid-sized draw, do the mem clear on the CPU, we don't want to create huge targets.
 		// If clearing to zero, don't bother creating the target. Games tend to clear more than they use, wasting VRAM/bandwidth.
@@ -3265,8 +3263,8 @@ void GSRendererHW::Draw()
 			}
 			gs_mem_cleared |= overwriting_whole_rt && overwriting_whole_ds && (!no_rt || !no_ds);
 			if (overwriting_whole_rt && overwriting_whole_ds &&
-				TryGSMemClear(no_rt, preserve_rt_color, is_zero_color_clear, rt_end_bp,
-					no_ds, preserve_depth, is_zero_depth_clear, ds_end_bp))
+				TryGSMemClear(no_rt, preserve_rt_color, is_full_color_cover, rt_end_bp,
+					no_ds, preserve_depth, is_full_depth_cover, ds_end_bp))
 			{
 				GL_INS("HW: Skipping (%d,%d=>%d,%d) draw at FBP %x/ZBP %x due to invalid height or zero clear.", m_r.x, m_r.y,
 					m_r.z, m_r.w, m_cached_ctx.FRAME.Block(), m_cached_ctx.ZBUF.Block());
@@ -3289,8 +3287,14 @@ void GSRendererHW::Draw()
 					}
 				}
 
-				CleanupDraw(false);
-				return;
+				no_rt |= is_zero_color_clear;
+				no_ds |= is_zero_depth_clear;
+
+				if (no_rt && no_ds)
+				{
+					CleanupDraw(false);
+					return;
+				}
 			}
 		}
 
@@ -6780,16 +6784,6 @@ void GSRendererHW::EmulateBlending(int rt_alpha_min, int rt_alpha_max, DATEOptio
 	const bool alpha_eq_one = alpha_c0_eq_one || alpha_c2_eq_one;
 	const bool alpha_high_one = alpha_c0_high_min_one || alpha_c2_high_one;
 	const bool alpha_eq_less_one = alpha_c0_eq_less_max_one || alpha_c2_eq_less_one;
-	// Mali's fixed-function blend path loses or misorders layers for these alpha ranges.
-	// This restores the shader-blending workaround used by the earlier Android core.
-#ifdef __ANDROID__
-	static const bool is_mali =
-		AndroidDeviceDetection::DetectGPUVendor() == AndroidDeviceDetection::GPUVendor::ARM;
-#else
-	static constexpr bool is_mali = false;
-#endif
-	const bool prefer_mali_sw_blend = is_mali && (alpha_eq_less_one || alpha_c0_high_max_one);
-
 	// Optimize blending equations, must be done before index calculation
 	if ((m_conf.ps.blend_a == m_conf.ps.blend_b) || ((m_conf.ps.blend_b == m_conf.ps.blend_d) && alpha_eq_one))
 	{
@@ -6966,9 +6960,8 @@ void GSRendererHW::EmulateBlending(int rt_alpha_min, int rt_alpha_max, DATEOptio
 			accumulation_blend &= !prefer_sw_blend;
 			// Enable sw blending for barriers.
 			sw_blending |= blend_requires_barrier || prefer_sw_blend;
-			// Enable sw blending for free blending (non recursive, accumulation), and
-			// for alpha ranges which Mali's fixed-function path handles incorrectly.
-			sw_blending |= free_blend || prefer_mali_sw_blend;
+			// Enable sw blending for free blending (non recursive, accumulation).
+			sw_blending |= free_blend;
 			// Do not run BLEND MIX if sw blending is already present, it's less accurate.
 			blend_mix &= !sw_blending;
 			sw_blending |= blend_mix;
@@ -6980,6 +6973,10 @@ void GSRendererHW::EmulateBlending(int rt_alpha_min, int rt_alpha_max, DATEOptio
 	}
 
 	const bool force_sw_blending =
+		// Dual-source blending is optional in OpenGL ES. Use the framebuffer
+		// feedback path when the driver cannot consume the second shader output.
+		!features.dual_source_blend ||
+
 		// If we have fbfetch, use software blending when we need the fb value for anything else.
 		// This saves outputting the second color when it's not needed.
 		(features.framebuffer_fetch && (one_barrier || m_conf.require_full_barrier)) ||
@@ -9002,7 +8999,7 @@ void GSRendererHW::EmulateAlphaTest(DATEOptions& date_options)
 
 		m_conf.alpha_test = GSHWDrawConfig::AlphaTestMode::SIMPLE_FB_ONLY;
 	}
-	else if (simple_rgb_only)
+	else if (simple_rgb_only && features.dual_source_blend)
 	{
 		// First pass is to update color; second pass is to update Z;
 		GL_INS("Alpha test: RGBA (A with dual-source blend), then Z (accurate)");
@@ -9967,9 +9964,11 @@ bool GSRendererHW::DetectDoubleHalfClear(bool& no_rt, bool& no_ds)
 		// path write out FRAME and Z separately, with their associated masks. Limit it to black to avoid false positives.
 		if (write_color == 0)
 		{
+			// Check one page beyond the halfway point rather than the entire
+			// target, whose tail may already have been reused and resized.
 			const GSTextureCache::Target* base_tgt = g_texture_cache->GetExactTarget(base * GS_BLOCKS_PER_PAGE,
 				m_cached_ctx.FRAME.FBW, clear_depth ? GSTextureCache::DepthStencil : GSTextureCache::RenderTarget,
-				GSLocalMemory::GetEndBlockAddress(half * GS_BLOCKS_PER_PAGE, m_cached_ctx.FRAME.FBW, m_cached_ctx.FRAME.PSM, m_r));
+				(half + 1) * GS_BLOCKS_PER_PAGE);
 			if (base_tgt)
 			{
 				GL_INS("HW: DetectDoubleHalfClear(): Invalidating targets at 0x%x/0x%x due to different formats, and clear to black.",

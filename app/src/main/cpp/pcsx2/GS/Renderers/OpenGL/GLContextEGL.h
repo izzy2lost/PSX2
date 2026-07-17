@@ -12,7 +12,7 @@
 class GLContextEGL : public GLContext
 {
 public:
-	GLContextEGL(const WindowInfo& wi);
+	GLContextEGL(const WindowInfo& wi, bool is_gles = false);
 	~GLContextEGL() override;
 
 	static std::unique_ptr<GLContext> Create(const WindowInfo& wi, std::span<const Version> versions_to_try, Error* error);

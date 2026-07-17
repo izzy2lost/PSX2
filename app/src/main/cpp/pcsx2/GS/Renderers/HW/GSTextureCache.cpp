@@ -1757,7 +1757,7 @@ GSTextureCache::Source* GSTextureCache::LookupSource(const bool is_color, const 
 						}
 						else
 						{
-							const bool outside_target = !t->Overlaps(bp, bw, psm, r);
+							const bool outside_target = !t->OverlapsValid(bp, bw, psm, r);
 
 							if (!possible_shuffle && outside_target)
 							{
@@ -3565,16 +3565,67 @@ bool GSTextureCache::PreloadTarget(GIFRegTEX0 TEX0, const GSVector2i& size, cons
 
 				// Make sure there's sufficient compatibility/overlap between the old target and the new target
 				// to warrant loading from the old target.
+				const u32 old_buffer_width = std::max(1U, old_dst->m_TEX0.TBW);
+
 				if (old_dst->m_TEX0.PSM != dst->m_TEX0.PSM ||
 					!old_dst->Overlaps(dst->m_TEX0.TBP0, dst->m_TEX0.TBW, dst->m_TEX0.PSM, dst_valid))
 				{
+					if (old_dst->m_TEX0.TBP0 == dst->m_TEX0.TBP0 && dst_end_block >= old_dst->m_end_block &&
+						(!src || !src->m_target || src->m_from_target != old_dst))
+					{
+						InvalidateSourcesFromTarget(old_dst);
+						i = list.erase(j);
+						delete old_dst;
+						continue;
+					}
+
+					if (old_dst->Overlaps(dst->m_TEX0.TBP0, dst->m_TEX0.TBW, dst->m_TEX0.PSM, dst_valid))
+					{
+						const GSLocalMemory::psm_t& psm_o = GSLocalMemory::m_psm[old_dst->m_TEX0.PSM];
+						if (dst->m_TEX0.TBP0 > old_dst->m_TEX0.TBP0)
+						{
+							const int block_diff = dst->m_TEX0.TBP0 - old_dst->m_TEX0.TBP0;
+							const u32 old_pages_wide = old_buffer_width * 64 / psm_o.pgs.x;
+							if ((block_diff % (GS_BLOCKS_PER_PAGE * old_pages_wide)) == 0)
+							{
+								const int new_height = block_diff / (GS_BLOCKS_PER_PAGE * old_pages_wide) * psm_o.pgs.y;
+								old_dst->m_valid = old_dst->m_valid.rintersect(
+									GSVector4i(old_dst->m_valid.x, old_dst->m_valid.y, old_dst->m_valid.z, new_height));
+								old_dst->ResizeValidity(old_dst->m_valid);
+							}
+						}
+						else
+						{
+							const int block_diff = dst_end_block - old_dst->m_TEX0.TBP0;
+							const u32 old_pages_wide = old_buffer_width * 64 / psm_o.pgs.x;
+							if ((block_diff % (GS_BLOCKS_PER_PAGE * old_pages_wide)) == 0)
+							{
+								const int change_height = block_diff / (GS_BLOCKS_PER_PAGE * old_pages_wide) * psm_o.pgs.y;
+								old_dst->m_valid = old_dst->m_valid.rintersect(GSVector4i(
+									old_dst->m_valid.x, old_dst->m_valid.y, old_dst->m_valid.z,
+									old_dst->m_valid.w - change_height));
+								old_dst->m_TEX0.TBP0 += block_diff;
+
+								const GSVector2i new_scaled_size = GSVector2i(old_dst->m_unscaled_size * old_dst->m_scale);
+								if (GSTexture* tex = g_gs_device->CreateCompatible(dst->m_texture, new_scaled_size, true))
+								{
+									const int height_offset = change_height * old_dst->m_scale;
+									g_gs_device->CopyRect(old_dst->m_texture, tex,
+										GSVector4i(0, height_offset, old_dst->GetUnscaledWidth() * old_dst->m_scale,
+											old_dst->GetUnscaledHeight() * old_dst->m_scale),
+										0, 0);
+									g_gs_device->Recycle(old_dst->m_texture);
+									old_dst->m_texture = tex;
+								}
+							}
+						}
+					}
 					i++;
 					continue;
 				}
 
 				const int page_diff = std::abs(static_cast<int>(old_dst->m_TEX0.TBP0 - dst->m_TEX0.TBP0)) >> 5;
 				const u32 new_buffer_width = std::max(1U, dst->m_TEX0.TBW);
-				const u32 old_buffer_width = std::max(1U, old_dst->m_TEX0.TBW);
 
 				// Handle cases where the buffer widths don't match.
 				if (new_buffer_width != old_buffer_width)
@@ -3592,7 +3643,7 @@ bool GSTextureCache::PreloadTarget(GIFRegTEX0 TEX0, const GSVector2i& size, cons
 						const u32 old_pages_wide = old_buffer_width * 64 / psm_s.pgs.x;
 						if ((block_diff % (32 * old_pages_wide)) == 0) // Check for left alignment.
 						{
-							const int new_height = block_diff / (32 * old_pages_wide) * psm_s.pgs.y;
+						const int new_height = block_diff / (GS_BLOCKS_PER_PAGE * old_pages_wide) * psm_s.pgs.y;
 							old_dst->m_valid = old_dst->m_valid.rintersect(GSVector4i(0, 0, old_dst->GetUnscaledWidth(), new_height));
 							if (old_dst->m_valid.rempty())
 							{
@@ -4543,10 +4594,18 @@ void GSTextureCache::InvalidateContainedTargets(u32 start_bp, u32 end_bp, u32 wr
 
 			InvalidateSourcesFromTarget(t);
 
-			t->m_valid_alpha_low &= preserve_alpha;
-			t->m_valid_alpha_high &= preserve_alpha;
-			t->m_valid_rgb &= (fb_mask & 0x00FFFFFF) != 0;
-			t->m_was_dst_matched = false;
+			// A contained write only invalidates all channel validity when it
+			// covers the target. Partial writes retain untouched GPU data.
+			if (type == DepthStencil || start_bp == t->m_TEX0.TBP0 ||
+				(start_bp < t->m_TEX0.TBP0 && t->UnwrappedEndBlock() <= end_bp))
+			{
+				const bool compatible_channel_swizzle =
+					GSLocalMemory::m_psm[t->m_TEX0.PSM].bpp == GSLocalMemory::m_psm[write_psm].bpp;
+				t->m_valid_alpha_low &= preserve_alpha && compatible_channel_swizzle;
+				t->m_valid_alpha_high &= preserve_alpha && compatible_channel_swizzle;
+				t->m_valid_rgb &= (fb_mask & 0x00FFFFFF) != 0 && compatible_channel_swizzle;
+				t->m_was_dst_matched = false;
+			}
 
 			// Don't keep partial depth buffers around.
 			if ((!t->m_valid_alpha_low && !t->m_valid_alpha_high && !t->m_valid_rgb) || type == DepthStencil)
@@ -7880,7 +7939,7 @@ GSTextureCache::Target::~Target()
 
 bool GSTextureCache::Target::OverlapsValid(u32 bp, u32 bw, u32 psm, const GSVector4i& rect) const
 {
-	const u32 valid_start_block = GSLocalMemory::m_psm[m_TEX0.PSM].info.bn(m_valid.x, m_valid.y, m_TEX0.TBP0, m_TEX0.TBW);
+	const u32 valid_start_block = GSLocalMemory::GetStartBlockAddress(m_TEX0.TBP0, m_TEX0.TBW, m_TEX0.PSM, m_valid);
 	return OverlapsHelper(valid_start_block, UnwrappedEndBlock(), bp, bw, psm, rect);
 }
 
