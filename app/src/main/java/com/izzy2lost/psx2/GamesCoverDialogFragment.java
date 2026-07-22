@@ -27,6 +27,14 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.PagerSnapHelper;
 import androidx.recyclerview.widget.RecyclerView;
 import androidx.swiperefreshlayout.widget.SwipeRefreshLayout;
+import androidx.work.BackoffPolicy;
+import androidx.work.Constraints;
+import androidx.work.ExistingWorkPolicy;
+import androidx.work.NetworkType;
+import androidx.work.OneTimeWorkRequest;
+import androidx.work.WorkContinuation;
+import androidx.work.WorkInfo;
+import androidx.work.WorkManager;
 import com.google.android.material.button.MaterialButtonToggleGroup;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import androidx.core.view.GravityCompat;
@@ -58,6 +66,14 @@ public class GamesCoverDialogFragment extends DialogFragment {
     private int lastRvW = -1, lastRvH = -1;
     private boolean pendingResnap = false;
     private int lastItemWidthPx = 0;
+    private View downloadButton;
+    private boolean coverWorkWasRunning = false;
+
+    // Keep WorkManager input well below its 10 KiB Data limit, even for long serials.
+    private static final int COVER_DOWNLOAD_BATCH_SIZE = 100;
+    private static final String PREF_ACTIVE_COVER_RUN = "active_cover_download_run";
+    private static final java.util.concurrent.ExecutorService COVER_PREPARATION_EXECUTOR =
+            java.util.concurrent.Executors.newSingleThreadExecutor();
 
     private static final int SORT_ALPHA = 0;
     private static final int SORT_RECENT = 1;
@@ -191,37 +207,16 @@ public class GamesCoverDialogFragment extends DialogFragment {
         localPaths = new String[uris.length];
         SharedPreferences prefs = requireContext().getSharedPreferences("app_prefs", Context.MODE_PRIVATE);
         boolean isFirstBoot = !prefs.getBoolean("has_resolved_titles_once", false);
-        
+        final File localCoverDirectory = getCoversDir();
+
+        // Bind the library immediately from cached serials. Native disc inspection and
+        // DocumentProvider lookups are completed on the library executor below.
         for (int i = 0; i < uris.length; i++) {
             String saved = prefs.getString("serial:" + uris[i], null);
-            String serial = saved;
-            // On first boot, skip native serial extraction to avoid crashes
-            // The background thread will handle it later with proper delays
-            if (serial == null || serial.isEmpty()) {
-                if (!isFirstBoot) {
-                    try {
-                        String nativeSerial = NativeApp.getGameSerialSafe(uris[i]);
-                        if (nativeSerial != null && !nativeSerial.isEmpty()) {
-                            serial = normalizeSerial(nativeSerial);
-                            prefs.edit().putString("serial:" + uris[i], serial).apply();
-                        }
-                    } catch (Throwable e) {
-                        android.util.Log.w("GamesCoverDialog", "Error getting serial for " + uris[i] + ": " + e.getMessage());
-                    }
-                }
-            }
-            if (serial == null || serial.isEmpty()) {
-                serial = buildSerialFromUri(uris[i]);
-            }
+            String serial = normalizeUsableSerial(saved);
+            if (serial.isEmpty()) serial = buildSerialFromUri(uris[i]);
             coverUrls[i] = buildCoverUrlFromSerial(serial);
-            // Get existing SAF file URI if it exists, otherwise use placeholder path
-            androidx.documentfile.provider.DocumentFile existing = SafManager.getChild(requireContext(), new String[]{"covers"}, serial + ".png");
-            if (existing != null && existing.exists()) {
-                localPaths[i] = existing.getUri().toString();
-            } else {
-                // Use file path as placeholder - will be replaced when downloaded
-                localPaths[i] = new java.io.File(getCoversDir(), serial + ".png").getAbsolutePath();
-            }
+            localPaths[i] = new File(localCoverDirectory, serial + ".png").getAbsolutePath();
         }
 
         // cache originals for sorting/filtering
@@ -245,6 +240,7 @@ public class GamesCoverDialogFragment extends DialogFragment {
                     }
                 });
         rv.setAdapter(adapter);
+        resolveCoverMetadataAsync(!isFirstBoot);
         // Build letters list if row present (RecyclerView variant)
         
         // Hook sort/search buttons if present
@@ -308,7 +304,7 @@ public class GamesCoverDialogFragment extends DialogFragment {
         // Capture context early to avoid requireContext() crashes if fragment detaches
         final Context ctx = requireContext().getApplicationContext();
         
-        new Thread(() -> {
+        COVER_PREPARATION_EXECUTOR.execute(() -> {
             try {
                 // On first boot, add a delay to let native library fully initialize
                 if (isFirstBoot) {
@@ -364,7 +360,7 @@ public class GamesCoverDialogFragment extends DialogFragment {
             } catch (Throwable e) {
                 android.util.Log.e("GamesCoverDialog", "Error in title resolution thread: " + e.getMessage());
             }
-        }).start();
+        });
 
         // Dynamically size items based on RecyclerView size and orientation
         rv.addOnLayoutChangeListener((v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom) -> {
@@ -561,13 +557,21 @@ public class GamesCoverDialogFragment extends DialogFragment {
                 }
             }
         } catch (Throwable ignored) {}
-        View btnDownload = root.findViewById(R.id.btn_download);
-        if (btnDownload != null) btnDownload.setOnClickListener(v -> startDownloadCovers());
+        downloadButton = root.findViewById(R.id.btn_download);
+        if (downloadButton != null) {
+            downloadButton.setOnClickListener(v -> startDownloadCovers());
+        }
         
         View btnRefresh = root.findViewById(R.id.btn_refresh);
         if (btnRefresh != null) btnRefresh.setOnClickListener(v -> refreshDialog());
 
         return root;
+    }
+
+    @Override
+    public void onViewCreated(@NonNull View view, @Nullable Bundle savedInstanceState) {
+        super.onViewCreated(view, savedInstanceState);
+        observeCoverDownloadWork();
     }
     
     // Refresh dialog like orientation change does
@@ -862,37 +866,172 @@ public class GamesCoverDialogFragment extends DialogFragment {
         return t.replaceAll("[^A-Z0-9-]", "");
     }
 
-    private String buildSerialFromUri(String uriStr) {
+    private static String normalizeUsableSerial(String serial) {
+        final String normalized = normalizeSerial(serial);
+        // PS2 serials (for example SLUS-20312) and the arcade NM identifiers
+        // are short. Longer values are normally a normalized SAF document path,
+        // such as PRIMARYARCADEGAMESNM00057, and must be reparsed from the URI.
+        return normalized.length() <= 16 ? normalized : "";
+    }
+
+    private static String buildSerialFromUri(String uriStr) {
         try {
             Uri u = Uri.parse(uriStr);
             String last = u.getLastPathSegment();
+            if (last != null) last = Uri.decode(last);
             if (last == null) last = uriStr;
-            int dot = last.lastIndexOf('.')
-;            if (dot > 0) last = last.substring(0, dot);
-            return normalizeSerial(last);
+            int slash = Math.max(last.lastIndexOf('/'), last.lastIndexOf('\\'));
+            if (slash >= 0 && slash + 1 < last.length()) last = last.substring(slash + 1);
+            int colon = last.lastIndexOf(':');
+            if (colon >= 0 && colon + 1 < last.length()) last = last.substring(colon + 1);
+            int dot = last.lastIndexOf('.');
+            if (dot > 0) last = last.substring(0, dot);
+            return normalizeUsableSerial(last);
         } catch (Throwable ignored) {
             return String.format(java.util.Locale.ROOT, "%08X", Math.abs(uriStr != null ? uriStr.hashCode() : 0));
         }
     }
 
-    private String extractSerialFromUri(String gameUri) {
-        try {
-            java.io.InputStream in = requireContext().getContentResolver().openInputStream(Uri.parse(gameUri));
-            if (in == null) return null;
-            final int MAX_BYTES = 8 * 1024 * 1024; // scan first 8MB
-            final byte[] buf = new byte[64 * 1024];
-            int read;
-            int total = 0;
-            StringBuilder sb = new StringBuilder();
-            while ((read = in.read(buf)) != -1 && total < MAX_BYTES) {
-                total += read;
-                sb.append(new String(buf, 0, read));
-                String found = findSerialInString(sb);
-                if (found != null) { in.close(); return found; }
-                if (sb.length() > 512 * 1024) sb.delete(0, sb.length() - 128 * 1024);
+    private void resolveCoverMetadataAsync(boolean allowNativeSerialLookup) {
+        final Context context = getContext();
+        if (context == null || origUris == null) return;
+        final Context appContext = context.getApplicationContext();
+        final String[] uriSnapshot = Arrays.copyOf(origUris, origUris.length);
+
+        COVER_PREPARATION_EXECUTOR.execute(() -> {
+            final SharedPreferences prefs = appContext.getSharedPreferences(
+                    "app_prefs", Context.MODE_PRIVATE);
+            final SharedPreferences.Editor editor = prefs.edit();
+            final String[] resolvedUrls = new String[uriSnapshot.length];
+            final String[] resolvedPaths = new String[uriSnapshot.length];
+            final java.util.HashMap<String, String> pathByUri = new java.util.HashMap<>();
+            final java.util.HashMap<String, String> urlByUri = new java.util.HashMap<>();
+
+            for (int index = 0; index < uriSnapshot.length; index++) {
+                final String gameUri = uriSnapshot[index];
+                final String saved = prefs.getString("serial:" + gameUri, null);
+                final String legacySerial = normalizeSerial(saved);
+                String serial = normalizeUsableSerial(saved);
+                if (serial.isEmpty() && allowNativeSerialLookup) {
+                    try {
+                        serial = normalizeUsableSerial(NativeApp.getGameSerialSafe(gameUri));
+                    } catch (Throwable error) {
+                        android.util.Log.w("GamesCoverDialog",
+                                "Unable to resolve serial for " + gameUri, error);
+                    }
+                }
+                if (serial.isEmpty()) serial = buildSerialFromUri(gameUri);
+
+                if (!serial.isEmpty() && !legacySerial.isEmpty()
+                        && !legacySerial.equals(serial)) {
+                    migrateLegacyCoverSerial(appContext, prefs, legacySerial, serial);
+                }
+                if (!serial.isEmpty() && !serial.equals(saved)) {
+                    editor.putString("serial:" + gameUri, serial);
+                }
+
+                resolvedUrls[index] = buildCoverUrlFromSerial(serial);
+                final androidx.documentfile.provider.DocumentFile cover = SafManager.getChild(
+                        appContext, new String[]{"covers"}, serial + ".png");
+                if (cover != null && cover.exists() && cover.length() > 0) {
+                    resolvedPaths[index] = cover.getUri().toString();
+                } else {
+                    if (cover != null && cover.exists() && cover.length() == 0) {
+                        cover.delete();
+                    }
+                    resolvedPaths[index] = new File(
+                            getCoversDir(appContext), serial + ".png").getAbsolutePath();
+                }
+                pathByUri.put(gameUri, resolvedPaths[index]);
+                urlByUri.put(gameUri, resolvedUrls[index]);
             }
-            in.close();
-        } catch (Exception ignored) { }
+            editor.apply();
+
+            UiUtils.postIfFragmentAttached(this, () -> {
+                if (origUris == null || !Arrays.equals(uriSnapshot, origUris)) return;
+                origCoverUrls = resolvedUrls;
+                origLocalPaths = resolvedPaths;
+                for (int index = 0; index < uris.length; index++) {
+                    String path = pathByUri.get(uris[index]);
+                    String url = urlByUri.get(uris[index]);
+                    if (path != null) localPaths[index] = path;
+                    if (url != null) coverUrls[index] = url;
+                }
+                if (adapter != null) adapter.notifyDataSetChanged();
+            });
+        });
+    }
+
+    private static void migrateLegacyCoverSerial(Context context, SharedPreferences prefs,
+                                                 String legacySerial, String correctedSerial) {
+        if (legacySerial.isEmpty() || correctedSerial.isEmpty()
+                || legacySerial.equals(correctedSerial)) return;
+        boolean moved = false;
+        try {
+            final androidx.documentfile.provider.DocumentFile coversDirectory =
+                    SafManager.getOrCreateDir(context, "covers");
+            if (coversDirectory != null) {
+                final androidx.documentfile.provider.DocumentFile oldCover =
+                        coversDirectory.findFile(legacySerial + ".png");
+                final androidx.documentfile.provider.DocumentFile newCover =
+                        coversDirectory.findFile(correctedSerial + ".png");
+                if (oldCover != null && newCover == null) {
+                    if (oldCover.length() > 0) {
+                        moved = oldCover.renameTo(correctedSerial + ".png");
+                    } else {
+                        oldCover.delete();
+                    }
+                }
+            } else {
+                final File directory = getCoversDir(context);
+                final File oldCover = new File(directory, legacySerial + ".png");
+                final File newCover = new File(directory, correctedSerial + ".png");
+                if (oldCover.isFile() && !newCover.exists()) moved = oldCover.renameTo(newCover);
+            }
+        } catch (Throwable error) {
+            android.util.Log.w("GamesCoverDialog", "Unable to migrate legacy cover serial", error);
+        }
+
+        final String oldCustomKey = "custom_cover:" + legacySerial;
+        if (prefs.getBoolean(oldCustomKey, false) && moved) {
+            prefs.edit()
+                    .remove(oldCustomKey)
+                    .putBoolean("custom_cover:" + correctedSerial, true)
+                    .apply();
+        }
+    }
+
+    private String extractSerialFromUri(String gameUri) {
+        Context context = getContext();
+        return context == null ? null
+                : extractSerialFromUri(context.getApplicationContext(), gameUri);
+    }
+
+    private static String extractSerialFromUri(Context context, String gameUri) {
+        try {
+            try (java.io.InputStream in = context.getContentResolver()
+                    .openInputStream(Uri.parse(gameUri))) {
+                if (in == null) return null;
+                final int maxBytes = 8 * 1024 * 1024;
+                final byte[] buffer = new byte[64 * 1024];
+                int read;
+                int total = 0;
+                StringBuilder text = new StringBuilder();
+                while (total < maxBytes
+                        && (read = in.read(buffer, 0, Math.min(buffer.length, maxBytes - total))) != -1) {
+                    total += read;
+                    text.append(new String(buffer, 0, read,
+                            java.nio.charset.StandardCharsets.ISO_8859_1));
+                    String found = findSerialInString(text);
+                    if (found != null) return found;
+                    if (text.length() > 512 * 1024) {
+                        text.delete(0, text.length() - 128 * 1024);
+                    }
+                }
+            }
+        } catch (Exception error) {
+            android.util.Log.w("GamesCoverDialog", "Unable to scan game serial", error);
+        }
         return null;
     }
 
@@ -916,8 +1055,12 @@ public class GamesCoverDialogFragment extends DialogFragment {
     }
 
     private File getCoversDir() {
-        File base = requireContext().getExternalFilesDir("covers");
-        if (base == null) base = new File(requireContext().getFilesDir(), "covers");
+        return getCoversDir(requireContext().getApplicationContext());
+    }
+
+    private static File getCoversDir(Context context) {
+        File base = context.getExternalFilesDir("covers");
+        if (base == null) base = new File(context.getFilesDir(), "covers");
         if (!base.exists()) base.mkdirs();
         return base;
     }
@@ -1052,20 +1195,24 @@ public class GamesCoverDialogFragment extends DialogFragment {
         // Check if any games have custom covers
         SharedPreferences prefs = requireContext().getSharedPreferences("app_prefs", Context.MODE_PRIVATE);
         java.util.ArrayList<String> customCoverGames = new java.util.ArrayList<>();
-        
-        for (int i = 0; i < uris.length; i++) {
+
+        final String[] uriSnapshot = origUris != null ? origUris : uris;
+        final String[] titleSnapshot = origTitles != null ? origTitles : titles;
+        for (int i = 0; i < uriSnapshot.length; i++) {
             try {
-                String serial = prefs.getString("serial:" + uris[i], null);
+                String serial = normalizeUsableSerial(
+                        prefs.getString("serial:" + uriSnapshot[i], null));
                 if (serial == null || serial.isEmpty()) {
-                    try { serial = NativeApp.getGameSerialSafe(uris[i]); } catch (Throwable ignored) {}
+                    try { serial = NativeApp.getGameSerialSafe(uriSnapshot[i]); } catch (Throwable ignored) {}
                 }
+                serial = normalizeUsableSerial(serial);
                 if (serial == null || serial.isEmpty()) {
-                    serial = buildSerialFromUri(uris[i]);
+                    serial = buildSerialFromUri(uriSnapshot[i]);
                 }
-                serial = normalizeSerial(serial);
-                
+                serial = normalizeUsableSerial(serial);
+
                 if (prefs.getBoolean("custom_cover:" + serial, false)) {
-                    customCoverGames.add(titles[i]);
+                    customCoverGames.add(i < titleSnapshot.length ? titleSnapshot[i] : serial);
                 }
             } catch (Exception ignored) {}
         }
@@ -1087,123 +1234,302 @@ public class GamesCoverDialogFragment extends DialogFragment {
     }
     
     private void downloadCoversInternal(boolean skipCustomCovers) {
-        Toast.makeText(requireContext(), "Downloading covers in background", Toast.LENGTH_SHORT).show();
-        new Thread(() -> {
-            SharedPreferences prefs = requireContext().getSharedPreferences("app_prefs", Context.MODE_PRIVATE);
-            SharedPreferences.Editor editor = prefs.edit();
-            for (int i = 0; i < uris.length; i++) {
-                try {
-                    String better = null;
-                    try { better = NativeApp.getGameSerialSafe(uris[i]); } catch (Throwable ignored) {}
-                    if (better == null) better = extractSerialFromUri(uris[i]);
-                    if (better != null && !better.equalsIgnoreCase(serialFromUrl(coverUrls[i]))) {
-                        String serial = normalizeSerial(better);
-                        coverUrls[i] = buildCoverUrlFromSerial(serial);
-                        android.net.Uri dataRoot = SafManager.getDataRootUri(requireContext());
-                        if (dataRoot != null) {
-                            androidx.documentfile.provider.DocumentFile nf = SafManager.createChild(requireContext(), new String[]{"covers"}, serial + ".png", "image/png");
-                            localPaths[i] = (nf != null) ? nf.getUri().toString() : new java.io.File(getCoversDir(), serial + ".png").getAbsolutePath();
-                        } else {
-                            localPaths[i] = new java.io.File(getCoversDir(), serial + ".png").getAbsolutePath();
-                        }
-                        editor.putString("serial:" + uris[i], serial);
-                    }
-                } catch (Exception ignored) { }
-            }
-            editor.apply();
+        final Context appContext = requireContext().getApplicationContext();
+        final String[] uriSnapshot = Arrays.copyOf(
+                origUris != null ? origUris : uris,
+                origUris != null ? origUris.length : uris.length);
 
-            int total = coverUrls.length;
-            int ok = 0;
-            int skipped = 0;
-            for (int i = 0; i < total; i++) {
-                String url = coverUrls[i];
-                String outPath = localPaths[i];
-                
-                // Get serial for this game
-                String serial = null;
-                try {
-                    serial = prefs.getString("serial:" + uris[i], null);
-                    if (serial == null || serial.isEmpty()) {
-                        try { serial = NativeApp.getGameSerialSafe(uris[i]); } catch (Throwable ignored) {}
-                    }
-                    if (serial == null || serial.isEmpty()) {
-                        serial = buildSerialFromUri(uris[i]);
-                    }
-                    serial = normalizeSerial(serial);
-                } catch (Exception ignored) {}
-                
-                // Check if this is a custom cover and should be skipped
-                if (skipCustomCovers && serial != null) {
-                    if (prefs.getBoolean("custom_cover:" + serial, false)) {
-                        skipped++;
-                        if (isFileValid(outPath)) ok++;
-                        continue;
+        setDownloadButtonEnabled(false, "Preparing cover download");
+        Toast.makeText(requireContext(), "Preparing cover download", Toast.LENGTH_SHORT).show();
+
+        COVER_PREPARATION_EXECUTOR.execute(() -> {
+            final WorkManager workManager = WorkManager.getInstance(appContext);
+            try {
+                final java.util.List<WorkInfo> existing = workManager
+                        .getWorkInfosForUniqueWork(CoverDownloadWorker.UNIQUE_WORK_NAME).get();
+                for (WorkInfo info : existing) {
+                    if (!info.getState().isFinished()) {
+                        UiUtils.postIfFragmentAttached(this, () -> {
+                            Toast.makeText(requireContext(), "Cover download is already running",
+                                    Toast.LENGTH_SHORT).show();
+                            setDownloadButtonEnabled(false, "Cover download in progress");
+                        });
+                        return;
                     }
                 }
-                
-                // Check if file exists in SAF
-                androidx.documentfile.provider.DocumentFile existing = SafManager.getChild(requireContext(), new String[]{"covers"}, serial + ".png");
-                if (existing != null && existing.exists() && existing.length() > 0) {
-                    ok++;
+            } catch (Exception error) {
+                android.util.Log.w("GamesCoverDialog", "Unable to query cover work", error);
+            }
+
+            final SharedPreferences prefs = appContext.getSharedPreferences(
+                    "app_prefs", Context.MODE_PRIVATE);
+            final SharedPreferences.Editor serialEditor = prefs.edit();
+            final java.util.LinkedHashSet<String> uniqueSerials = new java.util.LinkedHashSet<>();
+            int skipped = 0;
+
+            for (String gameUri : uriSnapshot) {
+                String serial = normalizeUsableSerial(
+                        prefs.getString("serial:" + gameUri, null));
+                if (serial == null || serial.isEmpty()) {
+                    try { serial = NativeApp.getGameSerialSafe(gameUri); } catch (Throwable ignored) {}
+                }
+                serial = normalizeUsableSerial(serial);
+                if (serial == null || serial.isEmpty()) {
+                    serial = extractSerialFromUri(appContext, gameUri);
+                }
+                serial = normalizeUsableSerial(serial);
+                if (serial == null || serial.isEmpty()) {
+                    serial = buildSerialFromUri(gameUri);
+                }
+                serial = normalizeUsableSerial(serial);
+                if (serial.isEmpty()) {
+                    android.util.Log.w("GamesCoverDialog", "No serial for " + gameUri);
                     continue;
                 }
-                
-                try {
-                    if (downloadToTarget(url, serial)) {
-                        ok++;
-                        // Update localPaths with SAF URI after successful download
-                        androidx.documentfile.provider.DocumentFile downloaded = SafManager.getChild(requireContext(), new String[]{"covers"}, serial + ".png");
-                        if (downloaded != null && downloaded.exists()) {
-                            localPaths[i] = downloaded.getUri().toString();
-                        }
-                        // Clear custom flag after successful download
-                        if (serial != null) {
-                            editor.putBoolean("custom_cover:" + serial, false);
-                        }
-                    }
-                } catch (Exception ignored) { }
+
+                serialEditor.putString("serial:" + gameUri, serial);
+                if (skipCustomCovers && prefs.getBoolean("custom_cover:" + serial, false)) {
+                    skipped++;
+                    continue;
+                }
+                uniqueSerials.add(serial);
             }
-            editor.apply();
-            
-            // Cleanup: delete any 0-byte PNG files in covers folder
-            cleanupEmptyCovers();
-            
-            final int downloaded = ok;
+            serialEditor.apply();
+
+            if (uniqueSerials.isEmpty()) {
+                UiUtils.postIfFragmentAttached(this, () -> {
+                    coverWorkWasRunning = false;
+                    setDownloadButtonEnabled(true, "Download covers");
+                    Toast.makeText(requireContext(), "No covers need downloading",
+                            Toast.LENGTH_SHORT).show();
+                });
+                return;
+            }
+
+            final String runToken = java.util.UUID.randomUUID().toString();
+            prefs.edit().putString(PREF_ACTIVE_COVER_RUN, runToken).apply();
+            final java.util.ArrayList<String> serialList = new java.util.ArrayList<>(uniqueSerials);
+            final java.util.ArrayList<OneTimeWorkRequest> requests = new java.util.ArrayList<>();
+            final Constraints constraints = new Constraints.Builder()
+                    .setRequiredNetworkType(NetworkType.CONNECTED)
+                    .build();
+
+            for (int start = 0; start < serialList.size(); start += COVER_DOWNLOAD_BATCH_SIZE) {
+                final int end = Math.min(start + COVER_DOWNLOAD_BATCH_SIZE, serialList.size());
+                final String[] batch = serialList.subList(start, end).toArray(new String[0]);
+                final androidx.work.Data input = new androidx.work.Data.Builder()
+                        .putStringArray(CoverDownloadWorker.KEY_SERIALS, batch)
+                        .putString(CoverDownloadWorker.KEY_RUN_TOKEN, runToken)
+                        .build();
+                requests.add(new OneTimeWorkRequest.Builder(CoverDownloadWorker.class)
+                        .setInputData(input)
+                        .setConstraints(constraints)
+                        .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10,
+                                java.util.concurrent.TimeUnit.SECONDS)
+                        .addTag(CoverDownloadWorker.RUN_TAG_PREFIX + runToken)
+                        .build());
+            }
+
+            WorkContinuation continuation = workManager.beginUniqueWork(
+                    CoverDownloadWorker.UNIQUE_WORK_NAME,
+                    ExistingWorkPolicy.KEEP,
+                    requests.get(0));
+            for (int index = 1; index < requests.size(); index++) {
+                continuation = continuation.then(requests.get(index));
+            }
+            continuation.enqueue();
+
             final int skippedCount = skipped;
             UiUtils.postIfFragmentAttached(this, () -> {
-                String msg = "Covers ready: " + downloaded + "/" + total;
+                coverWorkWasRunning = true;
+                String message = "Downloading " + serialList.size() + " covers in background";
                 if (skippedCount > 0) {
-                    msg += " (" + skippedCount + " custom skipped)";
+                    message += " (" + skippedCount + " custom skipped)";
                 }
-                Toast.makeText(requireContext(), msg, Toast.LENGTH_SHORT).show();
+                Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show();
+            });
+        });
+    }
+
+    private void observeCoverDownloadWork() {
+        final Context appContext = requireContext().getApplicationContext();
+        final SharedPreferences prefs = appContext.getSharedPreferences(
+                "app_prefs", Context.MODE_PRIVATE);
+        WorkManager.getInstance(appContext)
+                .getWorkInfosForUniqueWorkLiveData(CoverDownloadWorker.UNIQUE_WORK_NAME)
+                .observe(getViewLifecycleOwner(), workInfos -> {
+                    if (workInfos == null || downloadButton == null) return;
+
+                    String runToken = prefs.getString(PREF_ACTIVE_COVER_RUN, null);
+                    if (runToken == null || runToken.isEmpty()) {
+                        for (WorkInfo info : workInfos) {
+                            if (info.getState().isFinished()) continue;
+                            for (String tag : info.getTags()) {
+                                if (tag.startsWith(CoverDownloadWorker.RUN_TAG_PREFIX)) {
+                                    runToken = tag.substring(
+                                            CoverDownloadWorker.RUN_TAG_PREFIX.length());
+                                    prefs.edit().putString(PREF_ACTIVE_COVER_RUN, runToken).apply();
+                                    break;
+                                }
+                            }
+                            if (runToken != null) break;
+                        }
+                    }
+                    if (runToken == null || runToken.isEmpty()) {
+                        setDownloadButtonEnabled(true, "Download covers");
+                        return;
+                    }
+
+                    final String runTag = CoverDownloadWorker.RUN_TAG_PREFIX + runToken;
+                    final java.util.ArrayList<WorkInfo> currentRun = new java.util.ArrayList<>();
+                    for (WorkInfo info : workInfos) {
+                        if (info.getTags().contains(runTag)) currentRun.add(info);
+                    }
+                    if (currentRun.isEmpty()) return;
+
+                    boolean active = false;
+                    int processed = 0;
+                    int total = 0;
+                    for (WorkInfo info : currentRun) {
+                        active |= !info.getState().isFinished();
+                        processed += info.getProgress().getInt(
+                                CoverDownloadWorker.KEY_PROCESSED, 0);
+                        total += info.getProgress().getInt(CoverDownloadWorker.KEY_TOTAL, 0);
+                    }
+
+                    if (active) {
+                        coverWorkWasRunning = true;
+                        String description = total > 0
+                                ? "Downloading covers " + processed + " of " + total
+                                : "Cover download in progress";
+                        setDownloadButtonEnabled(false, description);
+                        return;
+                    }
+
+                    setDownloadButtonEnabled(true, "Download covers");
+                    if (!coverWorkWasRunning) return;
+                    coverWorkWasRunning = false;
+                    prefs.edit().remove(PREF_ACTIVE_COVER_RUN).apply();
+
+                    int ready = 0;
+                    int failed = 0;
+                    boolean workFailed = false;
+                    final java.util.ArrayList<String> failedSerials = new java.util.ArrayList<>();
+                    for (WorkInfo info : currentRun) {
+                        if (info.getState() != WorkInfo.State.SUCCEEDED) {
+                            workFailed = true;
+                            continue;
+                        }
+                        ready += info.getOutputData().getInt(CoverDownloadWorker.KEY_READY, 0);
+                        failed += info.getOutputData().getInt(CoverDownloadWorker.KEY_FAILED, 0);
+                        String names = info.getOutputData().getString(
+                                CoverDownloadWorker.KEY_FAILED_SERIALS);
+                        if (names != null && !names.isBlank()) failedSerials.add(names);
+                    }
+
+                    refreshDownloadedCoverPaths();
+                    String message;
+                    if (workFailed) {
+                        message = "Cover download stopped before it completed";
+                    } else {
+                        message = "Covers ready: " + ready;
+                        if (failed > 0) message += " (" + failed + " failed)";
+                    }
+                    Toast.makeText(requireContext(), message, Toast.LENGTH_LONG).show();
+                    if (!failedSerials.isEmpty()) {
+                        android.util.Log.w("GamesCoverDialog", "Cover failures: "
+                                + String.join(", ", failedSerials));
+                    }
+                });
+    }
+
+    private void setDownloadButtonEnabled(boolean enabled, String description) {
+        if (downloadButton == null) return;
+        downloadButton.setEnabled(enabled);
+        downloadButton.setAlpha(enabled ? 1.0f : 0.45f);
+        downloadButton.setContentDescription(description);
+    }
+
+    private void refreshDownloadedCoverPaths() {
+        final Context context = getContext();
+        if (context == null || origUris == null) return;
+        final Context appContext = context.getApplicationContext();
+        final String[] uriSnapshot = Arrays.copyOf(origUris, origUris.length);
+
+        COVER_PREPARATION_EXECUTOR.execute(() -> {
+            final SharedPreferences prefs = appContext.getSharedPreferences(
+                    "app_prefs", Context.MODE_PRIVATE);
+            final String[] refreshedUrls = new String[uriSnapshot.length];
+            final String[] refreshedPaths = new String[uriSnapshot.length];
+            final java.util.HashMap<String, String> pathByUri = new java.util.HashMap<>();
+            final java.util.HashMap<String, String> urlByUri = new java.util.HashMap<>();
+
+            for (int index = 0; index < uriSnapshot.length; index++) {
+                String serial = normalizeUsableSerial(
+                        prefs.getString("serial:" + uriSnapshot[index], null));
+                if (serial.isEmpty()) serial = buildSerialFromUri(uriSnapshot[index]);
+                refreshedUrls[index] = buildCoverUrlFromSerial(serial);
+
+                final androidx.documentfile.provider.DocumentFile cover = SafManager.getChild(
+                        appContext, new String[]{"covers"}, serial + ".png");
+                if (cover != null && cover.exists() && cover.length() > 0) {
+                    refreshedPaths[index] = cover.getUri().toString();
+                } else {
+                    if (cover != null && cover.exists() && cover.length() == 0) {
+                        cover.delete();
+                    }
+                    refreshedPaths[index] = new File(
+                            getCoversDir(appContext), serial + ".png").getAbsolutePath();
+                }
+                pathByUri.put(uriSnapshot[index], refreshedPaths[index]);
+                urlByUri.put(uriSnapshot[index], refreshedUrls[index]);
+            }
+
+            UiUtils.postIfFragmentAttached(this, () -> {
+                if (origUris == null || !Arrays.equals(uriSnapshot, origUris)) return;
+                origCoverUrls = refreshedUrls;
+                origLocalPaths = refreshedPaths;
+                for (int index = 0; index < uris.length; index++) {
+                    String refreshedPath = pathByUri.get(uris[index]);
+                    String refreshedUrl = urlByUri.get(uris[index]);
+                    if (refreshedPath != null) localPaths[index] = refreshedPath;
+                    if (refreshedUrl != null) coverUrls[index] = refreshedUrl;
+                }
                 if (adapter != null) adapter.notifyDataSetChanged();
             });
-        }).start();
+        });
     }
 
     private void deleteCustomCovers() {
+        final Context appContext = requireContext().getApplicationContext();
+        final String[] uriSnapshot = Arrays.copyOf(
+                origUris != null ? origUris : uris,
+                origUris != null ? origUris.length : uris.length);
         Toast.makeText(requireContext(), "Deleting custom covers...", Toast.LENGTH_SHORT).show();
-        new Thread(() -> {
-            SharedPreferences prefs = requireContext().getSharedPreferences("app_prefs", Context.MODE_PRIVATE);
+        COVER_PREPARATION_EXECUTOR.execute(() -> {
+            SharedPreferences prefs = appContext.getSharedPreferences("app_prefs", Context.MODE_PRIVATE);
             SharedPreferences.Editor editor = prefs.edit();
             int deletedCount = 0;
-            
-            for (int i = 0; i < uris.length; i++) {
+
+            for (int i = 0; i < uriSnapshot.length; i++) {
                 try {
-                    String serial = prefs.getString("serial:" + uris[i], null);
+                    String serial = normalizeUsableSerial(
+                            prefs.getString("serial:" + uriSnapshot[i], null));
                     if (serial == null || serial.isEmpty()) {
-                        try { serial = NativeApp.getGameSerialSafe(uris[i]); } catch (Throwable ignored) {}
+                        try { serial = NativeApp.getGameSerialSafe(uriSnapshot[i]); } catch (Throwable ignored) {}
                     }
+                    serial = normalizeUsableSerial(serial);
                     if (serial == null || serial.isEmpty()) {
-                        serial = buildSerialFromUri(uris[i]);
+                        serial = buildSerialFromUri(uriSnapshot[i]);
                     }
-                    serial = normalizeSerial(serial);
-                    
+                    serial = normalizeUsableSerial(serial);
+
                     // Check if this game has a custom cover
                     if (prefs.getBoolean("custom_cover:" + serial, false)) {
                         // Delete the custom cover file
                         try {
-                            androidx.documentfile.provider.DocumentFile existing = SafManager.getChild(requireContext(), new String[]{"covers"}, serial + ".png");
+                            androidx.documentfile.provider.DocumentFile existing = SafManager.getChild(
+                                    appContext, new String[]{"covers"}, serial + ".png");
                             if (existing != null && existing.exists()) {
                                 existing.delete();
                                 deletedCount++;
@@ -1224,76 +1550,9 @@ public class GamesCoverDialogFragment extends DialogFragment {
             final int deleted = deletedCount;
             UiUtils.postIfFragmentAttached(this, () -> {
                 Toast.makeText(requireContext(), "Deleted " + deleted + " custom cover(s)", Toast.LENGTH_SHORT).show();
-                if (adapter != null) adapter.notifyDataSetChanged();
+                refreshDownloadedCoverPaths();
             });
-        }).start();
-    }
-    
-    private static String serialFromUrl(String url) {
-        if (url == null) return null;
-        int slash = url.lastIndexOf('/');
-        int dot = url.lastIndexOf('.');
-        if (slash >= 0 && dot > slash) return url.substring(slash + 1, dot);
-        return null;
-    }
-
-    private boolean isFileValid(String path) {
-        if (path == null) return false;
-        if (path.startsWith("content://")) {
-            try {
-                androidx.documentfile.provider.DocumentFile f = androidx.documentfile.provider.DocumentFile.fromSingleUri(requireContext(), android.net.Uri.parse(path));
-                return f != null && f.length() > 0;
-            } catch (Throwable ignored) { return false; }
-        }
-        java.io.File f = new java.io.File(path);
-        return f.exists() && f.length() > 0;
-    }
-
-    private boolean downloadToTarget(String urlStr, String serial) throws Exception {
-        java.net.URL url = new java.net.URL(urlStr);
-        java.net.HttpURLConnection conn = (java.net.HttpURLConnection) url.openConnection();
-        conn.setConnectTimeout(10000);
-        conn.setReadTimeout(15000);
-        conn.setInstanceFollowRedirects(true);
-        conn.connect();
-        int code = conn.getResponseCode();
-        if (code != 200) { conn.disconnect(); return false; }
-        java.io.InputStream in = conn.getInputStream();
-        
-        // Delete existing file if present
-        androidx.documentfile.provider.DocumentFile existing = SafManager.getChild(requireContext(), new String[]{"covers"}, serial + ".png");
-        if (existing != null && existing.exists()) {
-            existing.delete();
-        }
-        
-        // Create new file in SAF
-        androidx.documentfile.provider.DocumentFile newFile = SafManager.createChild(requireContext(), new String[]{"covers"}, serial + ".png", "image/png");
-        if (newFile == null) { conn.disconnect(); in.close(); return false; }
-        
-        try (java.io.OutputStream os = requireContext().getContentResolver().openOutputStream(newFile.getUri(), "w")) {
-            if (os == null) { conn.disconnect(); in.close(); return false; }
-            byte[] buf = new byte[8192];
-            int n;
-            while ((n = in.read(buf)) != -1) os.write(buf, 0, n);
-            os.flush();
-        }
-        in.close();
-        conn.disconnect();
-        return true;
-    }
-    
-    private void cleanupEmptyCovers() {
-        try {
-            // Cleanup SAF folder only
-            androidx.documentfile.provider.DocumentFile coversDir = SafManager.getChild(requireContext(), new String[]{"covers"}, null);
-            if (coversDir != null && coversDir.isDirectory()) {
-                for (androidx.documentfile.provider.DocumentFile file : coversDir.listFiles()) {
-                    if (file.isFile() && file.getName() != null && file.getName().endsWith(".png") && file.length() == 0) {
-                        file.delete();
-                    }
-                }
-            }
-        } catch (Throwable ignored) {}
+        });
     }
     
 

@@ -52,7 +52,7 @@
         android:insetBottom="0dp"
         android:gravity="center"
         android:text=""
-        app:icon="@drawable/play_circle_24px"
+        app:icon="@drawable/play_pause_24px"
         app:iconTint="@color/brand_primary"
         app:iconGravity="textStart"
         app:iconSize="24dp"

@@ -170,6 +170,7 @@ dependencies {
     implementation("androidx.swiperefreshlayout:swiperefreshlayout:1.1.0")
     implementation("androidx.activity:activity:1.12.1")
     implementation("androidx.core:core-ktx:1.15.0")
+    implementation("androidx.work:work-runtime:2.11.2")
     implementation("com.github.bumptech.glide:glide:4.16.0")
     annotationProcessor("com.github.bumptech.glide:compiler:4.16.0")
 }

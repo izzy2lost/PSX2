@@ -80,6 +80,8 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
     private static final String PREF_TOUCH_RIGHT_STICK = "touch_right_stick";
     private static final String PREF_GAMES_FOLDER_URI = "games_folder_uri";
     private static final String PREF_GAMES_FOLDER_URIS = "games_folder_uris_json";
+    private static final java.util.concurrent.ExecutorService GAME_LIBRARY_EXECUTOR =
+            java.util.concurrent.Executors.newSingleThreadExecutor();
 
     private String m_szGamefile = "";
     private boolean mRaLoginPromptScheduled = false;
@@ -88,6 +90,12 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
     private HIDDeviceManager mHIDDeviceManager;
     private ControllerInputHandler mControllerInputHandler;
     private final Object mEmulationThreadLock = new Object();
+    private final java.util.concurrent.ExecutorService mEmulationControlExecutor =
+            java.util.concurrent.Executors.newSingleThreadExecutor();
+    private final java.util.concurrent.atomic.AtomicInteger mEmulationRestartGeneration =
+            new java.util.concurrent.atomic.AtomicInteger();
+    private final java.util.concurrent.atomic.AtomicBoolean mGameLibraryScanPending =
+            new java.util.concurrent.atomic.AtomicBoolean();
     private volatile Thread mEmulationThread = null;
     private boolean mSetupWizardActive = false;
     private boolean mHudVisible = false;
@@ -107,9 +115,12 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
     private boolean mControllerHintShowing = false;
     private boolean mPreviousControllerState = false;
     
-    // Global dialog tracking for pause/resume
+    // Pause requests have separate owners so closing a dialog or returning to the
+    // activity cannot accidentally clear a pause explicitly requested by the user.
     private int mOpenDialogCount = 0;
-    private boolean mDrawerOpen = false;
+    private int mOpenDrawerCount = 0;
+    private boolean mActivityPauseRequested = false;
+    private boolean mUserPauseRequested = false;
 
     public boolean isThread() {
         Thread emulationThread = mEmulationThread;
@@ -403,25 +414,54 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
     }
 
     private void showGamesListOrReselect() {
+        showGamesListOrReselect(false);
+    }
+
+    private void showGamesListOrReselect(boolean requireFreshScan) {
         FragmentManager fm = getSupportFragmentManager();
         if (isFinishing() || isDestroyed() || fm.isStateSaved()) return;
 
-        // Re-scan quickly each time to keep list fresh
-        String[] names;
-        String[] uris;
-        try {
-            GameList list = scanConfiguredGameFolders();
-            names = list.names;
-            uris = list.uris;
-        } catch (Exception e) {
-            names = new String[0];
-            uris = new String[0];
+        // A recursive DocumentProvider scan can take seconds on large folders. Open
+        // the last known library immediately, then refresh that cache off the UI thread.
+        if (!requireFreshScan) {
+            GameList cached = loadCachedGameList();
+            if (cached.names.length > 0) {
+                showGamesList(cached);
+                refreshGameLibraryCacheAsync();
+                return;
+            }
         }
-        // Make effectively-final copies for use in lambda
-        final String[] namesFinal = names;
-        final String[] urisFinal = uris;
 
-        if (namesFinal.length == 0) {
+        if (!mGameLibraryScanPending.compareAndSet(false, true)) {
+            Toast.makeText(this, "Game library scan is already running", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Toast.makeText(this, "Loading game library…", Toast.LENGTH_SHORT).show();
+        GAME_LIBRARY_EXECUTOR.execute(() -> {
+            GameList scanned;
+            try {
+                scanned = scanConfiguredGameFolders();
+            } catch (Throwable error) {
+                android.util.Log.e("GameLibrary", "Unable to scan game folders", error);
+                scanned = new GameList(new String[0], new String[0]);
+            }
+            final GameList result = scanned;
+            runOnUiThread(() -> {
+                mGameLibraryScanPending.set(false);
+                if (isFinishing() || isDestroyed()
+                        || getSupportFragmentManager().isStateSaved()) return;
+                showGamesList(result);
+            });
+        });
+    }
+
+    private void showGamesList(GameList list) {
+        FragmentManager fm = getSupportFragmentManager();
+        if (isFinishing() || isDestroyed() || fm.isStateSaved()) return;
+        androidx.fragment.app.Fragment existing = fm.findFragmentByTag("covers_dialog");
+        if (existing != null && existing.isAdded()) return;
+
+        if (list.names.length == 0) {
             new MaterialAlertDialogBuilder(this,
                     com.google.android.material.R.style.ThemeOverlay_Material3_MaterialAlertDialog)
                     .setCustomTitle(UiUtils.centeredDialogTitle(this, "GAMES"))
@@ -431,9 +471,46 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
                     .show();
             return;
         }
-        // Show covers grid dialog fragment
-        GamesCoverDialogFragment frag = GamesCoverDialogFragment.newInstance(namesFinal, urisFinal);
+
+        GamesCoverDialogFragment frag = GamesCoverDialogFragment.newInstance(
+                list.names, list.uris);
         frag.show(fm, "covers_dialog");
+    }
+
+    private void refreshGameLibraryCacheAsync() {
+        if (!mGameLibraryScanPending.compareAndSet(false, true)) return;
+        GAME_LIBRARY_EXECUTOR.execute(() -> {
+            try {
+                scanConfiguredGameFolders();
+            } catch (Throwable error) {
+                android.util.Log.w("GameLibrary", "Background library refresh failed", error);
+            } finally {
+                mGameLibraryScanPending.set(false);
+            }
+        });
+    }
+
+    private GameList loadCachedGameList() {
+        java.util.ArrayList<String> names = new java.util.ArrayList<>();
+        java.util.ArrayList<String> uris = new java.util.ArrayList<>();
+        String json = getSharedPreferences("app_prefs", MODE_PRIVATE)
+                .getString("games_list_json", null);
+        if (TextUtils.isEmpty(json)) return new GameList(new String[0], new String[0]);
+        try {
+            JSONArray array = new JSONArray(json);
+            for (int index = 0; index < array.length(); index++) {
+                JSONArray pair = array.optJSONArray(index);
+                if (pair == null) continue;
+                String name = pair.optString(0, "");
+                String uri = pair.optString(1, "");
+                if (TextUtils.isEmpty(name) || TextUtils.isEmpty(uri)) continue;
+                names.add(name);
+                uris.add(uri);
+            }
+        } catch (JSONException error) {
+            android.util.Log.w("GameLibrary", "Ignoring invalid cached library", error);
+        }
+        return new GameList(names.toArray(new String[0]), uris.toArray(new String[0]));
     }
 
     @Override
@@ -1560,7 +1637,7 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
                                     if (current instanceof androidx.fragment.app.DialogFragment) {
                                         ((androidx.fragment.app.DialogFragment) current).dismissAllowingStateLoss();
                                     }
-                                    showGamesListOrReselect();
+                                    showGamesListOrReselect(true);
                                 } else {
                                     Toast.makeText(this, "Games folder set", Toast.LENGTH_SHORT).show();
                                 }
@@ -1834,7 +1911,8 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
 
     @Override
     protected void onPause() {
-        NativeApp.pause();
+        mActivityPauseRequested = true;
+        applyRequestedPauseState("activity paused");
         super.onPause();
         ////
         if (mHIDDeviceManager != null) {
@@ -1844,8 +1922,9 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
 
     @Override
     protected void onResume() {
-        NativeApp.resume();
         super.onResume();
+        mActivityPauseRequested = false;
+        applyRequestedPauseState("activity resumed");
         ////
         if (mHIDDeviceManager != null) {
             mHIDDeviceManager.setFrozen(false);
@@ -1975,7 +2054,7 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
             MaterialButton btn_pause_play = findViewById(R.id.btn_pause_play);
             if (btn_pause_play != null) {
                 btn_pause_play.setVisibility(View.VISIBLE);
-                btn_pause_play.setIcon(ContextCompat.getDrawable(this, R.drawable.pause_circle_24px));
+                btn_pause_play.setIcon(ContextCompat.getDrawable(this, R.drawable.play_pause_24px));
             }
         });
     }
@@ -1987,35 +2066,46 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
     private void restartEmuThread() {
         // Ensure BIOS present before starting/restarting emulation
         if (!ensureBiosOrPrompt()) return;
-        NativeApp.shutdown();
-        Thread threadToJoin;
-        synchronized (mEmulationThreadLock) {
-            threadToJoin = mEmulationThread;
-        }
-        if (threadToJoin != null && threadToJoin != Thread.currentThread()) {
+        mUserPauseRequested = false;
+        final int generation = mEmulationRestartGeneration.incrementAndGet();
+        final String requestedGame = m_szGamefile;
+        final int renderer = getSharedPreferences("app_prefs", MODE_PRIVATE)
+                .getInt("renderer", -1);
+
+        // Shutdown and Thread.join() can take several seconds for some arcade games.
+        // Never wait for the emulation thread from Android's UI thread.
+        mEmulationControlExecutor.execute(() -> {
             try {
-                threadToJoin.join();
+                NativeApp.shutdown();
+                Thread threadToJoin;
                 synchronized (mEmulationThreadLock) {
-                    if (mEmulationThread == threadToJoin) {
-                        mEmulationThread = null;
+                    threadToJoin = mEmulationThread;
+                }
+                if (threadToJoin != null && threadToJoin != Thread.currentThread()) {
+                    threadToJoin.join();
+                    synchronized (mEmulationThreadLock) {
+                        if (mEmulationThread == threadToJoin) {
+                            mEmulationThread = null;
+                        }
                     }
                 }
-            }
-            catch (InterruptedException ignored) {
+                if (generation != mEmulationRestartGeneration.get()) return;
+                android.util.Log.d("MainActivity",
+                        "Applying global renderer before game restart: " + renderer);
+                NativeApp.renderGpu(renderer);
+                runOnUiThread(() -> {
+                    if (generation != mEmulationRestartGeneration.get()
+                            || isFinishing() || isDestroyed()
+                            || !requestedGame.equals(m_szGamefile)) return;
+                    startEmuThread();
+                    applyRequestedPauseState("game started");
+                });
+            } catch (InterruptedException ignored) {
                 Thread.currentThread().interrupt();
-                return;
+            } catch (Throwable error) {
+                android.util.Log.e("MainActivity", "Unable to restart emulation", error);
             }
-        }
-        
-        // Apply global renderer setting before starting new game
-        SharedPreferences prefs = getSharedPreferences("app_prefs", MODE_PRIVATE);
-        // Default to Automatic (-1) so the core can pick the best available backend (Vulkan/OpenGL/Software)
-        int renderer = prefs.getInt("renderer", -1);
-        android.util.Log.d("MainActivity", "Applying global renderer before game restart: " + renderer);
-        NativeApp.renderGpu(renderer);
-        
-        ////
-        startEmuThread();
+        });
     }
 
     // (Renderer toast temporarily removed per user request — AUTO behavior retained.)
@@ -2277,15 +2367,9 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
         android.util.Log.d("Controller", "Controller " + controllerId + " combo: " + comboName);
         
         if ("select_start".equals(comboName)) {
-            // Show quick actions dialog with proper dialog tracking
+            // Dialog tracking owns the temporary pause. Do not turn it into a user
+            // pause, otherwise closing Quick Actions leaves the game stuck paused.
             runOnUiThread(() -> {
-                // Pause the game immediately when controller combo is detected using the same logic as the pause/play button
-                if (hasSelectedGame() && isThread() && !NativeApp.isPaused()) {
-                    try {
-                        togglePauseState(); // This will pause the game and update button state
-                    } catch (Throwable ignored) {}
-                }
-                
                 QuickActionsDialogFragment dialog = new QuickActionsDialogFragment();
                 dialog.show(getSupportFragmentManager(), "quick_actions");
             });
@@ -2878,22 +2962,20 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
     // Pause/Play toggle functionality
     public void togglePauseState() {
         try {
-            boolean isPaused = NativeApp.isPaused();
             boolean hasGame = hasSelectedGame() && isThread();
-            android.util.Log.d("TogglePause", "togglePauseState called. isPaused: " + isPaused + ", hasGame: " + hasGame);
-            
-            if (isPaused) {
-                android.util.Log.d("TogglePause", "Resuming game");
-                NativeApp.resume();
-            } else {
-                android.util.Log.d("TogglePause", "Pausing game");
-                NativeApp.pause();
+            if (!hasGame) {
+                updatePausePlayButton();
+                return;
             }
-            updatePausePlayButton();
-            
-            // Log the state after the change
-            boolean newIsPaused = NativeApp.isPaused();
-            android.util.Log.d("TogglePause", "After toggle. New isPaused: " + newIsPaused);
+
+            if (isAutomaticPauseRequested()) {
+                // While a dialog/drawer owns the active pause, this button controls
+                // whether the game should remain paused after that UI closes.
+                mUserPauseRequested = !mUserPauseRequested;
+            } else {
+                mUserPauseRequested = !NativeApp.isPaused();
+            }
+            applyRequestedPauseState("user toggle");
         } catch (Throwable e) {
             android.util.Log.e("TogglePause", "Error in togglePauseState: " + e.getMessage());
         }
@@ -2910,13 +2992,12 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
                 btn_pause_play.setVisibility(hasGame ? View.VISIBLE : View.GONE);
                 
                 if (hasGame) {
-                    // Update icon to show the action it will perform
+                    btn_pause_play.setIcon(ContextCompat.getDrawable(
+                            this, R.drawable.play_pause_24px));
                     if (isPaused) {
-                        // Game is paused, show pause icon (will pause more/stay paused)
-                        btn_pause_play.setIcon(ContextCompat.getDrawable(this, R.drawable.pause_circle_24px));
+                        btn_pause_play.setContentDescription("Resume game");
                     } else {
-                        // Game is running, show play icon (will keep playing)
-                        btn_pause_play.setIcon(ContextCompat.getDrawable(this, R.drawable.play_circle_24px));
+                        btn_pause_play.setContentDescription("Pause game");
                     }
                 }
             } catch (Throwable ignored) {}
@@ -2976,46 +3057,19 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
     public void onDialogOpened() {
         mOpenDialogCount++;
         android.util.Log.d("DialogTracking", "Dialog opened. Count: " + mOpenDialogCount);
-        if (mOpenDialogCount == 1 && !mDrawerOpen) {
-            // First dialog opened and no drawer is open, pause the game
-            try {
-                if (hasSelectedGame() && isThread() && !NativeApp.isPaused()) {
-                    android.util.Log.d("DialogTracking", "Pausing game on dialog open");
-                    NativeApp.pause();
-                    updatePausePlayButton();
-                }
-            } catch (Throwable ignored) {}
-        }
+        applyRequestedPauseState("dialog opened");
     }
     
     public void onDialogClosed() {
         mOpenDialogCount = Math.max(0, mOpenDialogCount - 1);
-        android.util.Log.d("DialogTracking", "Dialog closed. Count: " + mOpenDialogCount + ", Drawer open: " + mDrawerOpen);
-        if (mOpenDialogCount == 0 && !mDrawerOpen) {
-            // All dialogs closed and no drawers open, resume the game with a small delay
-            // Delay prevents crashes when rapidly opening/closing dialogs
-            View root = findViewById(android.R.id.content);
-            if (root != null) {
-                root.postDelayed(() -> {
-                    try {
-                        if (hasSelectedGame() && isThread() && NativeApp.isPaused()) {
-                            android.util.Log.d("DialogTracking", "Resuming game on dialog close");
-                            NativeApp.resume();
-                            updatePausePlayButton();
-                        } else {
-                            android.util.Log.d("DialogTracking", "Not resuming - hasGame: " + hasSelectedGame() + ", isThread: " + isThread() + ", isPaused: " + (isThread() ? NativeApp.isPaused() : "N/A"));
-                        }
-                    } catch (Throwable e) {
-                        android.util.Log.e("DialogTracking", "Error resuming game: " + e.getMessage());
-                    }
-                }, 100); // Small delay to let dialog fully close
-            }
-        }
+        android.util.Log.d("DialogTracking", "Dialog closed. Count: " + mOpenDialogCount
+                + ", drawers: " + mOpenDrawerCount);
+        applyRequestedPauseStateDelayed("dialog closed");
     }
     
     public void onDrawerOpened() {
-        mDrawerOpen = true;
-        android.util.Log.d("DrawerTracking", "Drawer opened");
+        mOpenDrawerCount++;
+        android.util.Log.d("DrawerTracking", "Drawer opened. Count: " + mOpenDrawerCount);
         
         // Refresh drawer settings to reflect current state
         try {
@@ -3024,37 +3078,50 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
             android.util.Log.e("DrawerTracking", "Error refreshing drawer settings: " + e.getMessage());
         }
         
-        // Drawer opened, pause the game
-        try {
-            if (hasSelectedGame() && isThread() && !NativeApp.isPaused()) {
-                android.util.Log.d("DrawerTracking", "Pausing game on drawer open");
-                NativeApp.pause();
-                updatePausePlayButton();
-            }
-        } catch (Throwable ignored) {}
+        applyRequestedPauseState("drawer opened");
     }
     
     public void onDrawerClosed() {
-        mDrawerOpen = false;
-        android.util.Log.d("DrawerTracking", "Drawer closed. Dialog count: " + mOpenDialogCount);
-        if (mOpenDialogCount == 0 && !mDrawerOpen) {
-            // All dialogs closed and no drawers open, resume the game with a small delay
-            View root = findViewById(android.R.id.content);
-            if (root != null) {
-                root.postDelayed(() -> {
-                    try {
-                        if (hasSelectedGame() && isThread() && NativeApp.isPaused()) {
-                            android.util.Log.d("DrawerTracking", "Resuming game on drawer close");
-                            NativeApp.resume();
-                            updatePausePlayButton();
-                        } else {
-                            android.util.Log.d("DrawerTracking", "Not resuming - hasGame: " + hasSelectedGame() + ", isThread: " + isThread() + ", isPaused: " + (isThread() ? NativeApp.isPaused() : "N/A"));
-                        }
-                    } catch (Throwable e) {
-                        android.util.Log.e("DrawerTracking", "Error resuming game: " + e.getMessage());
-                    }
-                }, 100); // Small delay to let drawer fully close
+        mOpenDrawerCount = Math.max(0, mOpenDrawerCount - 1);
+        android.util.Log.d("DrawerTracking", "Drawer closed. Count: " + mOpenDrawerCount
+                + ", dialogs: " + mOpenDialogCount);
+        applyRequestedPauseStateDelayed("drawer closed");
+    }
+
+    private boolean isAutomaticPauseRequested() {
+        return mActivityPauseRequested || mOpenDialogCount > 0 || mOpenDrawerCount > 0;
+    }
+
+    private void applyRequestedPauseStateDelayed(String reason) {
+        View root = findViewById(android.R.id.content);
+        if (root == null) {
+            applyRequestedPauseState(reason);
+            return;
+        }
+        root.postDelayed(() -> applyRequestedPauseState(reason), 100);
+    }
+
+    private void applyRequestedPauseState(String reason) {
+        try {
+            if (!hasSelectedGame() || !isThread()) {
+                updatePausePlayButton();
+                return;
             }
+            boolean shouldPause = mUserPauseRequested || isAutomaticPauseRequested();
+            boolean isPaused = NativeApp.isPaused();
+            if (shouldPause != isPaused) {
+                android.util.Log.d("PauseState", reason + ": "
+                        + (shouldPause ? "pause" : "resume")
+                        + " user=" + mUserPauseRequested
+                        + " activity=" + mActivityPauseRequested
+                        + " dialogs=" + mOpenDialogCount
+                        + " drawers=" + mOpenDrawerCount);
+                if (shouldPause) NativeApp.pause();
+                else NativeApp.resume();
+            }
+            updatePausePlayButton();
+        } catch (Throwable error) {
+            android.util.Log.e("PauseState", "Unable to apply pause state", error);
         }
     }
 
@@ -3215,8 +3282,8 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
                             boolean isPaused = false;
                             try { isPaused = NativeApp.isPaused(); } catch (Throwable ignored) {}
                             
-                            Icon playPauseIcon = Icon.createWithResource(this, 
-                                isPaused ? R.drawable.play_circle_24px : R.drawable.pause_circle_24px);
+                            Icon playPauseIcon = Icon.createWithResource(
+                                    this, R.drawable.play_pause_24px);
                             RemoteAction playPauseAction = new RemoteAction(playPauseIcon, 
                                 isPaused ? "Resume" : "Pause", 
                                 isPaused ? "Resume Game" : "Pause Game", 
@@ -3244,6 +3311,10 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
         super.onPictureInPictureModeChanged(isInPictureInPictureMode, newConfig);
         
         if (isInPictureInPictureMode) {
+            // PiP is still visible playback, so it must not inherit the ordinary
+            // background-activity pause request.
+            mActivityPauseRequested = false;
+            applyRequestedPauseState("entered picture-in-picture");
             // Hide UI elements that are not needed in PiP mode
             hideUiForPiP();
         } else {
@@ -3339,8 +3410,8 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
                 PendingIntent playPausePendingIntent = PendingIntent.getBroadcast(
                     this, 0, playPauseIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
                 
-                Icon playPauseIcon = Icon.createWithResource(this, 
-                    isPaused ? R.drawable.play_circle_24px : R.drawable.pause_circle_24px);
+                Icon playPauseIcon = Icon.createWithResource(
+                        this, R.drawable.play_pause_24px);
                 RemoteAction playPauseAction = new RemoteAction(playPauseIcon, 
                     isPaused ? "Resume" : "Pause", 
                     isPaused ? "Resume Game" : "Pause Game", 
