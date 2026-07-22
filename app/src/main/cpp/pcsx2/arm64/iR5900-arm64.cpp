@@ -99,6 +99,7 @@ static DynamicHeapArray<BASEBLOCK, 4096> recLutReserve_RAM;
 static DynamicHeapArray<BASEBLOCK, 4096> recLutUnmapped;
 static DynamicHeapArray<u8> recRAMCopy;
 static size_t recLutEntries = 0;
+static bool extraRam;
 
 static ArmConstantPool s_eeConstantPool;
 
@@ -126,8 +127,8 @@ bool g_eeRecLastBlockFF = false;
 #endif
 
 // Self-modifying code detection
-static u16 manual_page[Ps2MemSize::MainRam / 4096] = {};
-static u8 manual_counter[Ps2MemSize::MainRam / 4096] = {};
+static u16 manual_page[Ps2MemSize::TotalRam / 4096] = {};
+static u8 manual_counter[Ps2MemSize::TotalRam / 4096] = {};
 
 // Forward declarations
 static void recRecompile(const u32 startpc);
@@ -1842,7 +1843,7 @@ static void memory_protect_recompiled_code(u32 startpc, u32 size)
 
 static void recReserveRAM()
 {
-	recLutEntries = (Ps2MemSize::MainRam + Ps2MemSize::Rom + Ps2MemSize::Rom1 + Ps2MemSize::Rom2) / 4;
+	recLutEntries = (Ps2MemSize::ExposedRam + Ps2MemSize::Rom + Ps2MemSize::Rom1 + Ps2MemSize::Rom2) / 4;
 
 	if (recLutReserve_RAM.size() != recLutEntries)
 		recLutReserve_RAM.resize(recLutEntries);
@@ -1851,7 +1852,7 @@ static void recReserveRAM()
 
 	BASEBLOCK* curpos = recLutReserve_RAM.data();
 	recRAM = curpos;
-	curpos += (Ps2MemSize::MainRam / 4);
+	curpos += (Ps2MemSize::ExposedRam / 4);
 	recROM = curpos;
 	curpos += (Ps2MemSize::Rom / 4);
 	recROM1 = curpos;
@@ -1859,8 +1860,8 @@ static void recReserveRAM()
 	recROM2 = curpos;
 	curpos += (Ps2MemSize::Rom2 / 4);
 
-	if (recRAMCopy.size() != Ps2MemSize::MainRam)
-		recRAMCopy.resize(Ps2MemSize::MainRam);
+	if (recRAMCopy.size() != Ps2MemSize::ExposedRam)
+		recRAMCopy.resize(Ps2MemSize::ExposedRam);
 }
 
 static void recReserve()
@@ -1886,6 +1887,12 @@ static void recResetRaw()
 {
 	Console.WriteLn(Color_Green, "iR5900-ARM64 Recompiler reset.");
 
+	if (CHECK_EXTRAMEM != extraRam)
+	{
+		recReserveRAM();
+		extraRam = !extraRam;
+	}
+
 	armSetAsmPtr(SysMemory::GetEERec(), SysMemory::GetEERecEnd() - SysMemory::GetEERec(), &s_eeConstantPool);
 	armStartBlock();
 	const u8* dispStart = armGetCurrentCodePointer();
@@ -1896,7 +1903,7 @@ static void recResetRaw()
 	Console.WriteLn(Color_Green, "EE ARM64: Dispatcher generated at %p (%zu bytes)", dispStart, (size_t)(dispEnd - dispStart));
 
 	iopClearRecLUT(recLutReserve_RAM.data(),
-		Ps2MemSize::MainRam + Ps2MemSize::Rom + Ps2MemSize::Rom1 + Ps2MemSize::Rom2);
+		Ps2MemSize::ExposedRam + Ps2MemSize::Rom + Ps2MemSize::Rom1 + Ps2MemSize::Rom2);
 
 	BASEBLOCK* unmapped = recLutUnmapped.data();
 
@@ -1906,18 +1913,17 @@ static void recResetRaw()
 	for (int i = 0; i < _64kb / 4; i++)
 		unmapped[i].SetFnptr((uptr)UnmappedRecLUTPage);
 
-	// Map EE RAM (32MB, mirrored)
-	for (int i = 0; i < 0x200; i++)
+	// Map all exposed EE RAM, including the System 256 expansion, and its mirrors.
+	for (int i = 0; i < static_cast<int>(Ps2MemSize::ExposedRam / _64kb); i++)
 	{
-		u32 mask = (Ps2MemSize::MainRam / _64kb) - 1;
-		recLUT_SetPage(recLUT, hwLUT, recRAM, 0x0000, i, i & mask);
-		recLUT_SetPage(recLUT, hwLUT, recRAM, 0x2000, i, i & mask);
-		recLUT_SetPage(recLUT, hwLUT, recRAM, 0x3000, i, i & mask);
-		recLUT_SetPage(recLUT, hwLUT, recRAM, 0x8000, i, i & mask);
-		recLUT_SetPage(recLUT, hwLUT, recRAM, 0xa000, i, i & mask);
-		recLUT_SetPage(recLUT, hwLUT, recRAM, 0xb000, i, i & mask);
-		recLUT_SetPage(recLUT, hwLUT, recRAM, 0xc000, i, i & mask);
-		recLUT_SetPage(recLUT, hwLUT, recRAM, 0xd000, i, i & mask);
+		recLUT_SetPage(recLUT, hwLUT, recRAM, 0x0000, i, i);
+		recLUT_SetPage(recLUT, hwLUT, recRAM, 0x2000, i, i);
+		recLUT_SetPage(recLUT, hwLUT, recRAM, 0x3000, i, i);
+		recLUT_SetPage(recLUT, hwLUT, recRAM, 0x8000, i, i);
+		recLUT_SetPage(recLUT, hwLUT, recRAM, 0xa000, i, i);
+		recLUT_SetPage(recLUT, hwLUT, recRAM, 0xb000, i, i);
+		recLUT_SetPage(recLUT, hwLUT, recRAM, 0xc000, i, i);
+		recLUT_SetPage(recLUT, hwLUT, recRAM, 0xd000, i, i);
 	}
 
 	// Map BIOS ROM
@@ -2708,7 +2714,7 @@ StartRecomp:
 	// disabled because it causes infinite recompilation loops — recRAMCopy starts zeroed
 	// but memory has real code, so the memcmp always fails. The inline CMP checks from
 	// memory_protect_recompiled_code are the primary SMC detection mechanism.
-	if (HWADDR(pc) <= Ps2MemSize::MainRam)
+	if (HWADDR(pc) <= Ps2MemSize::ExposedRam)
 	{
 		memcpy(&recRAMCopy[HWADDR(startpc) / 4], PSM(startpc), pc - startpc);
 	}
