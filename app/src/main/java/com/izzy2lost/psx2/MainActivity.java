@@ -451,7 +451,7 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
     }
 
     private static final String[] GAME_EXTS = new String[]{
-            ".iso", ".bin", ".img", ".mdf", ".nrg", ".chd", ".cso", ".zso", ".gz"
+            ".iso", ".bin", ".img", ".mdf", ".nrg", ".chd", ".cso", ".zso", ".gz", ".acgame"
     };
 
     private static boolean hasGameExt(String name) {
@@ -1262,9 +1262,24 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
     }
 
     private boolean ensureBiosOrPrompt() {
-        if (configureVerifiedBiosFiles()) return true;
+        BiosVerifier.ScanResult scan = BiosVerifier.scanVerifiedBioses(this);
+        boolean arcadeGame = m_szGamefile != null &&
+                m_szGamefile.toLowerCase(Locale.ROOT).endsWith(".acgame");
+        boolean hasRequiredBios = arcadeGame
+                ? scan.byRegion.containsKey(BiosVerifier.Region.ARCADE)
+                : scan.byRegion.containsKey(BiosVerifier.Region.USA) ||
+                  scan.byRegion.containsKey(BiosVerifier.Region.EUROPE) ||
+                  scan.byRegion.containsKey(BiosVerifier.Region.JAPAN);
+        if (hasRequiredBios) {
+            configureVerifiedBiosFiles();
+            return true;
+        }
+
         showBiosPrompt();
-        Toast.makeText(this, "Import a PS2 BIOS with a matching Redump hash to continue.", Toast.LENGTH_LONG).show();
+        Toast.makeText(this, arcadeGame
+                        ? "This game requires a COH-H arcade BIOS; a retail PS2 BIOS will not work."
+                        : "This game requires a verified retail PS2 BIOS.",
+                Toast.LENGTH_LONG).show();
         return false;
     }
 
@@ -1273,7 +1288,7 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
         boolean hasVerifiedBios = BiosVerifier.hasAnyVerifiedBios(this);
         String title = hasVerifiedBios ? "BIOS Files" : "BIOS Required";
         String message = (hasVerifiedBios ? BiosVerifier.describeVerifiedRegions(this) + ".\n\n" : "") +
-                "Import a USA, Europe, or Japan PS2 BIOS that matches the bundled Redump DAT hash. One verified BIOS is enough; importing all three lets PSX2 match game regions automatically.\n\nHint: Press Select+Start for Quick Actions.";
+                "Import a USA, Europe, or Japan PS2 BIOS matching the bundled Redump DAT, or a COH-H arcade BIOS for System 246/256 games.\n\nHint: Press Select+Start for Quick Actions.";
         mBiosPromptDialog = new com.google.android.material.dialog.MaterialAlertDialogBuilder(this,
                 com.google.android.material.R.style.ThemeOverlay_Material3_MaterialAlertDialog)
                 .setCustomTitle(UiUtils.centeredDialogTitle(this, title))
@@ -1314,15 +1329,18 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
         String usa = "";
         String europe = "";
         String japan = "";
+        String arcade = "";
         BiosVerifier.BiosInfo usaInfo = scan.byRegion.get(BiosVerifier.Region.USA);
         BiosVerifier.BiosInfo europeInfo = scan.byRegion.get(BiosVerifier.Region.EUROPE);
         BiosVerifier.BiosInfo japanInfo = scan.byRegion.get(BiosVerifier.Region.JAPAN);
+        BiosVerifier.BiosInfo arcadeInfo = scan.byRegion.get(BiosVerifier.Region.ARCADE);
         if (usaInfo != null) usa = usaInfo.relativePath;
         if (europeInfo != null) europe = europeInfo.relativePath;
         if (japanInfo != null) japan = japanInfo.relativePath;
+        if (arcadeInfo != null) arcade = arcadeInfo.relativePath;
 
         try {
-            NativeApp.setVerifiedBiosFiles(usa, europe, japan);
+            NativeApp.setVerifiedBiosFiles(usa, europe, japan, arcade);
         } catch (Throwable t) {
             android.util.Log.w("MainActivity", "Unable to pass verified BIOS list to native core", t);
         }
@@ -1613,7 +1631,7 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
 
             BiosVerifier.BiosInfo verifiedBios = BiosVerifier.verifyFile(this, biosDir, outFile);
             if (verifiedBios == null) {
-                android.util.Log.w("MainActivity", "Rejected BIOS file without matching DAT hash: " + displayName);
+                android.util.Log.w("MainActivity", "Rejected file without a recognized BIOS hash: " + displayName);
                 try { if (outFile.exists()) outFile.delete(); } catch (Exception ignored) {}
                 return null;
             }
@@ -1892,7 +1910,20 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
 
             Thread emulationThread = new Thread(() -> {
                 try {
-                    NativeApp.runVMThread(gameFile);
+                    final boolean started = NativeApp.runVMThread(gameFile);
+                    if (!started && !TextUtils.isEmpty(gameFile)) {
+                        final String startupError = NativeApp.getLastVMError();
+                        if (!TextUtils.isEmpty(startupError)) {
+                            runOnUiThread(() -> {
+                                if (isFinishing() || isDestroyed()) return;
+                                new MaterialAlertDialogBuilder(MainActivity.this)
+                                        .setTitle("Game failed to start")
+                                        .setMessage(startupError)
+                                        .setPositiveButton(android.R.string.ok, null)
+                                        .show();
+                            });
+                        }
+                    }
                 } finally {
                     synchronized (mEmulationThreadLock) {
                         if (mEmulationThread == Thread.currentThread()) {

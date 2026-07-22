@@ -61,6 +61,7 @@ namespace GameList
 	static bool GetIsoSerialAndCRC(const std::string& path, s32* disc_type, std::string* serial, u32* crc);
 	static Region ParseDatabaseRegion(const std::string_view db_region);
 	static bool GetElfListEntry(const std::string& path, GameList::Entry* entry);
+	static bool GetAcConfListEntry(const std::string& path, GameList::Entry* entry);
 	static bool GetIsoListEntry(const std::string& path, GameList::Entry* entry);
 
 	static bool GetGameListEntryFromCache(const std::string& path, GameList::Entry* entry);
@@ -101,6 +102,7 @@ const char* GameList::EntryTypeToString(EntryType type, bool translate)
 		TRANSLATE_NOOP("GameList", "PS2 Disc"),
 		TRANSLATE_NOOP("GameList", "PS1 Disc"),
 		TRANSLATE_NOOP("GameList", "ELF"),
+		TRANSLATE_NOOP("GameList", "Arcade"),
 		TRANSLATE_NOOP("GameList", "Invalid"),
 	};
 
@@ -144,6 +146,8 @@ const char* GameList::RegionToString(Region region, bool translate)
 		TRANSLATE_NOOP("GameList", "PAL-SW"),
 		TRANSLATE_NOOP("GameList", "PAL-SWI"),
 		TRANSLATE_NOOP("GameList", "PAL-UK"),
+		TRANSLATE_NOOP("GameList", "System246"),
+		TRANSLATE_NOOP("GameList", "System256"),
 	};
 
 	const char* name = names.at(static_cast<int>(region));
@@ -186,6 +190,8 @@ const char* GameList::RegionToFlagFilename(Region region)
 		"se",  // PAL-SW
 		"ch",  // PAL-SWI
 		"gb",  // PAL-UK
+		"246B", // SYSTEM246
+		"256", // SYSTEM256
 	};
 
 	return flag_names.at(static_cast<int>(region));
@@ -229,7 +235,9 @@ const char* GameList::EntryCompatibilityRatingToString(CompatibilityRating ratin
 
 bool GameList::IsScannableFilename(const std::string_view path)
 {
-	return VMManager::IsDiscFileName(path) || VMManager::IsElfFileName(path);
+	return VMManager::IsDiscFileName(path) ||
+		VMManager::IsElfFileName(path) ||
+		VMManager::isArcadeManifest(path);
 }
 
 void GameList::FillBootParametersForEntry(VMBootParameters* params, const Entry* entry)
@@ -246,6 +254,14 @@ void GameList::FillBootParametersForEntry(VMBootParameters* params, const Entry*
 		params->source_type = params->filename.empty() ? CDVD_SourceType::NoDisc : CDVD_SourceType::Iso;
 		params->elf_override = entry->path;
 	}
+	else if (entry->type == GameList::EntryType::ARCADE)
+	{
+		// Leave source_type unset so VMManager::AutoDetectSource() can parse the
+		// manifest and resolve its assets on both desktop paths and Android SAF URIs.
+		params->filename = entry->path;
+		params->source_type.reset();
+		params->elf_override.clear();
+	}
 	else
 	{
 		params->filename.clear();
@@ -259,12 +275,12 @@ bool GameList::GetIsoSerialAndCRC(const std::string& path, s32* disc_type, std::
 	// Add a static mutex to protect CDVD operations during scanning
 	static std::mutex cdvd_scan_mutex;
 	std::lock_guard<std::mutex> lock(cdvd_scan_mutex);
-	
+
 	Error error;
 
 	// Save the current CDVD state to restore it later (thread safety)
 	const CDVD_API* prev_cdvd = CDVD;
-	
+
 	// This isn't great, we really want to make it all thread-local...
 	CDVD = &CDVDapi_Iso;
 	if (!CDVD->open(path, &error))
@@ -284,6 +300,28 @@ bool GameList::GetIsoSerialAndCRC(const std::string& path, s32* disc_type, std::
 	
 	// Restore previous CDVD state
 	CDVD = prev_cdvd;
+	return true;
+}
+
+bool GameList::GetAcConfListEntry(const std::string& filename, GameList::Entry* entry)
+{
+	INISettingsInterface ini(filename);
+	if (!ini.Load())
+	{
+		Console.Error("Cannot read arcade game manifest '%s'", filename.c_str());
+		return false;
+	}
+
+	entry->path = filename;
+	entry->serial = ini.GetStringValue("game", "gameid");
+	const std::string platform = ini.GetStringValue("game", "platform", "246");
+	entry->region = (platform == "256" || platform == "super256") ? Region::SYSTEM256 : Region::SYSTEM246;
+	entry->type = EntryType::ARCADE;
+	entry->compatibility_rating = CompatibilityRating::Unknown;
+	entry->crc = 0;
+	entry->total_size = 0;
+	entry->title = ini.GetStringValue("game", "name", entry->serial.c_str());
+
 	return true;
 }
 
@@ -456,6 +494,8 @@ bool GameList::PopulateEntryFromPath(const std::string& path, GameList::Entry* e
 {
 	if (VMManager::IsElfFileName(path.c_str()))
 		return GetElfListEntry(path, entry);
+	else if (VMManager::isArcadeManifest(path.c_str()))
+		return GetAcConfListEntry(path, entry);
 	else
 		return GetIsoListEntry(path, entry);
 }

@@ -49,13 +49,16 @@ static std::mutex s_vm_start_mutex;
 // state to Shutdown before CPUThreadShutdown() has finished tearing down MTGS/
 // SysMemory, so a state check alone lets the next boot race the old teardown.
 static std::mutex s_vm_lifecycle_mutex;
+static std::mutex s_vm_error_mutex;
 static ANativeWindow* s_render_window = nullptr;
 static std::atomic_bool s_shutdown_requested{false};
+static std::string s_last_vm_error;
 static MemorySettingsInterface s_settings_interface;
 static int s_pending_renderer = -1; // -1 = none; else 12=OpenGL,13=SW,14=Vulkan
 static std::string s_verified_bios_usa;
 static std::string s_verified_bios_europe;
 static std::string s_verified_bios_japan;
+static std::string s_verified_bios_arcade;
 
 // Renderer values already match GSRendererType. OpenGL is linked on Android and
 // must not be silently rewritten to Vulkan.
@@ -82,6 +85,12 @@ static std::string GetGameSerialForPath(const std::string& game_path)
 {
     if (game_path.empty())
         return {};
+
+    if (VMManager::isArcadeManifest(game_path))
+    {
+        INISettingsInterface manifest(game_path);
+        return manifest.Load() ? manifest.GetStringValue("game", "gameid", "") : std::string();
+    }
 
     // Determine serial via CDVD using the same path the core will open
     Error error;
@@ -214,8 +223,17 @@ static const std::string& FirstVerifiedBios()
     return s_verified_bios_japan;
 }
 
-static void SelectVerifiedBiosForSerial(const std::string& serial)
+static void SelectVerifiedBiosForSerial(const std::string& serial, bool arcade)
 {
+    if (arcade)
+    {
+        s_settings_interface.SetStringValue("Filenames", "BIOS", s_verified_bios_arcade.c_str());
+        EmuConfig.BaseFilenames.Bios = s_verified_bios_arcade;
+        if (!s_verified_bios_arcade.empty())
+            Console.WriteLn("Selected verified COH-H arcade BIOS '%s'", s_verified_bios_arcade.c_str());
+        return;
+    }
+
     const VerifiedBiosRegion region = GetBiosRegionForSerial(serial);
     const std::string* selected = nullptr;
 
@@ -1277,6 +1295,36 @@ std::string ResolveSafPathUriJNI(const char* relative_path, bool create)
     return out;
 }
 
+std::string ResolveArcadeAssetUriJNI(const char* manifest_uri, const char* relative_path)
+{
+    JNIEnv* env = reinterpret_cast<JNIEnv*>(SDL_GetAndroidJNIEnv());
+    if (!env)
+        return {};
+    jclass cls = GetNativeAppClass(env);
+    if (!cls)
+        return {};
+    jmethodID mid = env->GetStaticMethodID(cls, "resolveArcadeAssetUri",
+        "(Ljava/lang/String;Ljava/lang/String;)Ljava/lang/String;");
+    if (!mid)
+        return {};
+
+    jstring jmanifest = env->NewStringUTF(manifest_uri);
+    jstring jrelative = env->NewStringUTF(relative_path);
+    jstring jresult = static_cast<jstring>(
+        env->CallStaticObjectMethod(cls, mid, jmanifest, jrelative));
+    env->DeleteLocalRef(jmanifest);
+    env->DeleteLocalRef(jrelative);
+    if (!jresult)
+        return {};
+
+    const char* chars = env->GetStringUTFChars(jresult, nullptr);
+    std::string result = chars ? chars : "";
+    if (chars)
+        env->ReleaseStringUTFChars(jresult, chars);
+    env->DeleteLocalRef(jresult);
+    return result;
+}
+
 std::vector<std::string> SafListRecursiveFilesJNI(const char* relative_dir)
 {
     std::vector<std::string> out;
@@ -1384,6 +1432,15 @@ extern "C"
 JNIEXPORT void JNICALL
 Java_com_izzy2lost_psx2_NativeApp_prepareVMStart(JNIEnv *env, jclass clazz) {
     s_shutdown_requested.store(false, std::memory_order_release);
+    std::lock_guard error_lock(s_vm_error_mutex);
+    s_last_vm_error.clear();
+}
+
+extern "C"
+JNIEXPORT jstring JNICALL
+Java_com_izzy2lost_psx2_NativeApp_getLastVMError(JNIEnv *env, jclass clazz) {
+    std::lock_guard error_lock(s_vm_error_mutex);
+    return env->NewStringUTF(s_last_vm_error.c_str());
 }
 
 extern "C"
@@ -1391,10 +1448,12 @@ JNIEXPORT void JNICALL
 Java_com_izzy2lost_psx2_NativeApp_setVerifiedBiosFiles(JNIEnv *env, jclass clazz,
                                                        jstring p_usa_bios,
                                                        jstring p_europe_bios,
-                                                       jstring p_japan_bios) {
+                                                       jstring p_japan_bios,
+                                                       jstring p_arcade_bios) {
     s_verified_bios_usa = GetJavaString(env, p_usa_bios);
     s_verified_bios_europe = GetJavaString(env, p_europe_bios);
     s_verified_bios_japan = GetJavaString(env, p_japan_bios);
+    s_verified_bios_arcade = GetJavaString(env, p_arcade_bios);
 }
 
 extern "C"
@@ -1456,7 +1515,7 @@ Java_com_izzy2lost_psx2_NativeApp_runVMThread(JNIEnv *env, jclass clazz,
 
     // Detect the disc serial before VM startup so settings and BIOS region can follow the game.
     const std::string game_serial = GetGameSerialForPath(_szPath);
-    SelectVerifiedBiosForSerial(game_serial);
+    SelectVerifiedBiosForSerial(game_serial, VMManager::isArcadeManifest(_szPath));
 
     // Apply per-game settings (if any) before applying core settings
     ApplyPerGameSettingsForSerial(game_serial);
@@ -1494,8 +1553,15 @@ Java_com_izzy2lost_psx2_NativeApp_runVMThread(JNIEnv *env, jclass clazz,
         return false;
     }
 
+    Error startup_error;
     const bool initialized =
-        (VMManager::Initialize(boot_params) == VMBootResult::StartupSuccess);
+        (VMManager::Initialize(boot_params, &startup_error) == VMBootResult::StartupSuccess);
+    if (!initialized && startup_error.IsValid())
+    {
+        Console.ErrorFmt("VM startup failed: {}", startup_error.GetDescription());
+        std::lock_guard error_lock(s_vm_error_mutex);
+        s_last_vm_error = startup_error.GetDescription();
+    }
     vm_start_lock.unlock();
 
     if (initialized)

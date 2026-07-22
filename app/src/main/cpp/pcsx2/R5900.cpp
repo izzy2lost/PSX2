@@ -21,6 +21,7 @@
 #include "Patch.h"
 #include "GameDatabase.h"
 #include "GSDumpReplayer.h"
+#include "DEV9/ACJV.h"
 
 #include "DebugTools/Breakpoints.h"
 #include "DebugTools/MIPSAnalyst.h"
@@ -306,6 +307,7 @@ static __fi bool _cpuTestInterrupts()
 		TESTINT(VU_MTVU_BUSY, MTVUInterrupt);
 		TESTINT(DMAC_VIF1, vif1Interrupt);
 		TESTINT(DMAC_GIF, gifInterrupt);
+		TESTINT(DMAC_GIF_UNIT, Gif_FinishIRQEvent);
 		TESTINT(DMAC_SIF0, EEsif0Interrupt);
 		TESTINT(DMAC_SIF1, EEsif1Interrupt);
 		// Profile-guided Optimization (sorta)
@@ -646,7 +648,9 @@ void eeloadHook()
 #endif
 		if (argc > 1)
 			elfname = (char*)PSM(memRead32(cpuRegs.GPR.n.a1.UD[0] + 4)); // argv[1] in OSDSYS's invocation "EELOAD <game ELF>"
-
+		if (elfname.substr(0, 4) == "ac0:") {
+			Console.WriteLn("ACLOAD detected: running '%s'", elfname.c_str());
+		}
 		// This code fires if the user chooses "full boot". First the Sony Computer Entertainment screen appears. This is the result
 		// of an EELOAD call that does not want to accept launch arguments (but we patch it to do so in eeloadHook2() in fast boot
 		// mode). Then EELOAD is called with the argument "rom0:PS2LOGO". At this point, we do not need any additional tricks
@@ -669,6 +673,7 @@ void eeloadHook()
 			}
 			strcpy((char *)PSM(arg_ptr + arg_len + 1), EmuConfig.CurrentGameArgs.c_str());
 			u32 first_arg_ptr = memRead32(cpuRegs.GPR.n.a1.UD[0]);
+
 #if DEBUG_LAUNCHARG
 			Console.WriteLn("eeloadHook: arg block is '%s'.", (char *)PSM(first_arg_ptr));
 #endif
@@ -727,13 +732,17 @@ void eeloadHook()
 		if (!elfname.empty())
 		{
 			// Find and save location of default/fallback call "rom0:OSDSYS"; to be used later by eeloadHook2()
-			for (g_osdsys_str = EELOAD_START; g_osdsys_str < EELOAD_START + EELOAD_SIZE; g_osdsys_str += 8) // strings are 64-bit aligned
+			const bool arcade_boot = !ACJV::GetGameId().empty();
+			g_osdsys_str = 0;
+			for (u32 scan = EELOAD_START; scan < EELOAD_START + EELOAD_SIZE; scan += 8) // strings are 64-bit aligned
 			{
-				if (!strcmp((char*)PSM(g_osdsys_str), "rom0:OSDSYS"))
+				if (!strcmp((char*)PSM(scan), "rom0:OSDSYS"))
 				{
-					// Overwrite OSDSYS with game's ELF name
-					strcpy((char*)PSM(g_osdsys_str), elfname.c_str());
-					break;
+					// Overwrite OSDSYS with game's ELF path; launch args are injected later by eeloadHook2()
+					strcpy((char*)PSM(scan), elfname.c_str());
+					g_osdsys_str = scan;
+					if (!arcade_boot)
+						break;
 				}
 			}
 		}

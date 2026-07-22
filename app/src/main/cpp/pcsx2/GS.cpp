@@ -7,6 +7,7 @@
 #include "Gif_Unit.h"
 #include "MTGS.h"
 #include "VMManager.h"
+#include "DEV9/ACJV.h"
 
 #include <list>
 
@@ -74,7 +75,10 @@ static __fi void gsCSRwrite( const tGS_CSR& csr )
 	if (csr.FINISH)	{
 		CSRreg.FINISH = false;
 		gifUnit.gsFINISH.gsFINISHFired = false; //Clear the previously fired FINISH (YS, Indiecar 2005, MGS3)
-		gifUnit.gsFINISH.gsFINISHPending = false;
+		// Arcade boards need the queued FINISH to survive a CSR acknowledgement until
+		// their delayed GS->EE readback completes. Retail games keep PCSX2's original behavior.
+		if (ACJV::GetGameId().empty())
+			gifUnit.gsFINISH.gsFINISHPending = false;
 	}
 	if(csr.HSINT)	CSRreg.HSINT	= false;
 	if(csr.VSINT)	CSRreg.VSINT	= false;
@@ -340,4 +344,3 @@ bool SaveStateBase::gsFreeze()
 	Freeze(gsVideoMode);
 	return IsOkay();
 }
-

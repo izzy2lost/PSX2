@@ -22,6 +22,7 @@ PSX2 is an Android port of the renowned [PCSX2](https://github.com/PCSX2/pcsx2) 
 - **High Compatibility** - Play thousands of PlayStation 2 games
 - **Enhanced Graphics** - Upscaling, texture filtering, and modern rendering
 - **Multiple Formats** - Support for ISO, CHD, CSO, ZSO, and compressed formats
+- **Namco Arcade Hardware** - System 246, System 256, and Super System 256 manifests via `.acgame`
 - **Touch Controls** - Intuitive on-screen gamepad with customizable layout
 - **External Controllers** - Full support for Bluetooth and USB gamepads
 - **Save States** - Quick save and load functionality
@@ -114,6 +115,8 @@ PSX2 requires PlayStation 2 BIOS files to function:
 - **Required**: PS2 BIOS files (not included)
 - **Location**: Follow the setup wizard to import BIOS
 - **Supported**: All official PS2 BIOS versions
+- **Arcade**: System 246/256 games require a COH-H arcade BIOS; a retail PS2 BIOS cannot replace it
+- **Recognized arcade chip dumps**: System 246 `r27v1602f.7d` (SHA-1 `f0a74bbcaf801f3fd0b7002ebd0118564aae3528`) and System 256 `r27v1602f.8g` (SHA-1 `bc4fb4e1e53adbd92385f1726bd69663ff870f1e`)
 - **Legal**: You must own a PlayStation 2 console to legally use BIOS files
 
 ### 2. Game Files
@@ -125,8 +128,17 @@ Supported game formats:
 - **CSO/ZSO** - Compressed ISO formats
 - **BIN/CUE** - Binary disc images
 - **IMG/MDF/NRG** - Various disc formats
+- **ACGAME** - Namco System 246/256 arcade game manifests
 
-### 3. First Launch
+### 3. Arcade Games
+
+Arcade support is based on [PS2Homebrew-arcade/pcsx2x6](https://github.com/PS2Homebrew-arcade/pcsx2x6). Import a COH-H BIOS through the normal BIOS picker, then place each `.acgame` manifest with the ELF, media image, dongle, and optional memory-card files it names. Relative paths and the manifest's `subdir` are resolved inside the same Android Storage Access Framework game folder.
+
+Add that folder to the game library and launch the `.acgame` entry. The manifest selects System 246, System 256, or Super System 256 timing, its JVS layout, media type, persistent SRAM, memory cards, and lightguns. See the upstream [game configuration reference](https://ps2homebrew-arcade.github.io/pcsx2x6/game_config/) for the manifest fields and [arcade BIOS guide](https://ps2homebrew-arcade.github.io/pcsx2x6/getting_a_bios/) for supported hardware.
+
+Normal touch controls and external controllers are mirrored to JVS. Press **L3** to insert a coin and **R3** to toggle the test switch. GunCon trigger/start/select are forwarded as trigger/start/coin, with **A** used for the foot pedal where the game has one.
+
+### 4. First Launch
 
 1. Run PSX2 and complete the setup wizard
 2. Pick your data/user folder

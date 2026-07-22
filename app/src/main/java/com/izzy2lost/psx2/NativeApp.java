@@ -4,6 +4,7 @@ import android.content.ContentResolver;
 import android.content.Context;
 import android.net.Uri;
 import android.os.ParcelFileDescriptor;
+import android.provider.DocumentsContract;
 import android.view.Surface;
 import java.io.File;
 import java.lang.ref.WeakReference;
@@ -343,7 +344,9 @@ public class NativeApp {
 
     public static native boolean runVMThread(String path);
     public static native void prepareVMStart();
-    public static native void setVerifiedBiosFiles(String usaBios, String europeBios, String japanBios);
+    public static native String getLastVMError();
+    public static native void setVerifiedBiosFiles(String usaBios, String europeBios,
+                                                   String japanBios, String arcadeBios);
     public static native boolean isVMActive();
 
 	public static native void pause();
@@ -435,6 +438,45 @@ public class NativeApp {
             }
             return (df != null) ? df.getUri().toString() : null;
         } catch (Throwable ignored) { }
+        return null;
+    }
+
+    // Resolve a file named by an .acgame manifest relative to that manifest.
+    // Game folders are opened through ACTION_OPEN_DOCUMENT_TREE, so document IDs
+    // retain the relative path even though native code only sees content:// URIs.
+    public static String resolveArcadeAssetUri(String manifestUri, String relativePath) {
+        Context context = getContext();
+        if (context == null || manifestUri == null || relativePath == null) return null;
+        try {
+            Uri manifest = Uri.parse(manifestUri);
+            String documentId = DocumentsContract.getDocumentId(manifest);
+            int slash = documentId.lastIndexOf('/');
+            String targetId = (slash >= 0) ? documentId.substring(0, slash) : documentId;
+
+            for (String part : relativePath.replace('\\', '/').split("/")) {
+                if (part.isEmpty() || ".".equals(part)) continue;
+                if ("..".equals(part)) {
+                    int parentSlash = targetId.lastIndexOf('/');
+                    if (parentSlash >= 0) targetId = targetId.substring(0, parentSlash);
+                    continue;
+                }
+                targetId += "/" + part;
+            }
+
+            Uri target;
+            try {
+                target = DocumentsContract.buildDocumentUriUsingTree(manifest, targetId);
+            } catch (IllegalArgumentException ignored) {
+                target = DocumentsContract.buildDocumentUri(manifest.getAuthority(), targetId);
+            }
+
+            try (ParcelFileDescriptor ignored =
+                         context.getContentResolver().openFileDescriptor(target, "r")) {
+                return target.toString();
+            }
+        } catch (Throwable t) {
+            android.util.Log.w("NativeApp", "Unable to resolve arcade asset " + relativePath, t);
+        }
         return null;
     }
 

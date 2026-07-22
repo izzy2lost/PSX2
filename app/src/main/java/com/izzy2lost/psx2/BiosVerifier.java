@@ -30,6 +30,14 @@ public final class BiosVerifier {
     private static final Pattern ROM_PATTERN = Pattern.compile(
             "\\bname\\s+([^\\s)]+).*\\bsize\\s+(\\d+).*\\bcrc\\s+([0-9a-fA-F]{8}).*" +
                     "\\bmd5\\s+([0-9a-fA-F]{32}).*\\bsha1\\s+([0-9a-fA-F]{40})");
+    private static final Pattern COH_ROMVER_PATTERN = Pattern.compile("\\d{4}TZ\\d{8}");
+
+    // MAME-documented chip dumps are 2 MiB, unlike normal 4 MiB retail PS2 BIOS dumps.
+    // Keep these exact so lowering the size requirement cannot admit an unrelated ROM.
+    private static final String SYSTEM_246_BIOS_SHA1 =
+            "f0a74bbcaf801f3fd0b7002ebd0118564aae3528";
+    private static final String SYSTEM_256_BIOS_SHA1 =
+            "bc4fb4e1e53adbd92385f1726bd69663ff870f1e";
 
     private static final Object LOCK = new Object();
     private static Map<String, HashEntry> sEntriesBySha1;
@@ -38,7 +46,8 @@ public final class BiosVerifier {
     public enum Region {
         USA("USA"),
         EUROPE("Europe"),
-        JAPAN("Japan");
+        JAPAN("Japan"),
+        ARCADE("COH-H Arcade");
 
         public final String label;
 
@@ -134,6 +143,10 @@ public final class BiosVerifier {
         try {
             String sha1 = sha1(file);
             HashEntry entry = getEntriesBySha1(context).get(sha1);
+            if (entry == null && isCohArcadeBios(file)) {
+                entry = new HashEntry(file.getName(), "Sony COH-H arcade BIOS",
+                        file.length(), "", "", sha1, Region.ARCADE);
+            }
             if (entry != null && entry.size == file.length()) {
                 info = new BiosInfo(file, relativePath(biosDir, file), entry);
             }
@@ -156,7 +169,7 @@ public final class BiosVerifier {
             if (scan.byRegion.containsKey(region)) labels.add(region.label);
         }
         if (labels.size() == 1) return labels.get(0) + " verified";
-        if (labels.size() == 3) return "USA, Europe, Japan verified";
+        if (labels.size() == Region.values().length) return "USA, Europe, Japan, COH-H Arcade verified";
         return TextUtils.join(", ", labels) + " verified";
     }
 
@@ -175,7 +188,11 @@ public final class BiosVerifier {
             if (info != null) {
                 result.all.add(info);
                 BiosInfo current = result.byRegion.get(info.region);
-                if (current == null || info.file.lastModified() > current.file.lastModified()) {
+                int priority = selectionPriority(info);
+                int currentPriority = selectionPriority(current);
+                if (current == null || priority > currentPriority ||
+                        (priority == currentPriority &&
+                                info.file.lastModified() > current.file.lastModified())) {
                     result.byRegion.put(info.region, info);
                 }
             }
@@ -222,6 +239,15 @@ public final class BiosVerifier {
             }
         }
 
+        parsed.put(SYSTEM_246_BIOS_SHA1, new HashEntry(
+                "r27v1602f.7d", "Namco System 246 COH-H arcade BIOS", 2L * 1024 * 1024,
+                "2b2e41a2", "52cca0058626569c7a9699838baab2d8",
+                SYSTEM_246_BIOS_SHA1, Region.ARCADE));
+        parsed.put(SYSTEM_256_BIOS_SHA1, new HashEntry(
+                "r27v1602f.8g", "Namco System 256 COH-H arcade BIOS", 2L * 1024 * 1024,
+                "b2a8eeb6", "a58676c6bd79229bda967d07b4ec2e16",
+                SYSTEM_256_BIOS_SHA1, Region.ARCADE));
+
         synchronized (LOCK) {
             sEntriesBySha1 = parsed;
             return sEntriesBySha1;
@@ -263,6 +289,31 @@ public final class BiosVerifier {
             }
         }
         return hex(digest.digest());
+    }
+
+    private static boolean isCohArcadeBios(File file) throws Exception {
+        if (file.length() < 4L * 1024 * 1024 || file.length() > 8L * 1024 * 1024)
+            return false;
+
+        String carry = "";
+        byte[] buffer = new byte[8192];
+        try (InputStream in = new FileInputStream(file)) {
+            int read;
+            while ((read = in.read(buffer)) != -1) {
+                String text = carry + new String(buffer, 0, read, StandardCharsets.ISO_8859_1);
+                if (COH_ROMVER_PATTERN.matcher(text).find())
+                    return true;
+                carry = text.substring(Math.max(0, text.length() - 32));
+            }
+        }
+        return false;
+    }
+
+    private static int selectionPriority(BiosInfo info) {
+        if (info == null || info.region != Region.ARCADE) return 0;
+        if (SYSTEM_256_BIOS_SHA1.equals(info.sha1)) return 2;
+        if (SYSTEM_246_BIOS_SHA1.equals(info.sha1)) return 1;
+        return 0;
     }
 
     private static String hex(byte[] bytes) {

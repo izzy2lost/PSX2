@@ -6,8 +6,12 @@
 #include "common/Pcsx2Defs.h"
 
 static const u32 BIAS = 2;				// Bus is half of the actual ps2 speed
-static const u32 PS2CLK = 294912000;	//Hz	/* 294.912 MHz */
-extern u32 PSXCLK;	/* 36.864 MHz */
+// EE bus clock: S246 runs at console speed, S256 at 4/3, Super S256 at 3/2
+static const u32 PS2CLK_DEFAULT = 294912000;	//hz	/* 294.912 mhz — PS2 console / S246 */
+static const u32 PS2CLK_S256    = 393216000;	//hz	/* 393.216 mhz — S256 (294.912 * 4/3) */
+static const u32 PS2CLK_SS256   = 442368000;	//hz	/* 442.368 mhz — Super S256 (294.912 * 3/2) */
+extern u32 PS2CLK;
+extern u32 PSXCLK;	/* 36.864 Mhz (S246), 49.152 (S256), 55.296 (SS256) */
 
 
 #include "Memory.h"
