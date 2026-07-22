@@ -469,18 +469,53 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
         GameList(String[] n, String[] u) { names = n; uris = u; }
     }
 
+    private static class ScannedGame {
+        String name;
+        final String uri;
+        final boolean arcadeManifest;
+
+        ScannedGame(String name, String uri) {
+            this.name = name;
+            this.uri = uri;
+            this.arcadeManifest = ArcadeGameManifest.isManifest(name);
+        }
+    }
+
     private GameList scanConfiguredGameFolders() {
-        java.util.ArrayList<String> nameList = new java.util.ArrayList<>();
-        java.util.ArrayList<String> uriList = new java.util.ArrayList<>();
+        java.util.ArrayList<ScannedGame> scannedGames = new java.util.ArrayList<>();
         java.util.HashSet<String> seenUris = new java.util.HashSet<>();
         SharedPreferences prefs = getSharedPreferences("app_prefs", MODE_PRIVATE);
         for (String folderUri : getGameFolderUris(prefs)) {
             try {
                 DocumentFile dir = DocumentFile.fromTreeUri(this, Uri.parse(folderUri));
                 if (dir != null && dir.isDirectory()) {
-                    scanGamesRecursive(dir, nameList, uriList, seenUris);
+                    scanGamesRecursive(dir, scannedGames, seenUris);
                 }
             } catch (Throwable ignored) {}
+        }
+
+        // An .acgame manifest is the launchable arcade entry. Hide only the exact media file
+        // referenced by that manifest; unrelated CHDs and other disc images remain visible.
+        java.util.HashSet<String> manifestMediaUris = new java.util.HashSet<>();
+        for (ScannedGame game : scannedGames) {
+            if (!game.arcadeManifest) continue;
+            ArcadeGameManifest.Metadata metadata = ArcadeGameManifest.read(this, game.uri);
+            if (!ArcadeGameManifest.isBlank(metadata.title)) game.name = metadata.title.trim();
+            String mediaUriKey = ArcadeGameManifest.resolveMediaUriKey(game.uri, metadata);
+            if (!TextUtils.isEmpty(mediaUriKey)) {
+                manifestMediaUris.add(mediaUriKey);
+            }
+        }
+
+        java.util.ArrayList<String> nameList = new java.util.ArrayList<>();
+        java.util.ArrayList<String> uriList = new java.util.ArrayList<>();
+        for (ScannedGame game : scannedGames) {
+            if (!game.arcadeManifest &&
+                    manifestMediaUris.contains(ArcadeGameManifest.uriKey(game.uri))) {
+                continue;
+            }
+            nameList.add(game.name);
+            uriList.add(game.uri);
         }
 
         // Persist the latest merged list for components which need a cached snapshot.
@@ -525,20 +560,19 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
         editor.apply();
     }
 
-    private void scanGamesRecursive(DocumentFile dir, java.util.List<String> names,
-                                    java.util.List<String> uris, java.util.Set<String> seenUris) {
+    private void scanGamesRecursive(DocumentFile dir, java.util.List<ScannedGame> games,
+                                    java.util.Set<String> seenUris) {
         DocumentFile[] children = dir.listFiles();
         if (children == null) return;
         for (DocumentFile child : children) {
             if (child == null) continue;
             if (child.isDirectory()) {
-                scanGamesRecursive(child, names, uris, seenUris);
+                scanGamesRecursive(child, games, seenUris);
             } else if (child.isFile()) {
                 String name = child.getName();
                 String uri = child.getUri().toString();
                 if (hasGameExt(name) && seenUris.add(uri)) {
-                    names.add(name);
-                    uris.add(uri);
+                    games.add(new ScannedGame(name, uri));
                 }
             }
         }

@@ -37,6 +37,16 @@ public final class TitleResolver {
 
     public static String resolveTitleForUri(Context ctx, String uriString, String fallback) {
         try {
+            // Arcade manifests carry their authoritative display title directly.
+            if (ArcadeGameManifest.isManifest(uriString)) {
+                ArcadeGameManifest.Metadata metadata = ArcadeGameManifest.read(ctx, uriString);
+                if (!ArcadeGameManifest.isBlank(metadata.title)) {
+                    String title = metadata.title.trim();
+                    putCachedTitle(ctx, uriString, title);
+                    return title;
+                }
+            }
+
             // 1) Check per-URI cache
             String cached = getCachedTitle(ctx, uriString);
             if (cached != null && !cached.isEmpty()) return cached;
