@@ -576,6 +576,18 @@ static GenericInputBinding GetDualShockGenericBinding(u32 bind)
 	}
 }
 
+static GenericInputBinding GetArcadeDPadFallback(GenericInputBinding binding)
+{
+	switch (binding)
+	{
+		case GenericInputBinding::LeftStickUp: return GenericInputBinding::DPadUp;
+		case GenericInputBinding::LeftStickRight: return GenericInputBinding::DPadRight;
+		case GenericInputBinding::LeftStickDown: return GenericInputBinding::DPadDown;
+		case GenericInputBinding::LeftStickLeft: return GenericInputBinding::DPadLeft;
+		default: return GenericInputBinding::Unknown;
+	}
+}
+
 static void MirrorControllerStateToJVS(u32 controller, u32 bind, float value)
 {
 	if (controller >= 2 || ACJV::GetGameId().empty())
@@ -584,6 +596,14 @@ static void MirrorControllerStateToJVS(u32 controller, u32 bind, float value)
 	const GenericInputBinding generic = GetDualShockGenericBinding(bind);
 	if (generic == GenericInputBinding::Unknown)
 		return;
+
+	// Most standard/fighting JVS cabinets expose a digital lever. Mirror the
+	// left stick to those direction bits as a compatibility fallback while
+	// retaining the real analog path for driving, gun, drum and touch hardware.
+	const JVS_MODE mode = ACJV::GetMode();
+	const GenericInputBinding dpad_fallback =
+		(mode == JVS_MODE::DEFAULT || mode == JVS_MODE::FIGHTING || mode == JVS_MODE::STANDARD) ?
+			GetArcadeDPadFallback(generic) : GenericInputBinding::Unknown;
 
 	static std::array<bool, 2> coin_down = {};
 	static std::array<bool, 2> test_down = {};
@@ -627,7 +647,8 @@ static void MirrorControllerStateToJVS(u32 controller, u32 bind, float value)
 			binding.generic_mapping == GenericInputBinding::DPadLeft ||
 			binding.generic_mapping == GenericInputBinding::Start ||
 			binding.generic_mapping == GenericInputBinding::Select;
-		if ((system_control || layout.empty()) && binding.generic_mapping == generic)
+		if ((system_control || layout.empty()) &&
+			(binding.generic_mapping == generic || binding.generic_mapping == dpad_fallback))
 			ACJV::SetButtonState(controller, binding.bind_index, pressed);
 	}
 	mirror_buttons(layout);

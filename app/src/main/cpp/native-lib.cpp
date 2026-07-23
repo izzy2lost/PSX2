@@ -26,11 +26,14 @@
 #include "Host.h"
 #include "ImGui/FullscreenUI.h"
 #include "SIO/Pad/PadDualshock2.h"
+#include "DEV9/ACJV.h"
+#include "USB/USB.h"
 #include "MTGS.h"
 #include "SDL3/SDL.h"
 #include <atomic>
 #include <algorithm>
 #include <cctype>
+#include <deque>
 #include <future>
 #include <mutex>
 #ifdef __ANDROID__
@@ -59,6 +62,40 @@ static std::string s_verified_bios_usa;
 static std::string s_verified_bios_europe;
 static std::string s_verified_bios_japan;
 static std::string s_verified_bios_arcade;
+
+struct TouchscreenPointerUpdate
+{
+    float x;
+    float y;
+    bool pressed;
+};
+
+static std::mutex s_touchscreen_pointer_mutex;
+static std::deque<TouchscreenPointerUpdate> s_touchscreen_pointer_updates;
+
+static void QueueTouchscreenPointerUpdate(float x, float y, bool pressed)
+{
+    std::lock_guard lock(s_touchscreen_pointer_mutex);
+
+    // MOVE events can arrive faster than the emulated input poll. Keep the
+    // newest coordinates for the current state, but never discard a press or
+    // release edge.
+    if (!s_touchscreen_pointer_updates.empty() &&
+        s_touchscreen_pointer_updates.back().pressed == pressed)
+    {
+        s_touchscreen_pointer_updates.back() = {x, y, pressed};
+    }
+    else
+    {
+        s_touchscreen_pointer_updates.push_back({x, y, pressed});
+    }
+}
+
+static void ClearTouchscreenPointerUpdates()
+{
+    std::lock_guard lock(s_touchscreen_pointer_mutex);
+    s_touchscreen_pointer_updates.clear();
+}
 
 // Renderer values already match GSRendererType. OpenGL is linked on Android and
 // must not be silently rewritten to Vulkan.
@@ -580,6 +617,22 @@ Java_com_izzy2lost_psx2_NativeApp_setPadButton(JNIEnv *env, jclass clazz,
         value = std::clamp(static_cast<float>(p_range) / denom, 0.0f, 1.0f);
     }
     Pad::SetControllerState(0, static_cast<u32>(_key), value);
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_izzy2lost_psx2_NativeApp_updateTouchscreenPointer(JNIEnv*, jclass,
+                                                            jfloat x, jfloat y,
+                                                            jboolean pressed) {
+    const JVS_MODE mode = ACJV::GetMode();
+    if (ACJV::GetGameId().empty() || (mode != JVS_MODE::LIGHTGUN && mode != JVS_MODE::TOUCH))
+        return JNI_FALSE;
+
+    // The Android UI thread must not mutate InputManager, ImGui or USB device
+    // state while the CPU/GS threads are polling and rendering. The queue is
+    // drained by Host::PumpMessagesOnCPUThread() at the next input poll.
+    QueueTouchscreenPointerUpdate(x, y, pressed == JNI_TRUE);
+
+    return JNI_TRUE;
 }
 
 extern "C" JNIEXPORT void JNICALL
@@ -1248,6 +1301,45 @@ void Host::OnGameChanged(const std::string& title, const std::string& elf_overri
 }
 
 void Host::PumpMessagesOnCPUThread() {
+    std::deque<TouchscreenPointerUpdate> updates;
+    {
+        std::lock_guard lock(s_touchscreen_pointer_mutex);
+        updates.swap(s_touchscreen_pointer_updates);
+    }
+
+    const JVS_MODE mode = ACJV::GetMode();
+    if (ACJV::GetGameId().empty() || (mode != JVS_MODE::LIGHTGUN && mode != JVS_MODE::TOUCH))
+        return;
+
+    // Arcade light-gun manifests attach GunCon2 on USB1. Its trigger binding
+    // also forwards the correct per-game trigger bit to the JVS board.
+    static constexpr u32 GUNCON2_TRIGGER_BIND = 13;
+    for (const TouchscreenPointerUpdate& update : updates)
+    {
+        // Android sends coordinates normalized to its SurfaceView. Convert to
+        // the current native presentation size here so display-resolution and
+        // orientation changes cannot offset the gun aim.
+        const float window_x = update.x * static_cast<float>(ImGuiManager::GetWindowWidth());
+        const float window_y = update.y * static_cast<float>(ImGuiManager::GetWindowHeight());
+        InputManager::UpdatePointerAbsolutePosition(0, window_x, window_y);
+        InputManager::InvokeEvents(InputManager::MakePointerButtonKey(0, 0), update.pressed ? 1.0f : 0.0f);
+
+        if (mode == JVS_MODE::LIGHTGUN)
+        {
+            // GunCon2 A is the cabinet pedal for Time Crisis/Cobra. Raise the
+            // pedal before pulling the trigger, and release the trigger before
+            // returning to cover. Games without a pedal retain normal trigger-
+            // only touchscreen behavior (notably Vampire Night).
+            static constexpr u32 GUNCON2_PEDAL_BIND = 3;
+            const float value = update.pressed ? 1.0f : 0.0f;
+            const bool has_pedal = (ACJV::GetGunMapping().pedal != 0);
+            if (update.pressed && has_pedal)
+                USB::SetDeviceBindValue(0, GUNCON2_PEDAL_BIND, value);
+            USB::SetDeviceBindValue(0, GUNCON2_TRIGGER_BIND, value);
+            if (!update.pressed && has_pedal)
+                USB::SetDeviceBindValue(0, GUNCON2_PEDAL_BIND, value);
+        }
+    }
 }
 
 int FileSystem::OpenFDFileContent(const char* filename)
@@ -1432,6 +1524,7 @@ extern "C"
 JNIEXPORT void JNICALL
 Java_com_izzy2lost_psx2_NativeApp_prepareVMStart(JNIEnv *env, jclass clazz) {
     s_shutdown_requested.store(false, std::memory_order_release);
+    ClearTouchscreenPointerUpdates();
     std::lock_guard error_lock(s_vm_error_mutex);
     s_last_vm_error.clear();
 }

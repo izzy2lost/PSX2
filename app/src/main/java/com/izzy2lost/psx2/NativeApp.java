@@ -71,6 +71,7 @@ public class NativeApp {
 
 	public static native void setPadVibration(boolean isonoff);
 	public static native void setPadButton(int index, int range, boolean iskeypressed);
+	public static native boolean updateTouchscreenPointer(float x, float y, boolean pressed);
 	public static native void resetKeyStatus();
 
 	public static native void setAspectRatio(int type);

@@ -731,7 +731,8 @@ static void UpdateLightgunFromMouse()
 		}
 		if (two_tier)
 		{
-			// TC3's two offscreen tiers (TC3LOAD FUN_0019c800): a coord past [0,640]x[0,448] = yellow
+			// TC3's two offscreen tiers (TC3LOAD FUN_0019c800): a coord past the MIU-I/O's
+			// native [0,640]x[0,224] range = yellow
 			// reload, the 0xFFFF/0xFFFF sentinel = red gun-lost.
 			const float overshoot = std::max({0.0f, -dx, dx - 1.0f, -dy, dy - 1.0f});
 			constexpr float LOST = 0.35f; // empirical guess, not real value
@@ -743,7 +744,7 @@ static void UpdateLightgunFromMouse()
 			else
 			{
 				const int px = static_cast<int>(std::lround(dx * 640.0f));
-				const int py = static_cast<int>(std::lround((1.0f - dy) * 448.0f)); //reported Y is bottom-up, native 0..448
+				const int py = static_cast<int>(std::lround((1.0f - dy) * 224.0f)); //reported Y is bottom-up, native 0..224
 				s_gunRawX[p] = static_cast<u16>(static_cast<s16>(std::clamp(px, -32767, 32767)));
 				s_gunRawY[p] = static_cast<u16>(static_cast<s16>(std::clamp(py, -32767, 32767)));
 			}

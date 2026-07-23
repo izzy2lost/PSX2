@@ -83,7 +83,7 @@ enum class GunBoardModel : u8 {
     Classic,        // (0,0) when off-screen, sensor bit only
     CameraVN,       // Sys246gun camera (VN): 0xFFFF/0xFFFF = camera lost, 5-point calibration frame
     SideSwitchTC4,  // TSS-I/O (TC4): coords clamp to the field edge (never zeroed), off-screen flag separate
-    TwoTierTC3,     // TSS-I/O (TC3): coord past [0,640]x[0,448] = yellow reload; 0xFFFF/0xFFFF = red fully-lost
+    TwoTierTC3,     // MIU-I/O (TC3): coord past [0,640]x[0,224] = yellow reload; 0xFFFF/0xFFFF = red fully-lost
 };
 
 struct GunMapping {
@@ -261,4 +261,3 @@ enum JVSButton : u16 {
 
 
 #define JVS_SYNC 0xE0
-
