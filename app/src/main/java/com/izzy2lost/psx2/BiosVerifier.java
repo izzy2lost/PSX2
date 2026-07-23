@@ -8,6 +8,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.io.RandomAccessFile;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.ArrayList;
@@ -30,10 +31,20 @@ public final class BiosVerifier {
     private static final Pattern ROM_PATTERN = Pattern.compile(
             "\\bname\\s+([^\\s)]+).*\\bsize\\s+(\\d+).*\\bcrc\\s+([0-9a-fA-F]{8}).*" +
                     "\\bmd5\\s+([0-9a-fA-F]{32}).*\\bsha1\\s+([0-9a-fA-F]{40})");
-    private static final Pattern COH_ROMVER_PATTERN = Pattern.compile("\\d{4}TZ\\d{8}");
+    private static final Pattern COH_ROMVER_PATTERN = Pattern.compile("[0-9]{4}TZ[0-9]{8}");
 
-    // MAME-documented chip dumps are 2 MiB, unlike normal 4 MiB retail PS2 BIOS dumps.
-    // Keep these exact so lowering the size requirement cannot admit an unrelated ROM.
+    private static final long MIN_ARCADE_BIOS_SIZE = 2L * 1024 * 1024;
+    private static final long MAX_ARCADE_BIOS_SIZE = 8L * 1024 * 1024;
+    private static final int ROMDIR_ENTRY_SIZE = 16;
+
+    // PCSX2x6 identifies COH-H boards from the 15-byte EXTINFO build serial.
+    // System 256 and Super System 256 use the same BIOS and cannot be distinguished.
+    private static final String SYSTEM_256_EXTINFO = "20040519-145634";
+    private static final String SYSTEM_246_EXTINFO = "20021119-163841";
+    private static final String COH_H_A000010_EXTINFO = "20000901-114731";
+
+    // Exact hashes remain useful for known 2 MiB chip dumps, but structurally valid
+    // COH-H images with other hashes are accepted below just as they are by PCSX2x6.
     private static final String SYSTEM_246_BIOS_SHA1 =
             "f0a74bbcaf801f3fd0b7002ebd0118564aae3528";
     private static final String SYSTEM_256_BIOS_SHA1 =
@@ -64,8 +75,14 @@ public final class BiosVerifier {
         final String md5;
         final String sha1;
         final Region region;
+        final String arcadeSerial;
 
         HashEntry(String name, String description, long size, String crc, String md5, String sha1, Region region) {
+            this(name, description, size, crc, md5, sha1, region, "");
+        }
+
+        HashEntry(String name, String description, long size, String crc, String md5, String sha1,
+                  Region region, String arcadeSerial) {
             this.name = name;
             this.description = description;
             this.size = size;
@@ -73,6 +90,17 @@ public final class BiosVerifier {
             this.md5 = md5;
             this.sha1 = sha1;
             this.region = region;
+            this.arcadeSerial = arcadeSerial;
+        }
+    }
+
+    private static final class ArcadeBiosIdentity {
+        final String description;
+        final String extInfoSerial;
+
+        ArcadeBiosIdentity(String description, String extInfoSerial) {
+            this.description = description;
+            this.extInfoSerial = extInfoSerial;
         }
     }
 
@@ -83,6 +111,7 @@ public final class BiosVerifier {
         public final String datName;
         public final String description;
         public final String sha1;
+        public final String arcadeSerial;
 
         private BiosInfo(File file, String relativePath, HashEntry entry) {
             this.file = file;
@@ -91,6 +120,7 @@ public final class BiosVerifier {
             this.datName = entry.name;
             this.description = entry.description;
             this.sha1 = entry.sha1;
+            this.arcadeSerial = entry.arcadeSerial;
         }
     }
 
@@ -143,9 +173,13 @@ public final class BiosVerifier {
         try {
             String sha1 = sha1(file);
             HashEntry entry = getEntriesBySha1(context).get(sha1);
-            if (entry == null && isCohArcadeBios(file)) {
-                entry = new HashEntry(file.getName(), "Sony COH-H arcade BIOS",
-                        file.length(), "", "", sha1, Region.ARCADE);
+            if (entry == null) {
+                ArcadeBiosIdentity arcadeIdentity = inspectCohArcadeBios(file);
+                if (arcadeIdentity != null) {
+                    entry = new HashEntry(file.getName(), arcadeIdentity.description,
+                            file.length(), "", "", sha1, Region.ARCADE,
+                            arcadeIdentity.extInfoSerial);
+                }
             }
             if (entry != null && entry.size == file.length()) {
                 info = new BiosInfo(file, relativePath(biosDir, file), entry);
@@ -240,13 +274,14 @@ public final class BiosVerifier {
         }
 
         parsed.put(SYSTEM_246_BIOS_SHA1, new HashEntry(
-                "r27v1602f.7d", "Namco System 246 COH-H arcade BIOS", 2L * 1024 * 1024,
+                "r27v1602f.7d", "Namco System 246 Rack C COH-H arcade BIOS", 2L * 1024 * 1024,
                 "2b2e41a2", "52cca0058626569c7a9699838baab2d8",
-                SYSTEM_246_BIOS_SHA1, Region.ARCADE));
+                SYSTEM_246_BIOS_SHA1, Region.ARCADE, SYSTEM_246_EXTINFO));
         parsed.put(SYSTEM_256_BIOS_SHA1, new HashEntry(
-                "r27v1602f.8g", "Namco System 256 COH-H arcade BIOS", 2L * 1024 * 1024,
+                "r27v1602f.8g", "Namco System 256 / Super System 256 COH-H arcade BIOS",
+                2L * 1024 * 1024,
                 "b2a8eeb6", "a58676c6bd79229bda967d07b4ec2e16",
-                SYSTEM_256_BIOS_SHA1, Region.ARCADE));
+                SYSTEM_256_BIOS_SHA1, Region.ARCADE, SYSTEM_256_EXTINFO));
 
         synchronized (LOCK) {
             sEntriesBySha1 = parsed;
@@ -291,28 +326,119 @@ public final class BiosVerifier {
         return hex(digest.digest());
     }
 
-    private static boolean isCohArcadeBios(File file) throws Exception {
-        if (file.length() < 4L * 1024 * 1024 || file.length() > 8L * 1024 * 1024)
-            return false;
+    /**
+     * Mirrors PCSX2x6's BIOS probe: locate the ROMDIR, resolve the ROMVER and
+     * EXTINFO payloads, and require the ROMVER region/type bytes to be "TZ".
+     * A loose text search is intentionally avoided so unrelated ROMs cannot pass
+     * merely by containing a date-shaped string.
+     */
+    private static ArcadeBiosIdentity inspectCohArcadeBios(File file) throws Exception {
+        long length = file.length();
+        if (length < MIN_ARCADE_BIOS_SIZE || length > MAX_ARCADE_BIOS_SIZE)
+            return null;
 
-        String carry = "";
-        byte[] buffer = new byte[8192];
-        try (InputStream in = new FileInputStream(file)) {
-            int read;
-            while ((read = in.read(buffer)) != -1) {
-                String text = carry + new String(buffer, 0, read, StandardCharsets.ISO_8859_1);
-                if (COH_ROMVER_PATTERN.matcher(text).find())
-                    return true;
-                carry = text.substring(Math.max(0, text.length() - 32));
+        try (RandomAccessFile rom = new RandomAccessFile(file, "r")) {
+            byte[] entry = new byte[ROMDIR_ENTRY_SIZE];
+            boolean foundRomDir = false;
+
+            rom.seek(0);
+            for (long offset = 0; offset + ROMDIR_ENTRY_SIZE <= length;
+                 offset += ROMDIR_ENTRY_SIZE) {
+                rom.readFully(entry);
+                if ("RESET".equals(readRomDirName(entry))) {
+                    foundRomDir = true;
+                    break;
+                }
             }
+            if (!foundRomDir)
+                return null;
+
+            long fileOffset = 0;
+            String romVersion = "";
+            String extInfoSerial = "";
+            long maxEntries = length / ROMDIR_ENTRY_SIZE;
+
+            for (long i = 0; i < maxEntries; i++) {
+                String name = readRomDirName(entry);
+                if (name.isEmpty())
+                    break;
+
+                long directoryPosition = rom.getFilePointer();
+                if ("ROMVER".equals(name) && fileOffset + 14 <= length) {
+                    rom.seek(fileOffset);
+                    romVersion = readFixedAscii(rom, 14);
+                    rom.seek(directoryPosition);
+                } else if ("EXTINFO".equals(name) && fileOffset + 0x10 + 15 <= length) {
+                    rom.seek(fileOffset + 0x10);
+                    extInfoSerial = readFixedAscii(rom, 15);
+                    rom.seek(directoryPosition);
+                }
+
+                long entryFileSize = readLittleEndianUnsignedInt(entry, 12);
+                fileOffset += (entryFileSize + 15L) & ~15L;
+
+                if (directoryPosition + ROMDIR_ENTRY_SIZE > length)
+                    break;
+                rom.seek(directoryPosition);
+                rom.readFully(entry);
+            }
+
+            if (!COH_ROMVER_PATTERN.matcher(romVersion).matches())
+                return null;
+
+            return new ArcadeBiosIdentity(
+                    describeArcadeBios(extInfoSerial), extInfoSerial);
         }
-        return false;
+    }
+
+    private static String readRomDirName(byte[] entry) {
+        int end = 0;
+        while (end < 10 && entry[end] != 0)
+            end++;
+        if (end == 0 || end == 10)
+            return "";
+        return new String(entry, 0, end, StandardCharsets.US_ASCII);
+    }
+
+    private static long readLittleEndianUnsignedInt(byte[] bytes, int offset) {
+        return (bytes[offset] & 0xffL) |
+                ((bytes[offset + 1] & 0xffL) << 8) |
+                ((bytes[offset + 2] & 0xffL) << 16) |
+                ((bytes[offset + 3] & 0xffL) << 24);
+    }
+
+    private static String readFixedAscii(RandomAccessFile file, int length) throws Exception {
+        byte[] bytes = new byte[length];
+        file.readFully(bytes);
+        int end = 0;
+        while (end < bytes.length && bytes[end] != 0) {
+            int value = bytes[end] & 0xff;
+            if (value < 0x20 || value > 0x7e)
+                return "";
+            end++;
+        }
+        return new String(bytes, 0, end, StandardCharsets.US_ASCII).trim();
+    }
+
+    private static String describeArcadeBios(String extInfoSerial) {
+        return switch (extInfoSerial) {
+            case SYSTEM_256_EXTINFO ->
+                    "Namco System 256 / Super System 256 COH-H arcade BIOS";
+            case SYSTEM_246_EXTINFO ->
+                    "Namco System 246 Rack C COH-H arcade BIOS";
+            case COH_H_A000010_EXTINFO ->
+                    "Sony COH-H Board (A-000-010) arcade BIOS";
+            case "" -> "Sony COH-H arcade BIOS (unknown board)";
+            default -> "Sony COH-H arcade BIOS (unknown board, EXTINFO " +
+                    extInfoSerial + ")";
+        };
     }
 
     private static int selectionPriority(BiosInfo info) {
         if (info == null || info.region != Region.ARCADE) return 0;
-        if (SYSTEM_256_BIOS_SHA1.equals(info.sha1)) return 2;
-        if (SYSTEM_246_BIOS_SHA1.equals(info.sha1)) return 1;
+        if (SYSTEM_256_EXTINFO.equals(info.arcadeSerial)) return 3;
+        if (SYSTEM_246_EXTINFO.equals(info.arcadeSerial)) return 2;
+        if (COH_H_A000010_EXTINFO.equals(info.arcadeSerial)) return 1;
         return 0;
     }
 

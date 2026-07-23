@@ -1808,7 +1808,9 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
             Toast.makeText(this, message + ". " + BiosVerifier.describeVerifiedRegions(this), Toast.LENGTH_LONG).show();
             refreshDrawerSettings();
         } else if (stats.rejected > 0) {
-            Toast.makeText(this, "No selected BIOS matched the Redump DAT hash.", Toast.LENGTH_LONG).show();
+            Toast.makeText(this,
+                    "No selected file matched the PS2 BIOS database or contained a valid COH-H arcade BIOS.",
+                    Toast.LENGTH_LONG).show();
         }
     }
 
