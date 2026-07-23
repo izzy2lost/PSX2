@@ -174,6 +174,7 @@ public class GamesCoverDialogFragment extends DialogFragment {
         rv.setHasFixedSize(true);
         llm = new LinearLayoutManager(requireContext(), LinearLayoutManager.HORIZONTAL, false);
         rv.setLayoutManager(llm);
+        rv.setClipChildren(false);
         rv.setClipToPadding(false);
         int sidePad = (int) (48 * getResources().getDisplayMetrics().density);
         int vertPad = (int) (24 * getResources().getDisplayMetrics().density);
@@ -199,6 +200,21 @@ public class GamesCoverDialogFragment extends DialogFragment {
                     applyCoverflowTransforms(recyclerView);
                 }
             }
+        });
+        // Adapter rebinds (especially after an orientation change) may attach the
+        // newly sized cards without producing a scroll callback. Re-apply the
+        // transform on the next frame so the centered card is emphasized before
+        // the user has to touch the coverflow.
+        rv.addOnChildAttachStateChangeListener(new RecyclerView.OnChildAttachStateChangeListener() {
+            @Override
+            public void onChildViewAttachedToWindow(@NonNull View view) {
+                rv.postOnAnimation(() -> {
+                    if (isAdded() && rv != null) applyCoverflowTransforms(rv);
+                });
+            }
+
+            @Override
+            public void onChildViewDetachedFromWindow(@NonNull View view) {}
         });
 
         titles = getArguments() != null ? getArguments().getStringArray(ARG_TITLES) : new String[0];
@@ -283,7 +299,16 @@ public class GamesCoverDialogFragment extends DialogFragment {
             }
             rv.scrollBy(1, 0);
             rv.scrollBy(-1, 0);
+            resnapToCenter(rv);
             applyCoverflowTransforms(rv);
+            // Item sizing and orientation recreation can finish one frame after
+            // this initial positioning. Re-snap once more after that frame so
+            // the library never opens with the viewport between two covers.
+            rv.post(() -> {
+                if (!isAdded() || rv == null) return;
+                resnapToCenter(rv);
+                applyCoverflowTransforms(rv);
+            });
             didInitialNudge = true;
         });
         // Reduce resize flicker and keep a few views ready
@@ -831,20 +856,36 @@ public class GamesCoverDialogFragment extends DialogFragment {
         int width = recyclerView.getWidth();
         if (width <= 0) return;
         int centerX = width / 2;
-        final float maxScale = 1.0f;
-        final float minScale = 0.85f;
+        final boolean landscape = getResources().getConfiguration().orientation
+                == android.content.res.Configuration.ORIENTATION_LANDSCAPE;
+        // Give the selected landscape cover a little more presence without making
+        // the portrait library feel oversized. A tighter falloff also keeps the
+        // neighboring covers visually behind the centered one.
+        final float maxScale = landscape ? 1.10f : 1.0f;
+        final float minScale = landscape ? 0.82f : 0.85f;
         final float maxAlpha = 1.0f;
-        final float minAlpha = 0.6f;
+        final float minAlpha = landscape ? 0.55f : 0.6f;
+        final float density = getResources().getDisplayMetrics().density;
+        final float focusRange = landscape
+                ? Math.max(width * 0.30f, Math.max(1, lastItemWidthPx) * 1.70f)
+                : width * 0.5f;
         for (int i = 0; i < recyclerView.getChildCount(); i++) {
             View child = recyclerView.getChildAt(i);
             int childCenter = (child.getLeft() + child.getRight()) / 2;
             float dist = Math.abs(childCenter - centerX);
-            float norm = Math.min(1f, dist / (width * 0.5f));
-            float scale = maxScale - (maxScale - minScale) * norm;
-            float alpha = maxAlpha - (maxAlpha - minAlpha) * norm;
+            float norm = Math.min(1f, dist / focusRange);
+            // Smoothstep avoids a visible size jump as a new cover snaps to center.
+            float falloff = landscape ? norm * norm * (3f - (2f * norm)) : norm;
+            float focus = 1f - falloff;
+            float scale = minScale + (maxScale - minScale) * focus;
+            float alpha = minAlpha + (maxAlpha - minAlpha) * focus;
             child.setScaleX(scale);
             child.setScaleY(scale);
             child.setAlpha(alpha);
+            child.setTranslationZ(landscape ? 12f * density * focus : 0f);
+
+            View shadow = child.findViewById(R.id.view_shadow);
+            if (shadow != null) shadow.setAlpha(landscape ? 0.32f * focus : 0f);
         }
     }
 
