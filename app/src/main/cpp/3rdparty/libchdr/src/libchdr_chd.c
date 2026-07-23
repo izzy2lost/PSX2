@@ -91,8 +91,10 @@
 
 #define CHD_MAX_HUNK_SIZE				(128 * 1024 * 1024) /* hunk size probably shouldn't be more than 128MB */
 
-/* we're currently only using this for CD/DVDs, if we end up with more than 10GB data, it's probably invalid */
-#define CHD_MAX_FILE_SIZE				(10ULL * 1024 * 1024 * 1024)
+/* Also used for arcade HDD/CF dumps (Namco System 246/256 etc.), which can legitimately
+ * declare a logical size far past a CD/DVD (e.g. Ace Driver 3's HDD image is ~74.5GB); this
+ * is just a sanity cap against corrupt headers, not a real allocation bound, so keep it generous. */
+#define CHD_MAX_FILE_SIZE				(256ULL * 1024 * 1024 * 1024)
 
 #define COOKIE_VALUE				0xbaadf00d
 #define MAX_ZLIB_ALLOCS				64
