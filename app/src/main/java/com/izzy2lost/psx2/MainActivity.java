@@ -673,6 +673,11 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
         }
         
         setContentView(R.layout.activity_main);
+
+        // Track every DialogFragment centrally. Several dialogs historically used
+        // different dismissal callbacks, which could leave the manual counter stale
+        // and keep emulation paused forever after the UI had already closed.
+        setupDialogPauseTracking();
         
         // Handle window insets for edge-to-edge display
         setupWindowInsets();
@@ -1924,7 +1929,9 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
     protected void onResume() {
         super.onResume();
         mActivityPauseRequested = false;
+        reconcileAutomaticPauseOwners();
         applyRequestedPauseState("activity resumed");
+        applyRequestedPauseStateDelayed("activity resumed (settled)");
         ////
         if (mHIDDeviceManager != null) {
             mHIDDeviceManager.setFrozen(false);
@@ -2968,14 +2975,18 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
                 return;
             }
 
-            if (isAutomaticPauseRequested()) {
-                // While a dialog/drawer owns the active pause, this button controls
-                // whether the game should remain paused after that UI closes.
-                mUserPauseRequested = !mUserPauseRequested;
-            } else {
-                mUserPauseRequested = !NativeApp.isPaused();
-            }
+            // Rebuild transient owners before honoring the button. This clears stale
+            // dialog/drawer counts left by unusual dismiss or configuration paths.
+            reconcileAutomaticPauseOwners();
+            final boolean isPaused = NativeApp.isPaused();
+            // The button always describes the action the user wants. If a real menu
+            // still owns the pause, clearing this flag makes the game resume as soon
+            // as that menu closes; if no owner remains, it resumes immediately.
+            mUserPauseRequested = !isPaused;
             applyRequestedPauseState("user toggle");
+            android.util.Log.d("PauseState", "user toggle requested "
+                    + (mUserPauseRequested ? "pause" : "resume")
+                    + ", automatic=" + isAutomaticPauseRequested());
         } catch (Throwable e) {
             android.util.Log.e("TogglePause", "Error in togglePauseState: " + e.getMessage());
         }
@@ -3095,10 +3106,94 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
     private void applyRequestedPauseStateDelayed(String reason) {
         View root = findViewById(android.R.id.content);
         if (root == null) {
+            reconcileAutomaticPauseOwners();
             applyRequestedPauseState(reason);
             return;
         }
-        root.postDelayed(() -> applyRequestedPauseState(reason), 100);
+        root.postDelayed(() -> {
+            reconcileAutomaticPauseOwners();
+            applyRequestedPauseState(reason);
+        }, 100);
+    }
+
+    private void setupDialogPauseTracking() {
+        getSupportFragmentManager().registerFragmentLifecycleCallbacks(
+                new androidx.fragment.app.FragmentManager.FragmentLifecycleCallbacks() {
+                    @Override
+                    public void onFragmentStarted(
+                            @NonNull androidx.fragment.app.FragmentManager fragmentManager,
+                            @NonNull androidx.fragment.app.Fragment fragment) {
+                        if (fragment instanceof androidx.fragment.app.DialogFragment) {
+                            reconcileAutomaticPauseOwners();
+                            applyRequestedPauseState("dialog fragment started");
+                            applyRequestedPauseStateDelayed("dialog fragment started");
+                        }
+                    }
+
+                    @Override
+                    public void onFragmentStopped(
+                            @NonNull androidx.fragment.app.FragmentManager fragmentManager,
+                            @NonNull androidx.fragment.app.Fragment fragment) {
+                        if (fragment instanceof androidx.fragment.app.DialogFragment) {
+                            applyRequestedPauseStateDelayed("dialog fragment stopped");
+                        }
+                    }
+
+                    @Override
+                    public void onFragmentDetached(
+                            @NonNull androidx.fragment.app.FragmentManager fragmentManager,
+                            @NonNull androidx.fragment.app.Fragment fragment) {
+                        if (fragment instanceof androidx.fragment.app.DialogFragment) {
+                            applyRequestedPauseStateDelayed("dialog fragment detached");
+                        }
+                    }
+                }, true);
+    }
+
+    private void reconcileAutomaticPauseOwners() {
+        if (android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) return;
+
+        int visibleDialogs = 0;
+        try {
+            visibleDialogs = countVisibleDialogFragments(getSupportFragmentManager());
+        } catch (Throwable error) {
+            android.util.Log.w("PauseState", "Unable to reconcile dialogs", error);
+        }
+
+        int openDrawers = 0;
+        try {
+            DrawerLayout drawer = findViewById(R.id.drawer_layout);
+            if (drawer != null) {
+                if (drawer.isDrawerOpen(androidx.core.view.GravityCompat.START)) openDrawers++;
+                if (drawer.isDrawerOpen(androidx.core.view.GravityCompat.END)) openDrawers++;
+            }
+        } catch (Throwable error) {
+            android.util.Log.w("PauseState", "Unable to reconcile drawers", error);
+        }
+
+        if (visibleDialogs != mOpenDialogCount || openDrawers != mOpenDrawerCount) {
+            android.util.Log.d("PauseState", "Reconciled pause owners: dialogs="
+                    + mOpenDialogCount + "->" + visibleDialogs + ", drawers="
+                    + mOpenDrawerCount + "->" + openDrawers);
+        }
+        mOpenDialogCount = visibleDialogs;
+        mOpenDrawerCount = openDrawers;
+    }
+
+    private int countVisibleDialogFragments(
+            androidx.fragment.app.FragmentManager fragmentManager) {
+        int count = 0;
+        for (androidx.fragment.app.Fragment fragment : fragmentManager.getFragments()) {
+            if (fragment instanceof androidx.fragment.app.DialogFragment) {
+                android.app.Dialog dialog =
+                        ((androidx.fragment.app.DialogFragment) fragment).getDialog();
+                if (dialog != null && dialog.isShowing()) count++;
+            }
+            if (fragment.isAdded()) {
+                count += countVisibleDialogFragments(fragment.getChildFragmentManager());
+            }
+        }
+        return count;
     }
 
     private void applyRequestedPauseState(String reason) {

@@ -67,6 +67,7 @@ public class QuickActionsDialogFragment extends DialogFragment {
             try {
                 boolean isPaused = NativeApp.isPaused();
                 btnPausePlay.setImageResource(R.drawable.play_pause_24px);
+                btnPausePlay.setContentDescription(isPaused ? "Resume game" : "Pause game");
             } catch (Throwable ignored) {}
             btnPausePlay.setOnClickListener(v -> {
                 try {
@@ -79,6 +80,11 @@ public class QuickActionsDialogFragment extends DialogFragment {
                     }
                     boolean isPausedNow = NativeApp.isPaused();
                     btnPausePlay.setImageResource(R.drawable.play_pause_24px);
+                    btnPausePlay.setContentDescription(
+                            isPausedNow ? "Resume game" : "Pause game");
+                    // Quick Actions itself temporarily owns a pause. Closing it after
+                    // the explicit toggle releases that owner so Resume can take effect.
+                    dismissAllowingStateLoss();
                 } catch (Throwable ignored) {}
             });
         }

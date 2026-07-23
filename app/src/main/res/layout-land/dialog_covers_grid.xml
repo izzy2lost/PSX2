@@ -141,7 +141,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="COVERS"
-            android:contentDescription="Download Covers"
+            android:contentDescription="Download Missing Covers"
             app:icon="@drawable/download_24px"
             app:iconTint="@color/brand_primary"
             app:iconGravity="textStart"

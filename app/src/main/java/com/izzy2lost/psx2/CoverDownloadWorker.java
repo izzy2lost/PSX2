@@ -1,7 +1,6 @@
 package com.izzy2lost.psx2;
 
 import android.content.Context;
-import android.graphics.BitmapFactory;
 import android.net.Uri;
 import android.util.Log;
 
@@ -25,8 +24,10 @@ import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * Reliably downloads a bounded batch of covers. Downloads are validated in app
@@ -51,11 +52,7 @@ public final class CoverDownloadWorker extends Worker {
     private static final int CONNECT_TIMEOUT_MS = 10_000;
     private static final int READ_TIMEOUT_MS = 20_000;
     private static final long MAX_DOWNLOAD_BYTES = 2L * 1024L * 1024L;
-    private static final int MAX_IMAGE_DIMENSION = 4096;
     private static final int MAX_RETRY_ATTEMPTS = 2;
-    private static final byte[] PNG_SIGNATURE = new byte[]{
-            (byte) 0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A
-    };
 
     public CoverDownloadWorker(@NonNull Context appContext, @NonNull WorkerParameters params) {
         super(appContext, params);
@@ -71,6 +68,10 @@ public final class CoverDownloadWorker extends Worker {
         }
 
         final Context context = getApplicationContext();
+        final Map<String, String> existingCoverPaths =
+                CoverCache.findValidCoverPaths(context, Arrays.asList(serials));
+        Log.i(TAG, "Starting cover batch: requested=" + serials.length
+                + ", alreadyCached=" + existingCoverPaths.size());
         int ready = 0;
         int downloaded = 0;
         boolean sawTransientFailure = false;
@@ -96,7 +97,7 @@ public final class CoverDownloadWorker extends Worker {
             }
 
             try {
-                if (hasValidExistingCover(context, serial)) {
+                if (existingCoverPaths.containsKey(serial)) {
                     ready++;
                     continue;
                 }
@@ -197,7 +198,7 @@ public final class CoverDownloadWorker extends Worker {
                         + copied + "/" + declaredLength);
                 return DownloadStatus.TRANSIENT_FAILURE;
             }
-            if (!isValidPng(tempFile)) {
+            if (!CoverCache.isValidPng(tempFile)) {
                 Log.w(TAG, "Downloaded cover failed PNG validation for " + serial);
                 return DownloadStatus.PERMANENT_FAILURE;
             }
@@ -244,7 +245,7 @@ public final class CoverDownloadWorker extends Worker {
 
         try {
             if (!copyFileToUri(context, source, staging.getUri())
-                    || !isValidPng(context, staging.getUri())) {
+                    || !CoverCache.isValidPng(context, staging.getUri())) {
                 Log.e(TAG, "SAF staging cover failed validation for " + serial);
                 staging.delete();
                 return false;
@@ -265,7 +266,7 @@ public final class CoverDownloadWorker extends Worker {
                     target = coversDirectory.createFile("image/png", finalName);
                 }
                 if (target == null || !copyFileToUri(context, source, target.getUri())
-                        || !isValidPng(context, target.getUri())) {
+                        || !CoverCache.isValidPng(context, target.getUri())) {
                     Log.e(TAG, "Unable to finalize SAF cover for " + serial);
                     return false;
                 }
@@ -273,7 +274,7 @@ public final class CoverDownloadWorker extends Worker {
             }
 
             final DocumentFile committed = coversDirectory.findFile(finalName);
-            return committed != null && isValidPng(context, committed.getUri());
+            return committed != null && CoverCache.isValidPng(context, committed.getUri());
         } catch (Throwable error) {
             Log.e(TAG, "Unable to commit SAF cover for " + serial, error);
             return false;
@@ -293,7 +294,7 @@ public final class CoverDownloadWorker extends Worker {
         final File target = new File(directory, serial + ".png");
         try {
             copyFile(source, staging);
-            if (!isValidPng(staging)) {
+            if (!CoverCache.isValidPng(staging)) {
                 staging.delete();
                 return false;
             }
@@ -304,26 +305,12 @@ public final class CoverDownloadWorker extends Worker {
                 Files.move(staging.toPath(), target.toPath(),
                         StandardCopyOption.REPLACE_EXISTING);
             }
-            return isValidPng(target);
+            return CoverCache.isValidPng(target);
         } catch (IOException error) {
             Log.e(TAG, "Unable to commit app-storage cover for " + serial, error);
             staging.delete();
             return false;
         }
-    }
-
-    private static boolean hasValidExistingCover(Context context, String serial) {
-        final DocumentFile coversDirectory = SafManager.getOrCreateDir(context, "covers");
-        if (coversDirectory != null) {
-            final DocumentFile existing = coversDirectory.findFile(serial + ".png");
-            return existing != null && isValidPng(context, existing.getUri());
-        }
-
-        File directory = context.getExternalFilesDir("covers");
-        if (directory == null) {
-            directory = new File(context.getFilesDir(), "covers");
-        }
-        return isValidPng(new File(directory, serial + ".png"));
     }
 
     private static boolean copyFileToUri(Context context, File source, Uri target) {
@@ -357,73 +344,6 @@ public final class CoverDownloadWorker extends Worker {
             output.flush();
             fileOutput.getFD().sync();
         }
-    }
-
-    private static boolean isValidPng(File file) {
-        if (file == null || !file.isFile() || file.length() <= PNG_SIGNATURE.length
-                || file.length() > MAX_DOWNLOAD_BYTES) {
-            return false;
-        }
-        try (InputStream input = new BufferedInputStream(new FileInputStream(file))) {
-            if (!hasPngSignature(input)) {
-                return false;
-            }
-        } catch (IOException ignored) {
-            return false;
-        }
-
-        final BitmapFactory.Options options = new BitmapFactory.Options();
-        options.inJustDecodeBounds = true;
-        BitmapFactory.decodeFile(file.getAbsolutePath(), options);
-        return hasSafeDimensions(options);
-    }
-
-    private static boolean isValidPng(Context context, Uri uri) {
-        if (uri == null) {
-            return false;
-        }
-        try (InputStream input = new BufferedInputStream(
-                context.getContentResolver().openInputStream(uri))) {
-            if (input == null || !hasPngSignature(input)) {
-                return false;
-            }
-        } catch (IOException | SecurityException ignored) {
-            return false;
-        }
-
-        final BitmapFactory.Options options = new BitmapFactory.Options();
-        options.inJustDecodeBounds = true;
-        try (InputStream input = context.getContentResolver().openInputStream(uri)) {
-            if (input == null) {
-                return false;
-            }
-            BitmapFactory.decodeStream(input, null, options);
-            return hasSafeDimensions(options);
-        } catch (IOException | SecurityException ignored) {
-            return false;
-        }
-    }
-
-    private static boolean hasPngSignature(InputStream input) throws IOException {
-        final byte[] signature = new byte[PNG_SIGNATURE.length];
-        int offset = 0;
-        while (offset < signature.length) {
-            final int count = input.read(signature, offset, signature.length - offset);
-            if (count == -1) return false;
-            offset += count;
-        }
-        for (int index = 0; index < PNG_SIGNATURE.length; index++) {
-            if (signature[index] != PNG_SIGNATURE[index]) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private static boolean hasSafeDimensions(BitmapFactory.Options options) {
-        return options.outWidth > 0 && options.outHeight > 0
-                && options.outWidth <= MAX_IMAGE_DIMENSION
-                && options.outHeight <= MAX_IMAGE_DIMENSION;
     }
 
     private static boolean isTransientHttpCode(int code) {

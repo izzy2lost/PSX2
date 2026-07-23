@@ -902,10 +902,13 @@ public class GamesCoverDialogFragment extends DialogFragment {
             final SharedPreferences prefs = appContext.getSharedPreferences(
                     "app_prefs", Context.MODE_PRIVATE);
             final SharedPreferences.Editor editor = prefs.edit();
+            final String[] resolvedSerials = new String[uriSnapshot.length];
             final String[] resolvedUrls = new String[uriSnapshot.length];
             final String[] resolvedPaths = new String[uriSnapshot.length];
             final java.util.HashMap<String, String> pathByUri = new java.util.HashMap<>();
             final java.util.HashMap<String, String> urlByUri = new java.util.HashMap<>();
+            final java.util.LinkedHashSet<String> resolvedSerialSet =
+                    new java.util.LinkedHashSet<>();
 
             for (int index = 0; index < uriSnapshot.length; index++) {
                 final String gameUri = uriSnapshot[index];
@@ -930,22 +933,24 @@ public class GamesCoverDialogFragment extends DialogFragment {
                     editor.putString("serial:" + gameUri, serial);
                 }
 
+                resolvedSerials[index] = serial;
+                resolvedSerialSet.add(serial);
                 resolvedUrls[index] = buildCoverUrlFromSerial(serial);
-                final androidx.documentfile.provider.DocumentFile cover = SafManager.getChild(
-                        appContext, new String[]{"covers"}, serial + ".png");
-                if (cover != null && cover.exists() && cover.length() > 0) {
-                    resolvedPaths[index] = cover.getUri().toString();
-                } else {
-                    if (cover != null && cover.exists() && cover.length() == 0) {
-                        cover.delete();
-                    }
-                    resolvedPaths[index] = new File(
-                            getCoversDir(appContext), serial + ".png").getAbsolutePath();
-                }
-                pathByUri.put(gameUri, resolvedPaths[index]);
                 urlByUri.put(gameUri, resolvedUrls[index]);
             }
             editor.apply();
+
+            final java.util.Map<String, String> cachedCoverPaths =
+                    CoverCache.findValidCoverPaths(appContext, resolvedSerialSet);
+            final File fallbackCoverDirectory = getCoversDir(appContext);
+            for (int index = 0; index < uriSnapshot.length; index++) {
+                final String serial = resolvedSerials[index];
+                final String cachedPath = cachedCoverPaths.get(serial);
+                resolvedPaths[index] = cachedPath != null
+                        ? cachedPath
+                        : new File(fallbackCoverDirectory, serial + ".png").getAbsolutePath();
+                pathByUri.put(uriSnapshot[index], resolvedPaths[index]);
+            }
 
             UiUtils.postIfFragmentAttached(this, () -> {
                 if (origUris == null || !Arrays.equals(uriSnapshot, origUris)) return;
@@ -1239,8 +1244,9 @@ public class GamesCoverDialogFragment extends DialogFragment {
                 origUris != null ? origUris : uris,
                 origUris != null ? origUris.length : uris.length);
 
-        setDownloadButtonEnabled(false, "Preparing cover download");
-        Toast.makeText(requireContext(), "Preparing cover download", Toast.LENGTH_SHORT).show();
+        setDownloadButtonEnabled(false, "Checking for missing covers");
+        Toast.makeText(requireContext(), "Checking for missing covers",
+                Toast.LENGTH_SHORT).show();
 
         COVER_PREPARATION_EXECUTOR.execute(() -> {
             final WorkManager workManager = WorkManager.getInstance(appContext);
@@ -1296,12 +1302,32 @@ public class GamesCoverDialogFragment extends DialogFragment {
             }
             serialEditor.apply();
 
+            // Index both SAF and app storage once, validate the files already on disk,
+            // and send only genuinely missing serials to WorkManager. The worker still
+            // performs its own check to make retries and process restarts safe.
+            final java.util.Map<String, String> cachedCoverPaths =
+                    CoverCache.findValidCoverPaths(appContext, uniqueSerials);
+            uniqueSerials.removeAll(cachedCoverPaths.keySet());
+            final int alreadyCachedCount = cachedCoverPaths.size();
+            final int skippedCount = skipped;
+            android.util.Log.i("GamesCoverDialog", "Cover inventory: cached="
+                    + alreadyCachedCount + ", missing=" + uniqueSerials.size()
+                    + ", customSkipped=" + skippedCount);
+
             if (uniqueSerials.isEmpty()) {
                 UiUtils.postIfFragmentAttached(this, () -> {
                     coverWorkWasRunning = false;
-                    setDownloadButtonEnabled(true, "Download covers");
-                    Toast.makeText(requireContext(), "No covers need downloading",
-                            Toast.LENGTH_SHORT).show();
+                    setDownloadButtonEnabled(true, "Download missing covers");
+                    String message;
+                    if (alreadyCachedCount > 0) {
+                        message = "All " + alreadyCachedCount + " covers are already cached";
+                    } else {
+                        message = "No missing covers to download";
+                    }
+                    if (skippedCount > 0) {
+                        message += " (" + skippedCount + " custom skipped)";
+                    }
+                    Toast.makeText(requireContext(), message, Toast.LENGTH_SHORT).show();
                 });
                 return;
             }
@@ -1339,10 +1365,13 @@ public class GamesCoverDialogFragment extends DialogFragment {
             }
             continuation.enqueue();
 
-            final int skippedCount = skipped;
             UiUtils.postIfFragmentAttached(this, () -> {
                 coverWorkWasRunning = true;
-                String message = "Downloading " + serialList.size() + " covers in background";
+                String message = "Downloading " + serialList.size() + " missing "
+                        + (serialList.size() == 1 ? "cover" : "covers") + " in background";
+                if (alreadyCachedCount > 0) {
+                    message += " (" + alreadyCachedCount + " already cached)";
+                }
                 if (skippedCount > 0) {
                     message += " (" + skippedCount + " custom skipped)";
                 }
@@ -1376,7 +1405,7 @@ public class GamesCoverDialogFragment extends DialogFragment {
                         }
                     }
                     if (runToken == null || runToken.isEmpty()) {
-                        setDownloadButtonEnabled(true, "Download covers");
+                        setDownloadButtonEnabled(true, "Download missing covers");
                         return;
                     }
 
@@ -1400,18 +1429,19 @@ public class GamesCoverDialogFragment extends DialogFragment {
                     if (active) {
                         coverWorkWasRunning = true;
                         String description = total > 0
-                                ? "Downloading covers " + processed + " of " + total
-                                : "Cover download in progress";
+                                ? "Downloading missing covers " + processed + " of " + total
+                                : "Missing-cover download in progress";
                         setDownloadButtonEnabled(false, description);
                         return;
                     }
 
-                    setDownloadButtonEnabled(true, "Download covers");
+                    setDownloadButtonEnabled(true, "Download missing covers");
                     if (!coverWorkWasRunning) return;
                     coverWorkWasRunning = false;
                     prefs.edit().remove(PREF_ACTIVE_COVER_RUN).apply();
 
                     int ready = 0;
+                    int downloaded = 0;
                     int failed = 0;
                     boolean workFailed = false;
                     final java.util.ArrayList<String> failedSerials = new java.util.ArrayList<>();
@@ -1421,6 +1451,8 @@ public class GamesCoverDialogFragment extends DialogFragment {
                             continue;
                         }
                         ready += info.getOutputData().getInt(CoverDownloadWorker.KEY_READY, 0);
+                        downloaded += info.getOutputData().getInt(
+                                CoverDownloadWorker.KEY_DOWNLOADED, 0);
                         failed += info.getOutputData().getInt(CoverDownloadWorker.KEY_FAILED, 0);
                         String names = info.getOutputData().getString(
                                 CoverDownloadWorker.KEY_FAILED_SERIALS);
@@ -1432,7 +1464,12 @@ public class GamesCoverDialogFragment extends DialogFragment {
                     if (workFailed) {
                         message = "Cover download stopped before it completed";
                     } else {
-                        message = "Covers ready: " + ready;
+                        final int foundInCache = Math.max(0, ready - downloaded);
+                        message = "Downloaded " + downloaded + " new "
+                                + (downloaded == 1 ? "cover" : "covers");
+                        if (foundInCache > 0) {
+                            message += " (" + foundInCache + " already cached)";
+                        }
                         if (failed > 0) message += " (" + failed + " failed)";
                     }
                     Toast.makeText(requireContext(), message, Toast.LENGTH_LONG).show();
@@ -1459,30 +1496,34 @@ public class GamesCoverDialogFragment extends DialogFragment {
         COVER_PREPARATION_EXECUTOR.execute(() -> {
             final SharedPreferences prefs = appContext.getSharedPreferences(
                     "app_prefs", Context.MODE_PRIVATE);
+            final String[] refreshedSerials = new String[uriSnapshot.length];
             final String[] refreshedUrls = new String[uriSnapshot.length];
             final String[] refreshedPaths = new String[uriSnapshot.length];
             final java.util.HashMap<String, String> pathByUri = new java.util.HashMap<>();
             final java.util.HashMap<String, String> urlByUri = new java.util.HashMap<>();
+            final java.util.LinkedHashSet<String> refreshedSerialSet =
+                    new java.util.LinkedHashSet<>();
 
             for (int index = 0; index < uriSnapshot.length; index++) {
                 String serial = normalizeUsableSerial(
                         prefs.getString("serial:" + uriSnapshot[index], null));
                 if (serial.isEmpty()) serial = buildSerialFromUri(uriSnapshot[index]);
+                refreshedSerials[index] = serial;
+                refreshedSerialSet.add(serial);
                 refreshedUrls[index] = buildCoverUrlFromSerial(serial);
-
-                final androidx.documentfile.provider.DocumentFile cover = SafManager.getChild(
-                        appContext, new String[]{"covers"}, serial + ".png");
-                if (cover != null && cover.exists() && cover.length() > 0) {
-                    refreshedPaths[index] = cover.getUri().toString();
-                } else {
-                    if (cover != null && cover.exists() && cover.length() == 0) {
-                        cover.delete();
-                    }
-                    refreshedPaths[index] = new File(
-                            getCoversDir(appContext), serial + ".png").getAbsolutePath();
-                }
-                pathByUri.put(uriSnapshot[index], refreshedPaths[index]);
                 urlByUri.put(uriSnapshot[index], refreshedUrls[index]);
+            }
+
+            final java.util.Map<String, String> cachedCoverPaths =
+                    CoverCache.findValidCoverPaths(appContext, refreshedSerialSet);
+            final File fallbackCoverDirectory = getCoversDir(appContext);
+            for (int index = 0; index < uriSnapshot.length; index++) {
+                final String serial = refreshedSerials[index];
+                final String cachedPath = cachedCoverPaths.get(serial);
+                refreshedPaths[index] = cachedPath != null
+                        ? cachedPath
+                        : new File(fallbackCoverDirectory, serial + ".png").getAbsolutePath();
+                pathByUri.put(uriSnapshot[index], refreshedPaths[index]);
             }
 
             UiUtils.postIfFragmentAttached(this, () -> {
