@@ -30823,6 +30823,8 @@ NM00004:
   bootprog: TK4LOAD
   media: DVD
   input: button
+  gsHWFixes:
+    alignSprite: 1 # Fixes vertical lines.
 NM00005:
   name: Wangan Midnight R
   region: System246
