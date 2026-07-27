@@ -175,6 +175,15 @@
             android:layout_height="wrap_content"
             android:layout_marginBottom="12dp"/>
 
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_custom_driver"
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            android:text="Custom GPU Driver"
+            android:textAllCaps="false"/>
+
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"

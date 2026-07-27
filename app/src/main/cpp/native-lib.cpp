@@ -29,6 +29,7 @@
 #include "DEV9/ACJV.h"
 #include "USB/USB.h"
 #include "MTGS.h"
+#include "GS/Renderers/Vulkan/VKLoader.h"
 #include "SDL3/SDL.h"
 #include <atomic>
 #include <algorithm>
@@ -1527,6 +1528,26 @@ Java_com_izzy2lost_psx2_NativeApp_prepareVMStart(JNIEnv *env, jclass clazz) {
     ClearTouchscreenPointerUpdates();
     std::lock_guard error_lock(s_vm_error_mutex);
     s_last_vm_error.clear();
+}
+
+// Custom Vulkan driver pin. Called from MainActivity.startEmuThread() BEFORE the
+// VM starts so the first MTGS::Open (which triggers Vulkan::LoadVulkanLibrary)
+// picks up the custom driver. Empty strings revert to the system loader.
+// See Vulkan::SetCustomDriverPath in VKLoader.cpp for the splice.
+extern "C"
+JNIEXPORT void JNICALL
+Java_com_izzy2lost_psx2_NativeApp_setCustomVulkanDriver(
+    JNIEnv* env, jclass clazz,
+    jstring driverDir, jstring driverName,
+    jstring redirectDir, jstring hookLibDir) {
+#if defined(__ANDROID__)
+    const std::string dir   = GetJavaString(env, driverDir);
+    const std::string name  = GetJavaString(env, driverName);
+    const std::string redir = GetJavaString(env, redirectDir);
+    const std::string hook  = GetJavaString(env, hookLibDir);
+    Vulkan::SetCustomDriverPath(
+        dir.c_str(), name.c_str(), redir.c_str(), hook.c_str());
+#endif
 }
 
 extern "C"

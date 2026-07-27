@@ -253,6 +253,15 @@ public class GameSettingsDialogFragment extends DialogFragment {
         rendererAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         spRenderer.setAdapter(rendererAdapter);
 
+        // Custom GPU driver (Vulkan ICD swap, e.g. Mesa Turnip). Global, not
+        // per-game -- the driver loads once at VM start -- so this just opens
+        // the same manager dialog reachable everywhere else it's wired.
+        View btnCustomDriver = view.findViewById(R.id.btn_custom_driver);
+        if (btnCustomDriver != null) {
+            btnCustomDriver.setOnClickListener(v ->
+                    new CustomDriverDialogFragment().show(getParentFragmentManager(), "custom_driver"));
+        }
+
         // Resolution Multiplier Spinner
         Spinner spResolution = view.findViewById(R.id.sp_resolution);
         ArrayAdapter<CharSequence> resolutionAdapter = ArrayAdapter.createFromResource(ctx,

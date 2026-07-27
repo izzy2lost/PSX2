@@ -551,22 +551,38 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
         final String uri;
         final boolean arcadeManifest;
 
-        ScannedGame(String name, String uri) {
-            this.name = name;
+        ScannedGame(String rawName, String uri) {
+            this.arcadeManifest = ArcadeGameManifest.isManifest(rawName);
+            this.name = stripGameExt(rawName);
             this.uri = uri;
-            this.arcadeManifest = ArcadeGameManifest.isManifest(name);
         }
+    }
+
+    // Strips the disc-image/manifest extension for display (e.g. "Game.iso" -> "Game").
+    // Serial/title resolution overwrites this with a proper title when available; this is
+    // just the fallback shown before that resolves (or when it never matches an index entry).
+    private static String stripGameExt(String name) {
+        if (TextUtils.isEmpty(name)) return name;
+        String lower = name.toLowerCase(Locale.ROOT);
+        for (String ext : GAME_EXTS) {
+            if (lower.endsWith(ext)) return name.substring(0, name.length() - ext.length());
+        }
+        return name;
     }
 
     private GameList scanConfiguredGameFolders() {
         java.util.ArrayList<ScannedGame> scannedGames = new java.util.ArrayList<>();
         java.util.HashSet<String> seenUris = new java.util.HashSet<>();
+        // Two configured folder grants can resolve to the same physical files under different
+        // SAF tree URIs (e.g. the same folder re-picked after a permission reset), so seenUris
+        // alone doesn't catch the duplicate. Also dedupe by normalized filename.
+        java.util.HashSet<String> seenNames = new java.util.HashSet<>();
         SharedPreferences prefs = getSharedPreferences("app_prefs", MODE_PRIVATE);
         for (String folderUri : getGameFolderUris(prefs)) {
             try {
                 DocumentFile dir = DocumentFile.fromTreeUri(this, Uri.parse(folderUri));
                 if (dir != null && dir.isDirectory()) {
-                    scanGamesRecursive(dir, scannedGames, seenUris);
+                    scanGamesRecursive(dir, scannedGames, seenUris, seenNames);
                 }
             } catch (Throwable ignored) {}
         }
@@ -638,18 +654,21 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
     }
 
     private void scanGamesRecursive(DocumentFile dir, java.util.List<ScannedGame> games,
-                                    java.util.Set<String> seenUris) {
+                                    java.util.Set<String> seenUris, java.util.Set<String> seenNames) {
         DocumentFile[] children = dir.listFiles();
         if (children == null) return;
         for (DocumentFile child : children) {
             if (child == null) continue;
             if (child.isDirectory()) {
-                scanGamesRecursive(child, games, seenUris);
+                scanGamesRecursive(child, games, seenUris, seenNames);
             } else if (child.isFile()) {
                 String name = child.getName();
                 String uri = child.getUri().toString();
                 if (hasGameExt(name) && seenUris.add(uri)) {
-                    games.add(new ScannedGame(name, uri));
+                    String normalized = stripGameExt(name).toLowerCase(Locale.ROOT).trim();
+                    if (seenNames.add(normalized)) {
+                        games.add(new ScannedGame(name, uri));
+                    }
                 }
             }
         }
@@ -919,6 +938,14 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
                             try {
                                 MemoryCardManagerDialogFragment dialog = new MemoryCardManagerDialogFragment();
                                 dialog.show(getSupportFragmentManager(), "memcard_manager_dialog");
+                            } catch (Throwable ignored) {}
+                        });
+                    }
+                    View btnCustomDriver = header.findViewById(R.id.drawer_btn_custom_driver);
+                    if (btnCustomDriver != null) {
+                        btnCustomDriver.setOnClickListener(v -> {
+                            try {
+                                new CustomDriverDialogFragment().show(getSupportFragmentManager(), "custom_driver");
                             } catch (Throwable ignored) {}
                         });
                     }
@@ -2028,6 +2055,10 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
             final String gameFile = m_szGamefile;
             // Restore global cards, then apply this exact file URI's overrides before boot.
             MemoryCardSettings.applyForGame(this, gameFile);
+            // Must run before prepareVMStart/runVMThread: the first MTGS::Open (inside
+            // the VM thread) triggers Vulkan::LoadVulkanLibrary, which reads whatever
+            // driver selection was pinned here.
+            CustomDriverDialogFragment.applyStoredSelection(getApplicationContext());
             NativeApp.prepareVMStart();
 
             Thread emulationThread = new Thread(() -> {

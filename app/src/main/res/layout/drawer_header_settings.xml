@@ -116,6 +116,17 @@
             android:checkable="true" />
         </com.google.android.material.button.MaterialButtonToggleGroup>
 
+        <!-- Custom GPU driver (Vulkan ICD swap, e.g. Mesa Turnip) -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/drawer_btn_custom_driver"
+            style="@style/Widget.Material3Expressive.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Custom GPU Driver"
+            android:textColor="@android:color/white"
+            android:textAllCaps="false"
+            android:layout_marginBottom="8dp" />
+
         <!-- Orientation -->
         <TextView
             android:layout_width="match_parent"

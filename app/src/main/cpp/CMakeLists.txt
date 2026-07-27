@@ -48,6 +48,15 @@ add_subdirectory(common)
 # make pcsx2
 add_subdirectory(pcsx2)
 
+# Android-only: libadrenotools (custom Vulkan ICD loading, e.g. Mesa Turnip on Adreno).
+# Provides the static `adrenotools` lib linked into PCSX2 above, plus runtime hook
+# .so's that get packaged into the apk's lib/<abi>/ alongside libemucore.so. Not added
+# via SearchForStuff.cmake (EXCLUDE_FROM_ALL there) because the hook .so's are dlopen'd
+# at runtime, never link-time, so they must be part of the default build to get built at all.
+if(ANDROID)
+	add_subdirectory(3rdparty/adrenotools)
+endif()
+
 if(ENABLE_QT_UI)
 	add_subdirectory(pcsx2-qt)
 endif()

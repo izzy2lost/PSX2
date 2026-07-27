@@ -89,6 +89,11 @@ public:
 	/// Returns true if running on a Qualcomm Adreno GPU (e.g. turnip/freedreno).
 	__fi bool IsDeviceAdreno() const { return (m_device_properties.vendorID == 0x5143); }
 
+	/// Returns true if running on a Samsung Xclipse GPU (Exynos, AMD RDNA2-derived).
+	/// NOTE: 0x144D (Samsung) is unverified across driver revisions -- a real Xclipse
+	/// tester must confirm this fires correctly.
+	__fi bool IsDeviceXclipse() const { return (m_device_properties.vendorID == 0x144Du); }
+
 	// Creates a simple render pass.
 	VkRenderPass GetRenderPass(VkFormat color_format, VkFormat depth_format,
 		VkAttachmentLoadOp color_load_op = VK_ATTACHMENT_LOAD_OP_LOAD,

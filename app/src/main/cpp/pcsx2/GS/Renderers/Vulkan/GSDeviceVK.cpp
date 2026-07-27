@@ -2851,19 +2851,48 @@ bool GSDeviceVK::CheckFeatures()
 	if (!m_features.dual_source_blend)
 		Console.Warning("VK: Dual-source blending is unavailable or disabled; using feedback fallbacks.");
 
+	// framebuffer_fetch: the tiler-native ordered Cd read (ROAA / subpassLoad in tile memory).
+	// It lets the renderer drop the per-primitive texture barrier for blend-heavy draws --
+	// the fast, correct path for accurate blending on a TBDR. Mali gets it on by default
+	// whenever the extension is present (below); a couple of Mali variants return
+	// stale/zero reads through it and are excluded unless the user forces it back on to
+	// A/B their own driver.
 	m_features.framebuffer_fetch =
 		m_optional_extensions.vk_ext_rasterization_order_attachment_access && !GSConfig.DisableFramebufferFetch;
 	m_features.texture_barrier = GSConfig.OverrideTextureBarriers != 0;
+
+	// Mali-G57 has shipped drivers that expose the ROAA extension but return unreliable
+	// destination-color reads through it (black/missing textures). Route those onto the
+	// per-primitive texture-barrier path instead, unless the user opts back in to test
+	// their own driver.
+	const bool is_mali_g57 = is_mali &&
+		(std::string_view(m_device_properties.deviceName).find("Mali-G57") != std::string_view::npos);
+	if (is_mali_g57 && !GSConfig.ForceMaliFramebufferFetch)
+		m_features.framebuffer_fetch = false;
+
+	// Samsung Xclipse (Exynos, AMD RDNA2-derived) has no known-working ROAA-based
+	// framebuffer fetch; keep it off rather than routing the fast-blend path into a
+	// broken unit. No-op if the vendorID guess doesn't match the device.
+	if (IsDeviceXclipse())
+		m_features.framebuffer_fetch = false;
+
 	// Qualcomm Adreno (turnip/freedreno) only reads the render target correctly through the coherent
 	// rasterization-order subpassLoad input-attachment path. The feedback-loop-layout sampler drops
 	// content (objects vanish) and the RT-copy fallback miscolours 16-bit fbmask draws, so force the
-	// subpassLoad path on regardless of INI: enable framebuffer fetch (requires the rasterization-order
-	// extension) and texture barriers, and disable the feedback-loop layout so the RT is bound as an
-	// input attachment. See GSTextureVK::Create for the matching image usage.
+	// subpassLoad mechanism on regardless of INI: disable the feedback-loop layout (so the RT is
+	// bound as an input attachment) and force texture barriers on. Whether the coherent single-pass
+	// framebuffer-fetch read itself is used on top of that -- the fast path vs. the slower
+	// per-primitive-barrier fallback that still uses the same input-attachment read -- is a separate,
+	// user-controlled tradeoff: a handful of proprietary Adreno driver builds have shown stale ROAA
+	// reads (sprite alpha cutouts, invisible floor patches) above Basic blending accuracy, so it's
+	// gated behind EnableAdrenoFramebufferFetch (default on; DisableFramebufferFetch still overrides)
+	// instead of always-on, without touching the input-attachment correctness fix above.
+	// See GSTextureVK::Create for the matching image usage.
 	if (is_adreno)
 	{
 		m_optional_extensions.vk_ext_attachment_feedback_loop_layout = false;
-		m_features.framebuffer_fetch = m_optional_extensions.vk_ext_rasterization_order_attachment_access;
+		m_features.framebuffer_fetch = m_optional_extensions.vk_ext_rasterization_order_attachment_access &&
+			GSConfig.EnableAdrenoFramebufferFetch && !GSConfig.DisableFramebufferFetch;
 		m_features.texture_barrier = true;
 	}
 	m_features.multidraw_fb_copy = false;

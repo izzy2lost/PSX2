@@ -557,6 +557,12 @@ public class GamesCoverDialogFragment extends DialogFragment {
                             try { new MemoryCardManagerDialogFragment().show(getParentFragmentManager(), "memcard_manager_dialog"); } catch (Throwable ignored) {}
                         });
                     }
+                    View btnCustomDriver = header.findViewById(R.id.drawer_btn_custom_driver);
+                    if (btnCustomDriver != null) {
+                        btnCustomDriver.setOnClickListener(v -> {
+                            try { new CustomDriverDialogFragment().show(getParentFragmentManager(), "custom_driver"); } catch (Throwable ignored) {}
+                        });
+                    }
                     setupDialogDrawerBiosControls(header);
                     View btnAbout = header.findViewById(R.id.drawer_btn_about);
                     if (btnAbout != null) {

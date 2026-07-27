@@ -187,6 +187,12 @@ public class SettingsDialogFragment extends DialogFragment {
                 }
             });
         }
+
+        View btnCustomDriver = view.findViewById(R.id.btn_custom_driver);
+        if (btnCustomDriver != null) {
+            btnCustomDriver.setOnClickListener(v ->
+                    new CustomDriverDialogFragment().show(getParentFragmentManager(), "custom_driver"));
+        }
         
         // RetroAchievements button
         View btnAchievements = view.findViewById(R.id.btn_achievements);

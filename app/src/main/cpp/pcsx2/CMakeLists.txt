@@ -686,6 +686,10 @@ if(USE_VULKAN)
 	)
 	target_link_libraries(PCSX2_FLAGS INTERFACE vulkan-headers)
 	target_include_directories(PCSX2_FLAGS INTERFACE ${SHADERC_INCLUDE_DIR})
+	if(ANDROID AND CMAKE_ANDROID_ARCH_ABI STREQUAL "arm64-v8a")
+		# VKLoader.cpp's adrenotools_open_libvulkan splice needs adrenotools/driver.h.
+		target_link_libraries(PCSX2_FLAGS INTERFACE adrenotools)
+	endif()
 endif()
 
 set(pcsx2GSMetalShaders

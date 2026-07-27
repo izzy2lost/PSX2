@@ -345,6 +345,11 @@ public class NativeApp {
 
     public static native boolean runVMThread(String path);
     public static native void prepareVMStart();
+    // Custom Vulkan driver (e.g. Mesa Turnip). Pass four empty strings to revert
+    // to the system loader. Must be called before runVMThread — see
+    // Vulkan::SetCustomDriverPath in VKLoader.cpp for why.
+    public static native void setCustomVulkanDriver(String driverDir, String driverName,
+                                                     String redirectDir, String hookLibDir);
     public static native String getLastVMError();
     public static native void setVerifiedBiosFiles(String usaBios, String europeBios,
                                                    String japanBios, String arcadeBios);
