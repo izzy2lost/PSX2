@@ -148,6 +148,19 @@
             app:iconPadding="12dp"
             app:iconSize="20dp" />
 
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_texture_packs"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:contentDescription="Browse and download texture packs"
+            android:text="PACKS"
+            app:icon="@drawable/image_24px"
+            app:iconGravity="textStart"
+            app:iconPadding="12dp"
+            app:iconSize="20dp"
+            app:iconTint="@color/brand_primary" />
+
     </LinearLayout>
 
     </LinearLayout>

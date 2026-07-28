@@ -362,7 +362,12 @@ if(POSITION_INDEPENDENT_CODE)
 	# Without this check, on some platforms (e.g. Fedora 43) the right flags
 	# won't be passed to the linker, resulting in a broken build when link time
 	# optimization is enabled (even with a cmake version >= 3.14).
-	if(NOT MSVC)
+	# CMake 3.22's CheckPIESupported module invokes the compiler directly and
+	# omits the Android NDK's --target and --sysroot arguments. That probes the
+	# Linux host linker instead and produces false missing crtbegin/libgcc
+	# errors. Android API 16+ requires PIE and the NDK toolchain supplies the
+	# correct flags, so do not run the generic host-style probe for Android.
+	if(NOT MSVC AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
 		include(CheckPIESupported)
 		check_pie_supported(OUTPUT_VARIABLE PIE_SUPPORTED_OUTPUT LANGUAGES C CXX)
 

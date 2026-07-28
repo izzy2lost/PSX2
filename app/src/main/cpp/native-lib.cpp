@@ -14,6 +14,8 @@
 #include "PerformanceMetrics.h"
 #include "GameList.h"
 #include "GS/GSPerfMon.h"
+#include "GS/Renderers/HW/GSRendererHW.h"
+#include "GS/Renderers/HW/GSTextureReplacements.h"
 #include "GSDumpReplayer.h"
 #include "ImGui/ImGuiManager.h"
 #include "common/Path.h"
@@ -736,6 +738,21 @@ Java_com_izzy2lost_psx2_NativeApp_setLoadTextures(JNIEnv *env, jclass clazz,
     if (VMManager::HasValidVM()) {
         VMManager::ApplySettings();
     }
+}
+
+extern "C"
+JNIEXPORT void JNICALL
+Java_com_izzy2lost_psx2_NativeApp_reloadTextureReplacements(JNIEnv*, jclass) {
+    if (!VMManager::HasValidVM() || !MTGS::IsOpen())
+        return;
+
+    MTGS::RunOnGSThread([]() {
+        if (!g_gs_renderer || !GSConfig.LoadTextureReplacements)
+            return;
+
+        GSTextureReplacements::ReloadReplacementMap();
+        g_gs_renderer->PurgeTextureCache(true, false, true);
+    });
 }
 
 extern "C"

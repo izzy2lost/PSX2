@@ -7,6 +7,8 @@
     tools:ignore="MissingLeanbackLauncher">
 
     <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 
     <!-- Prefer OpenGL ES 3.2 when available, but allow install/run on older devices -->
     <uses-feature android:glEsVersion="0x00030002" android:required="false" />
@@ -47,6 +49,12 @@
         tools:ignore="UnusedAttribute">
 
         <meta-data android:name="android.max_aspect" android:value="2.4" />
+
+        <!-- Long texture downloads and SAF extraction run as user-visible WorkManager work. -->
+        <service
+            android:name="androidx.work.impl.foreground.SystemForegroundService"
+            android:foregroundServiceType="dataSync"
+            tools:node="merge" />
 
     <activity
             android:name=".MainActivity"

@@ -122,20 +122,40 @@
             android:textSize="12sp"/>
     </LinearLayout>
 
-    <!-- Download button below covers, centered with COVERS text -->
-    <com.google.android.material.button.MaterialButton
-        android:id="@+id/btn_download"
-        style="@style/Widget.MaterialComponents.Button.TextButton"
-        android:layout_width="wrap_content"
+    <!-- Library content downloads belong here, beside the games they target. -->
+    <LinearLayout
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_gravity="center_horizontal"
-        android:text="COVERS"
-        android:contentDescription="Download Missing Covers"
-        app:icon="@drawable/download_24px"
-        app:iconTint="@color/brand_primary"
-        app:iconGravity="textStart"
-        app:iconPadding="20dp"
-        app:iconSize="34dp" />
+        android:gravity="center"
+        android:orientation="horizontal">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_download"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="COVERS"
+            android:contentDescription="Download Missing Covers"
+            app:icon="@drawable/download_24px"
+            app:iconTint="@color/brand_primary"
+            app:iconGravity="textStart"
+            app:iconPadding="10dp"
+            app:iconSize="28dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btn_texture_packs"
+            style="@style/Widget.MaterialComponents.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:contentDescription="Browse and download texture packs"
+            android:text="PACKS"
+            app:icon="@drawable/image_24px"
+            app:iconGravity="textStart"
+            app:iconPadding="10dp"
+            app:iconSize="28dp"
+            app:iconTint="@color/brand_primary" />
+
+    </LinearLayout>
 
     </LinearLayout>
 

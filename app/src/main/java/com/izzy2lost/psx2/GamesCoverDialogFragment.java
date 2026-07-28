@@ -481,6 +481,9 @@ public class GamesCoverDialogFragment extends DialogFragment {
             if (nav != null) {
                 View header = (nav.getHeaderCount() > 0) ? nav.getHeaderView(0) : nav.inflateHeaderView(R.layout.drawer_header_settings);
                 if (header != null) {
+                    TextView drawerTitle = header.findViewById(R.id.drawer_title);
+                    if (drawerTitle != null) drawerTitle.setText("Game Library");
+
                     View btnPower = header.findViewById(R.id.drawer_btn_power);
                     if (btnPower != null) {
                         btnPower.setOnClickListener(v -> {
@@ -545,6 +548,25 @@ public class GamesCoverDialogFragment extends DialogFragment {
                             } catch (Throwable ignored) {}
                         });
                     }
+                    View btnTexturePacks =
+                            header.findViewById(R.id.drawer_btn_texture_packs);
+                    if (btnTexturePacks != null) {
+                        btnTexturePacks.setVisibility(View.VISIBLE);
+                        btnTexturePacks.setOnClickListener(v -> {
+                            try {
+                                androidx.drawerlayout.widget.DrawerLayout drawer =
+                                        root.findViewById(R.id.dlg_drawer_layout);
+                                if (drawer != null) {
+                                    drawer.closeDrawer(
+                                            androidx.core.view.GravityCompat.START);
+                                }
+                                showTexturePackManager();
+                            } catch (Throwable error) {
+                                android.util.Log.e("GamesCoverDialog",
+                                        "Unable to open texture packs", error);
+                            }
+                        });
+                    }
                     View btnGameState = header.findViewById(R.id.drawer_btn_game_state);
                     if (btnGameState != null) {
                         btnGameState.setOnClickListener(v -> {
@@ -591,6 +613,10 @@ public class GamesCoverDialogFragment extends DialogFragment {
         downloadButton = root.findViewById(R.id.btn_download);
         if (downloadButton != null) {
             downloadButton.setOnClickListener(v -> startDownloadCovers());
+        }
+        View texturePacksButton = root.findViewById(R.id.btn_texture_packs);
+        if (texturePacksButton != null) {
+            texturePacksButton.setOnClickListener(v -> showTexturePackManager());
         }
         
         View btnRefresh = root.findViewById(R.id.btn_refresh);
@@ -1108,6 +1134,47 @@ public class GamesCoverDialogFragment extends DialogFragment {
 
     private File getCoversDir() {
         return getCoversDir(requireContext().getApplicationContext());
+    }
+
+    private void showTexturePackManager() {
+        if (!isAdded()) return;
+        final androidx.fragment.app.FragmentManager manager = getParentFragmentManager();
+        final androidx.fragment.app.Fragment existing =
+                manager.findFragmentByTag("texture_pack_manager");
+        if (existing != null && existing.isAdded()) return;
+
+        final String[] sourceUris = origUris != null ? origUris : uris;
+        final String[] sourceTitles = origTitles != null ? origTitles : titles;
+        if (sourceUris == null || sourceTitles == null) {
+            Toast.makeText(requireContext(), "Game library metadata is not ready",
+                    Toast.LENGTH_SHORT).show();
+            return;
+        }
+
+        final SharedPreferences prefs = requireContext()
+                .getSharedPreferences("app_prefs", Context.MODE_PRIVATE);
+        final java.util.LinkedHashMap<String, String> games = new java.util.LinkedHashMap<>();
+        final int count = Math.min(sourceUris.length, sourceTitles.length);
+        for (int index = 0; index < count; index++) {
+            String serial = normalizeUsableSerial(
+                    prefs.getString("serial:" + sourceUris[index], null));
+            if (serial.isEmpty()) serial = buildSerialFromUri(sourceUris[index]);
+            if (!serial.matches("^[A-Z]{4}-[0-9]{5}$")) continue;
+            String title = sourceTitles[index];
+            if (title == null || title.isBlank()) title = serial;
+            games.putIfAbsent(serial, title);
+        }
+        if (games.isEmpty()) {
+            Toast.makeText(requireContext(),
+                    "Game serials are still being identified. Try again in a moment.",
+                    Toast.LENGTH_LONG).show();
+            return;
+        }
+
+        TexturePackManagerDialogFragment.newInstance(
+                        games.values().toArray(new String[0]),
+                        games.keySet().toArray(new String[0]))
+                .show(manager, "texture_pack_manager");
     }
 
     private static File getCoversDir(Context context) {

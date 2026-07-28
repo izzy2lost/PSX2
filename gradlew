@@ -114,6 +114,14 @@ esac
 
 CLASSPATH=$APP_HOME/gradle/wrapper/gradle-wrapper.jar
 
+# Android Studio's Snap includes a complete JDK. Use it as a local fallback
+# when Gradle is launched by an IDE or task runner which did not inherit the
+# user's shell environment.
+if [ -z "$JAVA_HOME" ] && ! command -v java >/dev/null 2>&1 &&
+    [ -x /snap/android-studio/current/jbr/bin/java ] ; then
+    JAVA_HOME=/snap/android-studio/current/jbr
+    export JAVA_HOME
+fi
 
 # Determine the Java command to use to start the JVM.
 if [ -n "$JAVA_HOME" ] ; then

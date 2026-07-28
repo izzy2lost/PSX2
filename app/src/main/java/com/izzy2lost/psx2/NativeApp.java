@@ -48,7 +48,7 @@ public class NativeApp {
 
 	protected static WeakReference<Context> mContext;
 	public static Context getContext() {
-		return mContext.get();
+		return mContext != null ? mContext.get() : null;
 	}
 
 	public static void initializeOnce(Context context) {
@@ -119,6 +119,11 @@ public class NativeApp {
     public static native void setLoadTextures(boolean enabled);
     public static void setLoadTexturesAsync(boolean enabled) {
         runNativeSettingAsync("setLoadTextures", () -> setLoadTextures(enabled));
+    }
+    public static native void reloadTextureReplacements();
+    public static void reloadTextureReplacementsAsync() {
+        runNativeSettingAsync("reloadTextureReplacements",
+                NativeApp::reloadTextureReplacements);
     }
     public static native void setAsyncTextureLoading(boolean enabled);
     public static void setAsyncTextureLoadingAsync(boolean enabled) {

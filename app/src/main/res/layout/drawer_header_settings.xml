@@ -195,6 +195,23 @@
             app:iconSize="20dp"
             android:layout_marginTop="8dp" />
 
+        <!-- Visible only in the active game-library drawer. -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/drawer_btn_texture_packs"
+            style="@style/Widget.Material3Expressive.Button.OutlinedButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Texture Packs"
+            android:textAllCaps="false"
+            android:textColor="@android:color/white"
+            android:visibility="gone"
+            app:icon="@drawable/image_24px"
+            app:iconGravity="textStart"
+            app:iconPadding="8dp"
+            app:iconSize="20dp"
+            app:iconTint="@color/brand_primary" />
+
         <!-- Save/Load game state shortcut -->
         <com.google.android.material.button.MaterialButton
             android:id="@+id/drawer_btn_game_state"

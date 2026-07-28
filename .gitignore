@@ -35,4 +35,7 @@ MEMCARD_ARCHITECTURE.md
 
 # But do NOT ignore README.md
 !README.md
+!app/src/main/cpp/3rdparty/adrenotools/CMakeLists.txt
+!app/src/main/cpp/3rdparty/adrenotools/lib/linkernsbypass/CMakeLists.txt
+!app/src/main/cpp/3rdparty/adrenotools/src/hook/CMakeLists.txt
 build-apk.bat
