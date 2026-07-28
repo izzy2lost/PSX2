@@ -60,10 +60,13 @@ public final class TitleResolver {
             try {
                 android.content.SharedPreferences prefs = ctx.getSharedPreferences("app_prefs", Context.MODE_PRIVATE);
                 String saved = prefs.getString("serial:" + uriString, null);
-                if (saved != null && !saved.isEmpty()) serial = saved;
+                serial = GameSerialUtils.normalizeLibrarySerial(saved);
             } catch (Throwable ignored) {}
             if (serial == null || serial.isEmpty()) {
-                try { serial = NativeApp.getGameSerialSafe(uriString); } catch (Throwable ignored) {}
+                try {
+                    serial = GameSerialUtils.normalizeLibrarySerial(
+                            NativeApp.getGameSerialSafe(uriString));
+                } catch (Throwable ignored) {}
             }
             if (serial == null || serial.isEmpty()) {
                 Uri u = Uri.parse(uriString);
@@ -197,13 +200,12 @@ public final class TitleResolver {
     }
 
     private static String normalizeCandidate(String s) {
-        if (s == null) return null;
-        String upper = s.toUpperCase(Locale.ROOT).replace('_', '-');
-        // Try to extract serial
-        return extractSerialFromLine(upper);
+        return GameSerialUtils.normalizeLibrarySerial(s);
     }
 
     private static String normalizeSerial(String serial) {
+        final String canonical = GameSerialUtils.normalizeLibrarySerial(serial);
+        if (!canonical.isEmpty()) return canonical;
         String s = serial.toUpperCase(Locale.ROOT).replace('_', '-');
         s = s.replaceAll("([A-Z]{4,5})-([0-9]{3})\\.([0-9]{2})", "$1-$2$3");
         return s;

@@ -354,12 +354,7 @@ public final class CoverDownloadWorker extends Worker {
     }
 
     private static String sanitizeSerial(String serial) {
-        if (serial == null) {
-            return "";
-        }
-        final String normalized = serial.trim().toUpperCase(Locale.ROOT)
-                .replaceAll("[^A-Z0-9-]", "");
-        return normalized.length() <= 16 ? normalized : "";
+        return GameSerialUtils.normalizePs2Serial(serial);
     }
 
     private static Data resultData(String runToken, int ready, int downloaded,

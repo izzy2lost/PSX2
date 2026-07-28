@@ -68,6 +68,7 @@ public class GamesCoverDialogFragment extends DialogFragment {
     private int lastItemWidthPx = 0;
     private View downloadButton;
     private boolean coverWorkWasRunning = false;
+    private boolean texturePackManagerLoading = false;
 
     // Keep WorkManager input well below its 10 KiB Data limit, even for long serials.
     private static final int COVER_DOWNLOAD_BATCH_SIZE = 100;
@@ -940,11 +941,7 @@ public class GamesCoverDialogFragment extends DialogFragment {
     }
 
     private static String normalizeUsableSerial(String serial) {
-        final String normalized = normalizeSerial(serial);
-        // PS2 serials (for example SLUS-20312) and the arcade NM identifiers
-        // are short. Longer values are normally a normalized SAF document path,
-        // such as PRIMARYARCADEGAMESNM00057, and must be reparsed from the URI.
-        return normalized.length() <= 16 ? normalized : "";
+        return GameSerialUtils.normalizeLibrarySerial(serial);
     }
 
     private static String buildSerialFromUri(String uriStr) {
@@ -1142,6 +1139,7 @@ public class GamesCoverDialogFragment extends DialogFragment {
         final androidx.fragment.app.Fragment existing =
                 manager.findFragmentByTag("texture_pack_manager");
         if (existing != null && existing.isAdded()) return;
+        if (texturePackManagerLoading) return;
 
         final String[] sourceUris = origUris != null ? origUris : uris;
         final String[] sourceTitles = origTitles != null ? origTitles : titles;
@@ -1151,30 +1149,71 @@ public class GamesCoverDialogFragment extends DialogFragment {
             return;
         }
 
-        final SharedPreferences prefs = requireContext()
-                .getSharedPreferences("app_prefs", Context.MODE_PRIVATE);
-        final java.util.LinkedHashMap<String, String> games = new java.util.LinkedHashMap<>();
-        final int count = Math.min(sourceUris.length, sourceTitles.length);
-        for (int index = 0; index < count; index++) {
-            String serial = normalizeUsableSerial(
-                    prefs.getString("serial:" + sourceUris[index], null));
-            if (serial.isEmpty()) serial = buildSerialFromUri(sourceUris[index]);
-            if (!serial.matches("^[A-Z]{4}-[0-9]{5}$")) continue;
-            String title = sourceTitles[index];
-            if (title == null || title.isBlank()) title = serial;
-            games.putIfAbsent(serial, title);
-        }
-        if (games.isEmpty()) {
-            Toast.makeText(requireContext(),
-                    "Game serials are still being identified. Try again in a moment.",
-                    Toast.LENGTH_LONG).show();
-            return;
-        }
+        final Context appContext = requireContext().getApplicationContext();
+        final String[] uriSnapshot = Arrays.copyOf(sourceUris, sourceUris.length);
+        final String[] titleSnapshot = Arrays.copyOf(sourceTitles, sourceTitles.length);
+        texturePackManagerLoading = true;
+        Toast.makeText(requireContext(), "Checking library game IDs…",
+                Toast.LENGTH_SHORT).show();
 
-        TexturePackManagerDialogFragment.newInstance(
-                        games.values().toArray(new String[0]),
-                        games.keySet().toArray(new String[0]))
-                .show(manager, "texture_pack_manager");
+        COVER_PREPARATION_EXECUTOR.execute(() -> {
+            final SharedPreferences prefs = appContext.getSharedPreferences(
+                    "app_prefs", Context.MODE_PRIVATE);
+            final SharedPreferences.Editor editor = prefs.edit();
+            final java.util.LinkedHashMap<String, String> games =
+                    new java.util.LinkedHashMap<>();
+            final int count = Math.min(uriSnapshot.length, titleSnapshot.length);
+
+            for (int index = 0; index < count; index++) {
+                final String gameUri = uriSnapshot[index];
+                final String saved = prefs.getString("serial:" + gameUri, null);
+                String serial = normalizeUsableSerial(saved);
+                if (serial.isEmpty()) {
+                    try {
+                        serial = normalizeUsableSerial(
+                                NativeApp.getGameSerialSafe(gameUri));
+                    } catch (Throwable error) {
+                        android.util.Log.w("GamesCoverDialog",
+                                "Unable to identify game for texture packs: " + gameUri,
+                                error);
+                    }
+                }
+                if (serial.isEmpty()) {
+                    serial = normalizeUsableSerial(
+                            extractSerialFromUri(appContext, gameUri));
+                }
+                if (serial.isEmpty()) serial = buildSerialFromUri(gameUri);
+                if (!GameSerialUtils.isPs2Serial(serial)) continue;
+
+                if (!serial.equals(saved)) {
+                    editor.putString("serial:" + gameUri, serial);
+                }
+                String title = titleSnapshot[index];
+                if (title == null || title.isBlank()) title = serial;
+                games.putIfAbsent(serial, title);
+            }
+            editor.apply();
+
+            UiUtils.postIfFragmentAttached(this, () -> {
+                texturePackManagerLoading = false;
+                final androidx.fragment.app.FragmentManager currentManager =
+                        getParentFragmentManager();
+                final androidx.fragment.app.Fragment current =
+                        currentManager.findFragmentByTag("texture_pack_manager");
+                if (current != null && current.isAdded()) return;
+                if (games.isEmpty()) {
+                    Toast.makeText(requireContext(),
+                            "No valid PS2 game IDs were found in the library.",
+                            Toast.LENGTH_LONG).show();
+                    return;
+                }
+
+                TexturePackManagerDialogFragment.newInstance(
+                                games.values().toArray(new String[0]),
+                                games.keySet().toArray(new String[0]))
+                        .show(currentManager, "texture_pack_manager");
+            });
+        });
     }
 
     private static File getCoversDir(Context context) {
