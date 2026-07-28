@@ -279,6 +279,21 @@
             android:layout_marginTop="4dp"
             android:layout_marginBottom="8dp" />
 
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/drawer_sw_boot_bios_on_start"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Boot PS2 menu on startup"
+            android:textColor="@android:color/white" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Off: the app opens straight to your games. Games never need the PS2 menu to run first."
+            android:textColor="@color/md_theme_tertiary"
+            android:textSize="12sp"
+            android:paddingBottom="4dp" />
+
         <!-- Aspect Ratio -->
         <TextView
             android:layout_width="match_parent"

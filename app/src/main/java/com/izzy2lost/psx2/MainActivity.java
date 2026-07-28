@@ -150,6 +150,14 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
         return !TextUtils.isEmpty(m_szGamefile);
     }
 
+    /** Preference for booting the PS2 system menu when the app opens with no game chosen. */
+    public static final String PREF_BOOT_BIOS_ON_START = "boot_bios_on_start";
+
+    public boolean isBootBiosOnStartEnabled() {
+        return getSharedPreferences("app_prefs", MODE_PRIVATE)
+                .getBoolean(PREF_BOOT_BIOS_ON_START, false);
+    }
+
     @Override
     public void onConfigurationChanged(@NonNull Configuration newConfig) {
         super.onConfigurationChanged(newConfig);
@@ -575,36 +583,39 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
         java.util.HashSet<String> seenUris = new java.util.HashSet<>();
         // Two configured folder grants can resolve to the same physical files under different
         // SAF tree URIs (e.g. the same folder re-picked after a permission reset), so seenUris
-        // alone doesn't catch the duplicate. Also dedupe by normalized filename.
-        java.util.HashSet<String> seenNames = new java.util.HashSet<>();
+        // alone doesn't catch the duplicate. The provider's document id is the same file
+        // identity through either grant, so dedupe on that. Deduping by display name instead
+        // silently drops real files: an .acgame manifest collides with its own media image,
+        // and every arcade set ships the same mc000.bin / mc001.bin names.
+        java.util.HashSet<String> seenDocuments = new java.util.HashSet<>();
         SharedPreferences prefs = getSharedPreferences("app_prefs", MODE_PRIVATE);
         for (String folderUri : getGameFolderUris(prefs)) {
             try {
                 DocumentFile dir = DocumentFile.fromTreeUri(this, Uri.parse(folderUri));
                 if (dir != null && dir.isDirectory()) {
-                    scanGamesRecursive(dir, scannedGames, seenUris, seenNames);
+                    scanGamesRecursive(dir, scannedGames, seenUris, seenDocuments);
                 }
             } catch (Throwable ignored) {}
         }
 
-        // An .acgame manifest is the launchable arcade entry. Hide only the exact media file
-        // referenced by that manifest; unrelated CHDs and other disc images remain visible.
-        java.util.HashSet<String> manifestMediaUris = new java.util.HashSet<>();
+        // An .acgame manifest is the launchable arcade entry. Hide every file it names —
+        // media image, dongle, memory card, boot ELF — because the dongle and card dumps
+        // are .bin and would otherwise be listed as games of their own, named after the
+        // file (e.g. "NM00001") and unbootable. Unrelated CHDs and other disc images
+        // remain visible.
+        java.util.HashSet<String> manifestOwnedUris = new java.util.HashSet<>();
         for (ScannedGame game : scannedGames) {
             if (!game.arcadeManifest) continue;
             ArcadeGameManifest.Metadata metadata = ArcadeGameManifest.read(this, game.uri);
             if (!ArcadeGameManifest.isBlank(metadata.title)) game.name = metadata.title.trim();
-            String mediaUriKey = ArcadeGameManifest.resolveMediaUriKey(game.uri, metadata);
-            if (!TextUtils.isEmpty(mediaUriKey)) {
-                manifestMediaUris.add(mediaUriKey);
-            }
+            manifestOwnedUris.addAll(ArcadeGameManifest.resolveOwnedUriKeys(game.uri, metadata));
         }
 
         java.util.ArrayList<String> nameList = new java.util.ArrayList<>();
         java.util.ArrayList<String> uriList = new java.util.ArrayList<>();
         for (ScannedGame game : scannedGames) {
             if (!game.arcadeManifest &&
-                    manifestMediaUris.contains(ArcadeGameManifest.uriKey(game.uri))) {
+                    manifestOwnedUris.contains(ArcadeGameManifest.uriKey(game.uri))) {
                 continue;
             }
             nameList.add(game.name);
@@ -654,21 +665,19 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
     }
 
     private void scanGamesRecursive(DocumentFile dir, java.util.List<ScannedGame> games,
-                                    java.util.Set<String> seenUris, java.util.Set<String> seenNames) {
+                                    java.util.Set<String> seenUris, java.util.Set<String> seenDocuments) {
         DocumentFile[] children = dir.listFiles();
         if (children == null) return;
         for (DocumentFile child : children) {
             if (child == null) continue;
             if (child.isDirectory()) {
-                scanGamesRecursive(child, games, seenUris, seenNames);
+                scanGamesRecursive(child, games, seenUris, seenDocuments);
             } else if (child.isFile()) {
                 String name = child.getName();
                 String uri = child.getUri().toString();
-                if (hasGameExt(name) && seenUris.add(uri)) {
-                    String normalized = stripGameExt(name).toLowerCase(Locale.ROOT).trim();
-                    if (seenNames.add(normalized)) {
-                        games.add(new ScannedGame(name, uri));
-                    }
+                if (hasGameExt(name) && seenUris.add(uri)
+                        && seenDocuments.add(ArcadeGameManifest.uriKey(uri))) {
+                    games.add(new ScannedGame(name, uri));
                 }
             }
         }
@@ -762,12 +771,16 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
                 try {
                     final View decor = (getWindow() != null) ? getWindow().getDecorView() : null;
                     if (decor != null) {
+                        // Nothing boots on its own anymore, so the picker can come up as
+                        // soon as the window is laid out. Only the optional BIOS boot
+                        // needs the old head start.
+                        final long delayMs = isBootBiosOnStartEnabled() ? 1600 : 250;
                         decor.postDelayed(() -> {
                             if (!isFinishing() && !isDestroyed() && !mSetupWizardActive
                                     && !getSupportFragmentManager().isStateSaved()) {
                                 openGamesDialog();
                             }
-                        }, 1600); // small delay to let BIOS boot briefly
+                        }, delayMs);
                     }
                 } catch (Throwable ignored) {}
             }
@@ -2044,6 +2057,11 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
     }
 
     public void startEmuThread() {
+        // Nothing chosen yet: stay idle instead of booting the PS2 system menu.
+        // surfaceChanged() calls this on every surface event, so this is also what
+        // keeps the app from booting anything before the user picks a game.
+        if (!hasSelectedGame() && !isBootBiosOnStartEnabled()) return;
+
         // Ensure BIOS present before starting emulation
         if (!ensureBiosOrPrompt()) return;
 
@@ -2089,14 +2107,17 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
             emulationThread.start();
         }
 
-        // Show pause button when game starts (game is always running initially)
-        runOnUiThread(() -> {
-            MaterialButton btn_pause_play = findViewById(R.id.btn_pause_play);
-            if (btn_pause_play != null) {
-                btn_pause_play.setVisibility(View.VISIBLE);
-                btn_pause_play.setIcon(ContextCompat.getDrawable(this, R.drawable.play_pause_24px));
-            }
-        });
+        // Show pause button when a game starts (a game is always running initially).
+        // A BIOS-only boot has nothing to pause back into, so leave the button hidden.
+        if (hasSelectedGame()) {
+            runOnUiThread(() -> {
+                MaterialButton btn_pause_play = findViewById(R.id.btn_pause_play);
+                if (btn_pause_play != null) {
+                    btn_pause_play.setVisibility(View.VISIBLE);
+                    btn_pause_play.setIcon(ContextCompat.getDrawable(this, R.drawable.play_pause_24px));
+                }
+            });
+        }
     }
 
     public void applyCurrentMemoryCardSettings() {
@@ -2116,16 +2137,21 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
         // Never wait for the emulation thread from Android's UI thread.
         mEmulationControlExecutor.execute(() -> {
             try {
-                NativeApp.shutdown();
-                Thread threadToJoin;
-                synchronized (mEmulationThreadLock) {
-                    threadToJoin = mEmulationThread;
-                }
-                if (threadToJoin != null && threadToJoin != Thread.currentThread()) {
-                    threadToJoin.join();
+                // Only stop something that is actually running. Asking for a shutdown
+                // while the VM is already down leaves a stop request in flight that
+                // the boot below would have to race.
+                if (isThread()) {
+                    NativeApp.shutdown();
+                    Thread threadToJoin;
                     synchronized (mEmulationThreadLock) {
-                        if (mEmulationThread == threadToJoin) {
-                            mEmulationThread = null;
+                        threadToJoin = mEmulationThread;
+                    }
+                    if (threadToJoin != null && threadToJoin != Thread.currentThread()) {
+                        threadToJoin.join();
+                        synchronized (mEmulationThreadLock) {
+                            if (mEmulationThread == threadToJoin) {
+                                mEmulationThread = null;
+                            }
                         }
                     }
                 }
@@ -2681,6 +2707,20 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
             });
         }
 
+        // Boot the PS2 system menu at startup instead of staying idle until a game is picked
+        com.google.android.material.materialswitch.MaterialSwitch swBootBios =
+                header.findViewById(R.id.drawer_sw_boot_bios_on_start);
+        if (swBootBios != null) {
+            swBootBios.setTag("setup");
+            swBootBios.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                if (isChecked == prefs.getBoolean(PREF_BOOT_BIOS_ON_START, false)) return;
+                prefs.edit().putBoolean(PREF_BOOT_BIOS_ON_START, isChecked).apply();
+                // Turning it on with nothing loaded is how you reach the PS2 menu,
+                // so honor it now rather than at the next launch.
+                if (isChecked && !hasSelectedGame() && !isThread()) startEmuThread();
+            });
+        }
+
         // Touch right stick joystick (optional on-screen control)
         com.google.android.material.materialswitch.MaterialSwitch swTouchRightStick = header.findViewById(R.id.drawer_sw_touch_right_stick);
         if (swTouchRightStick != null) {
@@ -2702,7 +2742,8 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
                 R.id.drawer_sw_async_textures,
                 R.id.drawer_sw_precache_textures,
                 R.id.drawer_sw_dev_hud,
-                R.id.drawer_sw_touch_right_stick
+                R.id.drawer_sw_touch_right_stick,
+                R.id.drawer_sw_boot_bios_on_start
         };
 
         for (int switchId : switchIds) {
@@ -2876,6 +2917,16 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
                 }
             } catch (Exception e) {
                 android.util.Log.e("MainActivity", "Error refreshing touch right stick switch: " + e.getMessage());
+            }
+
+            try {
+                com.google.android.material.materialswitch.MaterialSwitch swBootBios =
+                        header.findViewById(R.id.drawer_sw_boot_bios_on_start);
+                if (swBootBios != null) {
+                    swBootBios.setChecked(prefs.getBoolean(PREF_BOOT_BIOS_ON_START, false));
+                }
+            } catch (Exception e) {
+                android.util.Log.e("MainActivity", "Error refreshing boot BIOS switch: " + e.getMessage());
             }
 
             setupDrawerSwitchListeners(header, prefs);

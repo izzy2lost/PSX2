@@ -354,7 +354,10 @@ public final class CoverDownloadWorker extends Worker {
     }
 
     private static String sanitizeSerial(String serial) {
-        return GameSerialUtils.normalizePs2Serial(serial);
+        // Arcade entries are keyed by their NM##### game id, and the cover repo
+        // carries art under that id too. Accepting only retail PS2 serials here
+        // dropped every arcade title as "invalid-serial" before it was fetched.
+        return GameSerialUtils.normalizeLibrarySerial(serial);
     }
 
     private static Data resultData(String runToken, int ready, int downloaded,

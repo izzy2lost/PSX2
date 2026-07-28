@@ -58,6 +58,12 @@ static std::mutex s_vm_lifecycle_mutex;
 static std::mutex s_vm_error_mutex;
 static ANativeWindow* s_render_window = nullptr;
 static std::atomic_bool s_shutdown_requested{false};
+// Bumped by prepareVMStart() before every boot. shutdown() hands its work to a
+// detached thread, so without this a stop request issued while nothing is
+// running can be scheduled late and kill the VM that was started right after
+// it. The detached thread compares the generation it captured and bails when a
+// newer boot has already begun.
+static std::atomic<uint64_t> s_vm_start_generation{0};
 static std::string s_last_vm_error;
 static MemorySettingsInterface s_settings_interface;
 static int s_pending_renderer = -1; // -1 = none; else 12=OpenGL,13=SW,14=Vulkan
@@ -533,21 +539,12 @@ Java_com_izzy2lost_psx2_NativeApp_getGameSerial(JNIEnv* env, jclass, jstring p_u
 {
     if (!p_uri)
         return env->NewStringUTF("");
-    std::string path = GetJavaString(env, p_uri);
+    const std::string path = GetJavaString(env, p_uri);
 
-    // Direct CDVD open to support content:// URIs for ISO/CHD
-    Error error;
-    std::string serial;
-    auto* prev = CDVD;
-    CDVD = &CDVDapi_Iso;
-    if (CDVD->open(path, &error))
-    {
-        (void)DoCDVDdetectDiskType();
-        cdvdGetDiscInfo(&serial, nullptr, nullptr, nullptr, nullptr);
-        DoCDVDclose();
-    }
-    CDVD = prev;
-    return env->NewStringUTF(serial.c_str());
+    // Reads the gameid out of an .acgame manifest and falls back to a direct
+    // CDVD open (which supports content:// URIs) for ISO/CHD. An arcade
+    // manifest is not a disc image, so probing it with CDVD yields no serial.
+    return env->NewStringUTF(GetGameSerialForPath(path).c_str());
 }
 
 extern "C"
@@ -1541,6 +1538,9 @@ std::string ResolveSafChildUriJNI(const char* subdir, const char* filename, bool
 extern "C"
 JNIEXPORT void JNICALL
 Java_com_izzy2lost_psx2_NativeApp_prepareVMStart(JNIEnv *env, jclass clazz) {
+    // Invalidate any stop request that has not been carried out yet, so it can
+    // never land on the VM this call is about to start.
+    s_vm_start_generation.fetch_add(1, std::memory_order_acq_rel);
     s_shutdown_requested.store(false, std::memory_order_release);
     ClearTouchscreenPointerUpdates();
     std::lock_guard error_lock(s_vm_error_mutex);
@@ -1739,7 +1739,11 @@ Java_com_izzy2lost_psx2_NativeApp_runVMThread(JNIEnv *env, jclass clazz,
 extern "C"
 JNIEXPORT void JNICALL
 Java_com_izzy2lost_psx2_NativeApp_pause(JNIEnv *env, jclass clazz) {
-    std::thread([] {
+    const uint64_t generation = s_vm_start_generation.load(std::memory_order_acquire);
+    std::thread([generation] {
+        // Don't let a pause meant for the previous game land on the new one.
+        if (s_vm_start_generation.load(std::memory_order_acquire) != generation)
+            return;
         VMManager::SetPaused(true);
     }).detach();
 }
@@ -1747,7 +1751,10 @@ Java_com_izzy2lost_psx2_NativeApp_pause(JNIEnv *env, jclass clazz) {
 extern "C"
 JNIEXPORT void JNICALL
 Java_com_izzy2lost_psx2_NativeApp_resume(JNIEnv *env, jclass clazz) {
-    std::thread([] {
+    const uint64_t generation = s_vm_start_generation.load(std::memory_order_acquire);
+    std::thread([generation] {
+        if (s_vm_start_generation.load(std::memory_order_acquire) != generation)
+            return;
         VMManager::SetPaused(false);
     }).detach();
 }
@@ -1767,8 +1774,14 @@ Java_com_izzy2lost_psx2_NativeApp_isVMActive(JNIEnv *env, jclass clazz) {
 extern "C"
 JNIEXPORT void JNICALL
 Java_com_izzy2lost_psx2_NativeApp_shutdown(JNIEnv *env, jclass clazz) {
+    const uint64_t generation = s_vm_start_generation.load(std::memory_order_acquire);
     s_shutdown_requested.store(true, std::memory_order_release);
-    std::thread([] {
+    std::thread([generation] {
+        // A boot that started after this request was made owns the VM now.
+        if (s_vm_start_generation.load(std::memory_order_acquire) != generation) {
+            Console.WriteLn("shutdown dropped: a newer VM start superseded it");
+            return;
+        }
         const VMState state = VMManager::GetState();
         if (state == VMState::Running || state == VMState::Paused || state == VMState::Resetting) {
             VMManager::SetState(VMState::Stopping);

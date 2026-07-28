@@ -16,6 +16,9 @@ final class ArcadeGameManifest {
         String title;
         String subdir;
         String mediaSource;
+        String dongle;
+        String card;
+        String elf;
     }
 
     private ArcadeGameManifest() {}
@@ -58,6 +61,12 @@ final class ArcadeGameManifest {
                     metadata.subdir = value;
                 } else if ("data".equals(section) && "mediasrc".equals(key)) {
                     metadata.mediaSource = value;
+                } else if ("data".equals(section) && "dongle".equals(key)) {
+                    metadata.dongle = value;
+                } else if ("data".equals(section) && "card".equals(key)) {
+                    metadata.card = value;
+                } else if ("data".equals(section) && "elf".equals(key)) {
+                    metadata.elf = value;
                 }
             }
         } catch (Throwable t) {
@@ -66,10 +75,33 @@ final class ArcadeGameManifest {
         return metadata;
     }
 
-    static String resolveMediaUriKey(String manifestUri, Metadata metadata) {
-        if (metadata == null || isBlank(metadata.mediaSource)) return null;
-        String relativePath = metadata.mediaSource;
-        if (!isBlank(metadata.subdir)) {
+    /**
+     * Document keys for every file the manifest owns. The dongle and memory-card dumps
+     * are usually .bin and the media may be .img/.chd, so without this they are scanned
+     * as playable games of their own — an entry named after the dongle file that boots
+     * the BIOS instead of the arcade game.
+     */
+    static java.util.List<String> resolveOwnedUriKeys(String manifestUri, Metadata metadata) {
+        final java.util.ArrayList<String> keys = new java.util.ArrayList<>(8);
+        if (metadata == null) return keys;
+        for (String reference : new String[]{
+                metadata.mediaSource, metadata.dongle, metadata.card, metadata.elf}) {
+            if (isBlank(reference)) continue;
+            // The core looks for dongle and card dumps under subdir/ and beside the
+            // manifest (VMManager's FindArcadeAsset), so claim both spellings.
+            final String withSubdir = resolveUriKey(manifestUri, metadata, reference, true);
+            if (withSubdir != null) keys.add(withSubdir);
+            final String beside = resolveUriKey(manifestUri, metadata, reference, false);
+            if (beside != null && !beside.equals(withSubdir)) keys.add(beside);
+        }
+        return keys;
+    }
+
+    private static String resolveUriKey(String manifestUri, Metadata metadata,
+                                        String reference, boolean withSubdir) {
+        if (isBlank(reference)) return null;
+        String relativePath = reference;
+        if (withSubdir && !isBlank(metadata.subdir)) {
             relativePath = metadata.subdir.replace('\\', '/') + "/" + relativePath;
         }
 

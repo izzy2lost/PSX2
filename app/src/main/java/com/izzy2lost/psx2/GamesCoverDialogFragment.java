@@ -882,6 +882,16 @@ public class GamesCoverDialogFragment extends DialogFragment {
                 NativeApp.setPrecacheTextureReplacementsAsync(isChecked);
             });
         }
+
+        com.google.android.material.materialswitch.MaterialSwitch swBootBios =
+                header.findViewById(R.id.drawer_sw_boot_bios_on_start);
+        if (swBootBios != null && swBootBios.getTag() == null) {
+            swBootBios.setTag("setup");
+            swBootBios.setOnCheckedChangeListener((buttonView, isChecked) -> {
+                if (isChecked == prefs.getBoolean(MainActivity.PREF_BOOT_BIOS_ON_START, false)) return;
+                prefs.edit().putBoolean(MainActivity.PREF_BOOT_BIOS_ON_START, isChecked).apply();
+            });
+        }
     }
 
     // --- Helper methods reintroduced after letters-row removal ---
@@ -1835,6 +1845,12 @@ public class GamesCoverDialogFragment extends DialogFragment {
             com.google.android.material.materialswitch.MaterialSwitch swPrecache = header.findViewById(R.id.drawer_sw_precache_textures);
             if (swPrecache != null) {
                 swPrecache.setChecked(prefs.getBoolean("precache_textures", false));
+            }
+
+            com.google.android.material.materialswitch.MaterialSwitch swBootBios =
+                    header.findViewById(R.id.drawer_sw_boot_bios_on_start);
+            if (swBootBios != null) {
+                swBootBios.setChecked(prefs.getBoolean(MainActivity.PREF_BOOT_BIOS_ON_START, false));
             }
             refreshDialogDrawerBiosStatus(header);
         } catch (Throwable ignored) {}
