@@ -484,6 +484,7 @@ bool GSDeviceVK::SelectDeviceFeatures()
 	m_device_features.textureCompressionBC = available_features.textureCompressionBC;
 	m_device_features.geometryShader = available_features.geometryShader;
 	m_device_features.fragmentStoresAndAtomics = available_features.fragmentStoresAndAtomics;
+	m_device_features.pipelineStatisticsQuery = available_features.pipelineStatisticsQuery;
 
 	return true;
 }
@@ -718,6 +719,9 @@ bool GSDeviceVK::CreateDevice(VkSurfaceKHR surface, bool enable_validation_layer
 		static_cast<u32>(m_device_properties.limits.timestampComputeAndGraphics),
 		queue_family_properties[m_graphics_queue_family_index].timestampValidBits,
 		m_device_properties.limits.timestampPeriod);
+
+	m_gpu_pipeline_statistics_supported = (m_device_features.pipelineStatisticsQuery != 0);
+	DevCon.WriteLn("GPU pipeline statistics is %s", m_gpu_pipeline_statistics_supported ? "supported" : "not supported");
 
 	if (!ProcessDeviceExtensions())
 		return false;
@@ -1064,6 +1068,20 @@ bool GSDeviceVK::CreateGlobalDescriptorPool()
 		}
 	}
 
+	if (m_gpu_pipeline_statistics_supported)
+	{
+		const VkQueryPoolCreateInfo query_create_info = {
+			VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO, nullptr, 0, VK_QUERY_TYPE_PIPELINE_STATISTICS, NUM_COMMAND_BUFFERS,
+			VK_QUERY_PIPELINE_STATISTIC_VERTEX_SHADER_INVOCATIONS_BIT | VK_QUERY_PIPELINE_STATISTIC_FRAGMENT_SHADER_INVOCATIONS_BIT };
+		res = vkCreateQueryPool(m_device, &query_create_info, nullptr, &m_pipeline_statistics_query_pool);
+		if (res != VK_SUCCESS)
+		{
+			LOG_VULKAN_ERROR(res, "vkCreateQueryPool failed: ");
+			m_gpu_pipeline_statistics_supported = false;
+			return false;
+		}
+	}
+
 	return true;
 }
 
@@ -1211,6 +1229,19 @@ bool GSDeviceVK::SetGPUTimingEnabled(bool enabled)
 	return (enabled == m_gpu_timing_enabled);
 }
 
+GPUPipelineStatistics GSDeviceVK::GetAndResetAccumulatedGPUPipelineStatistics()
+{
+	GPUPipelineStatistics stats = m_accumulated_gpu_pipeline_statistics;
+	m_accumulated_gpu_pipeline_statistics = {};
+	return stats;
+}
+
+bool GSDeviceVK::SetGPUPipelineStatisticsEnabled(bool enabled)
+{
+	m_gpu_pipeline_statistics_enabled = enabled && m_gpu_pipeline_statistics_supported;
+	return (enabled == m_gpu_pipeline_statistics_enabled);
+}
+
 void GSDeviceVK::EnableExtendedStats(bool enabled)
 {
 	VKSwapChain::SetPresentStatsEnabled(enabled);
@@ -1337,6 +1368,13 @@ void GSDeviceVK::SubmitCommandBuffer(VKSwapChain* present_swap_chain)
 	{
 		vkCmdWriteTimestamp(m_current_command_buffer, VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, m_timestamp_query_pool,
 			m_current_frame * 2 + 1);
+	}
+
+	if (resources.pipeline_statistics_query == QueryState::Querying)
+	{
+		// Didn't end query in BeginPresent() so end it here.
+		resources.pipeline_statistics_query = QueryState::Ready;
+		vkCmdEndQuery(m_current_command_buffer, m_pipeline_statistics_query_pool, m_current_frame);
 	}
 
 	res = vkEndCommandBuffer(resources.command_buffers[1]);
@@ -1561,6 +1599,33 @@ void GSDeviceVK::ActivateCommandBuffer(u32 index)
 			resources.command_buffers[1], VK_PIPELINE_STAGE_ALL_COMMANDS_BIT, m_timestamp_query_pool, index * 2);
 	}
 
+	if (resources.pipeline_statistics_query == QueryState::Ready)
+	{
+		// Collect the pipeline statistics from the last time this cmdbuffer was used.
+		resources.pipeline_statistics_query = QueryState::None;
+		GPUPipelineStatistics stats{};
+		VkResult res =
+			vkGetQueryPoolResults(m_device, m_pipeline_statistics_query_pool, index, 1,
+				sizeof(stats), &stats, sizeof(u64), VK_QUERY_RESULT_64_BIT | VK_QUERY_RESULT_WAIT_BIT);
+		if (res == VK_SUCCESS)
+		{
+			m_accumulated_gpu_pipeline_statistics.vs_invocations += stats.vs_invocations;
+			m_accumulated_gpu_pipeline_statistics.ps_invocations += stats.ps_invocations;
+		}
+		else
+		{
+			LOG_VULKAN_ERROR(res, "vkGetQueryPoolResults failed: ");
+		}
+	}
+
+	if (m_gpu_pipeline_statistics_enabled)
+	{
+		pxAssert(resources.pipeline_statistics_query == QueryState::None);
+		resources.pipeline_statistics_query = QueryState::Querying;
+		vkCmdResetQueryPool(resources.command_buffers[1], m_pipeline_statistics_query_pool, index, 1);
+		vkCmdBeginQuery(resources.command_buffers[1], m_pipeline_statistics_query_pool, index, 0);
+	}
+
 	resources.fence_counter = m_next_fence_counter++;
 	resources.init_buffer_used = false;
 	resources.timestamp_written = wants_timestamp;
@@ -1749,9 +1814,11 @@ VkRenderPass GSDeviceVK::CreateCachedRenderPass(RenderPassCacheKey key)
 	if (key.depth_format != VK_FORMAT_UNDEFINED)
 	{
 		const VkImageLayout layout =
-			key.depth_sampling ? (UseFeedbackLoopLayout() ? VK_IMAGE_LAYOUT_ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT :
-															VK_IMAGE_LAYOUT_GENERAL) :
-								 VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
+			key.depth_sampling ?
+				((m_features.depth_feedback && UseFeedbackLoopLayout()) ?
+					VK_IMAGE_LAYOUT_ATTACHMENT_FEEDBACK_LOOP_OPTIMAL_EXT :
+					VK_IMAGE_LAYOUT_GENERAL) :
+				VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL;
 		attachments[num_attachments] = {0, static_cast<VkFormat>(key.depth_format), VK_SAMPLE_COUNT_1_BIT,
 			static_cast<VkAttachmentLoadOp>(key.depth_load_op), static_cast<VkAttachmentStoreOp>(key.depth_store_op),
 			static_cast<VkAttachmentLoadOp>(key.stencil_load_op),
@@ -2276,7 +2343,7 @@ bool GSDeviceVK::Create(GSVSyncMode vsync_mode, bool allow_present_throttle)
 		return false;
 	}
 
-	if ((m_null_framebuffer = GSTextureVK::CreateNullFramebuffer()) == VK_NULL_HANDLE)
+	if ((m_null_framebuffer = GSTextureVK::CreateNullFramebuffer(m_max_framebuffer_width, m_max_framebuffer_height)) == VK_NULL_HANDLE)
 	{
 		Host::ReportErrorAsync("GS", "Failed to create dummy framebuffer");
 		return false;
@@ -2346,8 +2413,11 @@ void GSDeviceVK::Destroy()
 
 	m_swap_chain.reset();
 
-	DestroySpinResources();
-	DestroyResources();
+	if (m_device != VK_NULL_HANDLE)
+	{
+		DestroySpinResources();
+		DestroyResources();
+	}
 
 	VKShaderCache::Destroy();
 
@@ -2522,6 +2592,14 @@ GSDevice::PresentResult GSDeviceVK::BeginPresent(bool frame_skip)
 	{
 		ExecuteCommandBuffer(false);
 		return PresentResult::FrameSkipped;
+	}
+
+	// End the pipeline statistics for this cmdbuffer before postprocessing.
+	FrameResources& resources = m_frame_resources[m_current_frame];
+	if (resources.pipeline_statistics_query == QueryState::Querying)
+	{
+		resources.pipeline_statistics_query = QueryState::Ready;
+		vkCmdEndQuery(m_current_command_buffer, m_pipeline_statistics_query_pool, m_current_frame);
 	}
 
 	VkResult res = m_resize_requested ? VK_ERROR_OUT_OF_DATE_KHR : m_swap_chain->AcquireNextImage();
@@ -2956,14 +3034,18 @@ bool GSDeviceVK::CheckFeatures()
 		m_features.point_expand ? "hardware" : "vertex expanding",
 		m_features.line_expand ? "hardware" : "vertex expanding");
 
+	bool has_rov_storage_flags = true;
+
 	// Check texture format support before we try to create them.
 	for (u32 fmt = static_cast<u32>(GSTexture::Format::Color); fmt < static_cast<u32>(GSTexture::Format::PrimID); fmt++)
 	{
 		const VkFormat vkfmt = LookupNativeFormat(static_cast<GSTexture::Format>(fmt));
-		const VkFormatFeatureFlags bits =
-			(static_cast<GSTexture::Format>(fmt) == GSTexture::Format::DepthStencil) ?
-				(VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT) :
-				(VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT | VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT);
+		VkFormatFeatureFlags bits = VK_FORMAT_FEATURE_SAMPLED_IMAGE_BIT;
+
+		if (static_cast<GSTexture::Format>(fmt) == GSTexture::Format::DepthStencil)
+			bits |= VK_FORMAT_FEATURE_DEPTH_STENCIL_ATTACHMENT_BIT;
+		else
+			bits |= VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT;
 
 		VkFormatProperties props = {};
 		vkGetPhysicalDeviceFormatProperties(m_physical_device, vkfmt, &props);
@@ -2984,6 +3066,9 @@ bool GSDeviceVK::CheckFeatures()
 				fmt, static_cast<unsigned>(vkfmt), props.optimalTilingFeatures, bits);
 			return false;
 		}
+
+		if (GSTexture::IsShaderWriteFormat(static_cast<GSTexture::Format>(fmt)))
+			has_rov_storage_flags &= ((props.optimalTilingFeatures & VK_FORMAT_FEATURE_STORAGE_IMAGE_BIT) != 0);
 	}
 
 	m_features.dxt_textures = m_device_features.textureCompressionBC;
@@ -2998,9 +3083,13 @@ bool GSDeviceVK::CheckFeatures()
 	}
 
 	m_max_texture_size = m_device_properties.limits.maxImageDimension2D;
+	m_max_framebuffer_width = m_device_properties.limits.maxFramebufferWidth;
+	m_max_framebuffer_height = m_device_properties.limits.maxFramebufferHeight;
 
 	m_features.rov = m_optional_extensions.vk_ext_fragment_shader_interlock &&
 	                 m_device_features.fragmentStoresAndAtomics &&
+	                 has_rov_storage_flags &&
+	                 !m_features.framebuffer_fetch &&
 	                 // Adreno/turnip hangs the GPU on pixel_interlock_ordered draws (A6xx hangcheck).
 	                 !is_adreno;
 
@@ -3089,15 +3178,15 @@ VkFormat GSDeviceVK::LookupNativeFormat(GSTexture::Format format) const
 		VK_FORMAT_D32_SFLOAT;
 }
 
-GSTexture* GSDeviceVK::CreateSurface(GSTexture::Type type, int width, int height, int levels, GSTexture::Format format)
+GSTexture* GSDeviceVK::CreateSurface(GSTexture::Usage usage, int width, int height, int levels, GSTexture::Format format)
 {
-	std::unique_ptr<GSTexture> tex = GSTextureVK::Create(type, format, width, height, levels);
+	std::unique_ptr<GSTexture> tex = GSTextureVK::Create(usage, format, width, height, levels);
 	if (!tex)
 	{
 		// We're probably out of vram, try flushing the command buffer to release pending textures.
 		PurgePool();
 		ExecuteCommandBufferAndRestartRenderPass(true, "Couldn't allocate texture.");
-		tex = GSTextureVK::Create(type, format, width, height, levels);
+		tex = GSTextureVK::Create(usage, format, width, height, levels);
 	}
 
 	return tex.release();
@@ -3142,7 +3231,7 @@ void GSDeviceVK::CopyRect(GSTexture* sTex, GSTexture* dTex, const GSVector4i& r,
 				return;
 
 			// Do an attachment clear.
-			const bool depth = (dTexVK->GetType() == GSTexture::Type::DepthStencil);
+			const bool depth = dTexVK->IsDepthStencil();
 			OMSetRenderTargets(depth ? nullptr : dTexVK, depth ? dTexVK : nullptr, dst_rect);
 			BeginRenderPassForStretchRect(
 				dTexVK, dst_rect, GSVector4i(destX, destY, destX + r.width(), destY + r.height()));
@@ -3353,14 +3442,13 @@ void GSDeviceVK::BeginRenderPassForStretchRect(
 		(allow_discard && dst_rc.eq(dtex_rc)) ? VK_ATTACHMENT_LOAD_OP_DONT_CARE : GetLoadOpForTexture(dTex);
 	dTex->SetState(GSTexture::State::Dirty);
 
-	if (dTex->GetType() == GSTexture::Type::DepthStencil)
+	if (dTex->IsDepthStencil())
 	{
 		if (load_op == VK_ATTACHMENT_LOAD_OP_CLEAR)
 			BeginClearRenderPass(m_utility_depth_render_pass_clear, dtex_rc, dTex->GetClearDepth(), 0);
 		else
 			BeginRenderPass((load_op == VK_ATTACHMENT_LOAD_OP_DONT_CARE) ? m_utility_depth_render_pass_discard :
-																		   m_utility_depth_render_pass_load,
-				dtex_rc);
+			                                                               m_utility_depth_render_pass_load, dtex_rc);
 	}
 	else if (dTex->GetFormat() == GSTexture::Format::Color)
 	{
@@ -3368,8 +3456,7 @@ void GSDeviceVK::BeginRenderPassForStretchRect(
 			BeginClearRenderPass(m_utility_color_render_pass_clear, dtex_rc, dTex->GetClearColor());
 		else
 			BeginRenderPass((load_op == VK_ATTACHMENT_LOAD_OP_DONT_CARE) ? m_utility_color_render_pass_discard :
-																		   m_utility_color_render_pass_load,
-				dtex_rc);
+			                                                               m_utility_color_render_pass_load, dtex_rc);
 	}
 	else
 	{
@@ -3401,7 +3488,7 @@ void GSDeviceVK::DoStretchRect(GSTextureVK* sTex, const GSVector4& sRect, GSText
 	SetPipeline(pipeline);
 
 	const bool is_present = (!dTex);
-	const bool depth = (dTex && dTex->GetType() == GSTexture::Type::DepthStencil);
+	const bool depth = (dTex && dTex->IsDepthStencil());
 	const GSVector2i size(is_present ? GetPresentationSize() : dTex->GetSize());
 	const GSVector4i dtex_rc(0, 0, size.x, size.y);
 	const GSVector4i dst_rc(GSVector4i(dRect).rintersect(dtex_rc));
@@ -3527,10 +3614,9 @@ void GSDeviceVK::BlitRect(GSTexture* sTex, const GSVector4i& sRect, u32 sLevel, 
 	if (m_tfx_textures[0] == sTexVK)
 		PSSetShaderResource(0, nullptr, false);
 
-	pxAssert(
-		(sTexVK->GetType() == GSTexture::Type::DepthStencil) == (dTexVK->GetType() == GSTexture::Type::DepthStencil));
+	pxAssert(sTexVK->IsDepthStencil() == dTexVK->IsDepthStencil());
 	const VkImageAspectFlags aspect =
-		(sTexVK->GetType() == GSTexture::Type::DepthStencil) ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
+		sTexVK->IsDepthStencil() ? VK_IMAGE_ASPECT_DEPTH_BIT : VK_IMAGE_ASPECT_COLOR_BIT;
 	const VkImageBlit ib{{aspect, sLevel, 0u, 1u}, {{sRect.left, sRect.top, 0}, {sRect.right, sRect.bottom, 1}},
 		{aspect, dLevel, 0u, 1u}, {{dRect.left, dRect.top, 0}, {dRect.right, dRect.bottom, 1}}};
 
@@ -3988,12 +4074,14 @@ void GSDeviceVK::OMSetRenderTargets(
 			}
 			else if (feedback_loop & FeedbackLoopFlag_ReadDepth)
 			{
-				if (vkDs->GetLayout() != GSTextureVK::Layout::FeedbackLoop)
+				const GSTextureVK::Layout layout = m_features.depth_feedback ?
+					GSTextureVK::Layout::FeedbackLoop : GSTextureVK::Layout::General;
+				if (vkDs->GetLayout() != layout)
 				{
 					m_dirty_flags |= (DIRTY_FLAG_TFX_TEXTURE_0 << TFX_TEXTURE_TEXTURE);
 					if (m_tfx_textures[TFX_TEXTURE_TEXTURE] == vkDs)
 						m_dirty_flags |= DIRTY_FLAG_TFX_TEXTURE_0 << TFX_TEXTURE_TEXTURE;
-					vkDs->TransitionToLayout(GSTextureVK::Layout::FeedbackLoop);
+					vkDs->TransitionToLayout(layout);
 				}
 			}
 			else
@@ -4140,7 +4228,7 @@ VkShaderModule GSDeviceVK::GetUtilityFragmentShader(const std::string& source, c
 
 bool GSDeviceVK::CreateNullTexture()
 {
-	m_null_texture = GSTextureVK::Create(GSTexture::Type::RenderTarget, GSTexture::Format::Color, 1, 1, 1);
+	m_null_texture = GSTextureVK::Create(GSTexture::ShaderWriteTarget, GSTexture::Format::Color, 1, 1, 1);
 	if (!m_null_texture)
 		return false;
 
@@ -5224,6 +5312,9 @@ void GSDeviceVK::DestroyResources()
 	if (m_timestamp_query_pool != VK_NULL_HANDLE)
 		vkDestroyQueryPool(m_device, m_timestamp_query_pool, nullptr);
 
+	if (m_pipeline_statistics_query_pool != VK_NULL_HANDLE)
+		vkDestroyQueryPool(m_device, m_pipeline_statistics_query_pool, nullptr);
+
 	if (m_global_descriptor_pool != VK_NULL_HANDLE)
 		vkDestroyDescriptorPool(m_device, m_global_descriptor_pool, nullptr);
 
@@ -5684,7 +5775,7 @@ void GSDeviceVK::SetLineWidth(float width)
 	m_dirty_flags |= DIRTY_FLAG_LINE_WIDTH;
 }
 
-void GSDeviceVK::PSSetUnorderedAccess(GSTexture* rt, GSTexture* ds, bool write_rt, bool write_ds)
+void GSDeviceVK::PSSetROVs(GSTexture* rt, GSTexture* ds, bool write_rt, bool write_ds)
 {
 	GSTextureVK* vkRt = static_cast<GSTextureVK*>(rt);
 	GSTextureVK* vkDs = static_cast<GSTextureVK*>(ds);
@@ -5744,6 +5835,17 @@ void GSDeviceVK::PSSetUnorderedAccess(GSTexture* rt, GSTexture* ds, bool write_r
 	{
 		// Unbind to avoid conflicts with OM targets.
 		PSSetShaderResource(TFX_TEXTURE_DEPTH_ROV, nullptr, false);
+	}
+
+	if (IsDeviceNVIDIA() && InRenderPass())
+	{
+		// Nvidia doesn't like switching ROV targets mid-render pass, doing so causes flickering or missing geometry.
+		// End the render pass to avoid such issues.
+		if (vkRt != oldVkRt || vkDs != oldVkDs)
+		{
+			GL_INS("VK: Ending render pass due to UAV switch");
+			EndRenderPass();
+		}
 	}
 
 	if (GSConfig.HWROVBarriersVK)
@@ -6539,7 +6641,7 @@ void GSDeviceVK::RenderHW(GSHWDrawConfig& config)
 		{
 			config.colclip_update_area = config.drawarea;
 			EndRenderPass();
-			colclip_rt = static_cast<GSTextureVK*>(CreateRenderTarget(rtsize.x, rtsize.y, GSTexture::Format::ColorClip, false));
+			colclip_rt = static_cast<GSTextureVK*>(CreateFeedbackTarget(rtsize.x, rtsize.y, GSTexture::Format::ColorClip, false));
 			if (!colclip_rt)
 			{
 				Console.Warning("VK: Failed to allocate ColorClip render target, aborting draw.");
@@ -6695,7 +6797,7 @@ void GSDeviceVK::RenderHW(GSHWDrawConfig& config)
 		PSSetShaderResource(TFX_TEXTURE_DEPTH, nullptr, false);
 	}
 	
-	PSSetUnorderedAccess(draw_rt_rov, draw_ds_rov, config.ps.HasColorOutput(), config.ps.HasDepthROVWrite());
+	PSSetROVs(draw_rt_rov, draw_ds_rov, config.ps.HasColorOutput(), config.ps.HasDepthROVWrite());
 
 	OMSetRenderTargets(draw_rt, draw_ds, config.scissor, static_cast<FeedbackLoopFlag>(pipe.feedback_loop_flags), rtsize);
 

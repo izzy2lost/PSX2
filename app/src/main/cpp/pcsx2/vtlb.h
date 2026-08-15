@@ -109,7 +109,7 @@ extern void TAKES_R128 VTLB_PRESERVE_MOST vtlb_memWrite128(u32 mem, r128 value);
 // These routines only access the various RAM, and will not call handlers
 // which has the potential to change hardware state.
 template <typename DataType>
-extern DataType vtlb_ramRead(u32 mem);
+extern DataType vtlb_ramRead(u32 mem, bool* result = nullptr);
 template <typename DataType>
 extern bool vtlb_ramWrite(u32 mem, const DataType& value);
 

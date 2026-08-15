@@ -183,7 +183,7 @@ namespace Achievements
 	static void DrawLeaderboardEntry(const rc_client_leaderboard_entry_t& entry, bool is_self, float rank_column_width,
 		float name_column_width, float time_column_width, float column_spacing);
 	static void OpenSubset(const rc_client_subset_t* subset);
-	static bool DrawSubsetSidebar(float sidebar_width, bool& sidebar_has_focus, bool leaderboards_only);
+	static bool DrawSubsetSidebar(float sidebar_width, bool& sidebar_has_focus, bool& focus_sidebar, bool leaderboards_only);
 	static void DrawSubsetSidebarFooter(bool sidebar_has_focus);
 	static void OpenLeaderboard(const rc_client_leaderboard_t* lboard);
 	static void LeaderboardFetchNearbyCallback(
@@ -1946,7 +1946,7 @@ void Achievements::ShowLoginSuccess(const rc_client_t* client)
 
 		//: Summary for login notification.
 		std::string title = user->display_name;
-		std::string summary = fmt::format(TRANSLATE_FS("Achievements", "Score: {0} pts (softcore: {1} pts)\nUnread messages: {2}"), user->score,
+		std::string summary = fmt::format(TRANSLATE_FS("Achievements", "Score: {0} pts (Casual: {1} pts)\nUnread messages: {2}"), user->score,
 			user->score_softcore, user->num_unread_messages);
 
 		MTGS::RunOnGSThread([title = std::move(title), summary = std::move(summary), badge_path = std::move(badge_path)]() {
@@ -2472,7 +2472,7 @@ bool Achievements::PrepareAchievementsWindow()
 	return true;
 }
 
-bool Achievements::DrawSubsetSidebar(float sidebar_width, bool& sidebar_has_focus, bool leaderboards_only)
+bool Achievements::DrawSubsetSidebar(float sidebar_width, bool& sidebar_has_focus, bool& focus_sidebar, bool leaderboards_only)
 {
 	if (!s_subset_list)
 		return false;
@@ -2487,7 +2487,7 @@ bool Achievements::DrawSubsetSidebar(float sidebar_width, bool& sidebar_has_focu
 
 	bool subset_selected = false;
 
-	if (ImGui::BeginChild("subset_sidebar", ImVec2(sidebar_width, 0.0f), 0, 0))
+	if (ImGui::BeginChild("subset_sidebar", ImVec2(sidebar_width, 0.0f), ImGuiChildFlags_NavFlattened, 0))
 	{
 		sidebar_has_focus = ImGui::IsWindowFocused();
 		ImGuiFullscreen::BeginMenuButtons();
@@ -2509,6 +2509,11 @@ bool Achievements::DrawSubsetSidebar(float sidebar_width, bool& sidebar_has_focu
 			bool visible, hovered;
 			ImGuiFullscreen::MenuButtonFrame(id_str, true, ImGuiFullscreen::LAYOUT_MENU_BUTTON_HEIGHT_NO_SUMMARY,
 				&visible, &hovered, &bb.Min, &bb.Max, 0, 1.0f);
+
+			if (focus_sidebar && ((s_open_subset && s_open_subset->id == subset->id) || (!s_open_subset && i == 0)))
+			{
+				ImGui::SetItemDefaultFocus();
+			}
 
 			if (s_open_subset && s_open_subset->id == subset->id)
 			{
@@ -2552,6 +2557,10 @@ bool Achievements::DrawSubsetSidebar(float sidebar_width, bool& sidebar_has_focu
 	ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(0.0f, 0.0f));
 	ImGui::SameLine();
 	ImGui::PopStyleVar();
+
+	if (focus_sidebar)
+		focus_sidebar = false;
+
 	return subset_selected;
 }
 
@@ -2573,7 +2582,8 @@ void Achievements::DrawSubsetSidebarFooter(bool sidebar_has_focus)
 		{
 			ImGuiFullscreen::SetFullscreenFooterText(std::array{
 				std::make_pair(glyphs.dpad_ud, TRANSLATE_SV("Achievements", "Change Selection")),
-				std::make_pair(glyphs.cancel(circleOK), TRANSLATE_SV("Achievements", "Subsets")),
+				std::make_pair(glyphs.dpad_lr, TRANSLATE_SV("Achievements", "Subsets")),
+				std::make_pair(glyphs.cancel(circleOK), TRANSLATE_SV("Achievements", "Back")),
 			});
 		}
 	}
@@ -2591,7 +2601,8 @@ void Achievements::DrawSubsetSidebarFooter(bool sidebar_has_focus)
 		{
 			ImGuiFullscreen::SetFullscreenFooterText(std::array{
 				std::make_pair(ICON_PF_ARROW_UP ICON_PF_ARROW_DOWN, TRANSLATE_SV("Achievements", "Change Selection")),
-				std::make_pair(ICON_PF_ESC, TRANSLATE_SV("Achievements", "Subsets")),
+				std::make_pair(ICON_PF_ARROW_LEFT, TRANSLATE_SV("Achievements", "Subsets")),
+				std::make_pair(ICON_PF_ESC, TRANSLATE_SV("Achievements", "Back")),
 			});
 		}
 	}
@@ -2662,15 +2673,10 @@ void Achievements::DrawAchievementsWindow()
 
 			const bool wants_close = ImGuiFullscreen::WantsToCloseMenu();
 			if (ImGuiFullscreen::FloatingButton(ICON_FA_SQUARE_XMARK, 10.0f, 10.0f, -1.0f, -1.0f, 1.0f, 0.0f, true, g_large_font) ||
-				(wants_close && (!has_multiple_subsets || sidebar_has_focus)))
+				wants_close)
 			{
 				sidebar_has_focus = false;
 				FullscreenUI::ReturnToPreviousWindow();
-			}
-			else if (has_multiple_subsets && !sidebar_has_focus && wants_close)
-			{
-				sidebar_has_focus = true;
-				focus_sidebar = true;
 			}
 
 			const ImRect title_bb(ImVec2(left, top), ImVec2(right, top + GetLineHeight(g_large_font)));
@@ -2766,9 +2772,8 @@ void Achievements::DrawAchievementsWindow()
 			if (focus_sidebar)
 			{
 				ImGui::SetNextWindowFocus();
-				focus_sidebar = false;
 			}
-			if (DrawSubsetSidebar(sidebar_width, sidebar_has_focus, false))
+			if (DrawSubsetSidebar(sidebar_width, sidebar_has_focus, focus_sidebar, false))
 				ImGui::SetNextWindowFocus();
 		}
 
@@ -2779,8 +2784,14 @@ void Achievements::DrawAchievementsWindow()
 		ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImGui::GetColorU32(ImGuiFullscreen::UIPrimaryColor));
 		ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImGui::GetColorU32(ImGuiFullscreen::UISecondaryColor));
 
-		if (ImGui::BeginChild("achievements_content", ImVec2(content_width, 0.0f), 0, 0))
+		if (ImGui::BeginChild("achievements_content", ImVec2(content_width, 0.0f), ImGuiChildFlags_NavFlattened, 0))
 		{
+			if (has_multiple_subsets && !sidebar_has_focus &&
+				(ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft, false) || ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false)))
+			{
+				sidebar_has_focus = true;
+				focus_sidebar = true;
+			}
 
 			static const char* bucket_names[NUM_RC_CLIENT_ACHIEVEMENT_BUCKETS] = {
 				TRANSLATE_NOOP("Achievements", "Unknown"),
@@ -3187,15 +3198,10 @@ void Achievements::DrawLeaderboardsWindow()
 			{
 				const bool wants_close = ImGuiFullscreen::WantsToCloseMenu();
 				if (ImGuiFullscreen::FloatingButton(ICON_FA_SQUARE_XMARK, 10.0f, 10.0f, -1.0f, -1.0f, 1.0f, 0.0f, true, g_large_font) ||
-					(wants_close && (!has_multiple_subsets || sidebar_has_focus)))
+					wants_close)
 				{
 					sidebar_has_focus = false;
 					FullscreenUI::ReturnToPreviousWindow();
-				}
-				else if (has_multiple_subsets && !sidebar_has_focus && wants_close)
-				{
-					sidebar_has_focus = true;
-					focus_sidebar = true;
 				}
 			}
 			else
@@ -3365,9 +3371,8 @@ void Achievements::DrawLeaderboardsWindow()
 				if (focus_sidebar)
 				{
 					ImGui::SetNextWindowFocus();
-					focus_sidebar = false;
 				}
-				if (DrawSubsetSidebar(sidebar_width, sidebar_has_focus, true))
+				if (DrawSubsetSidebar(sidebar_width, sidebar_has_focus, focus_sidebar, true))
 					ImGui::SetNextWindowFocus();
 			}
 
@@ -3378,8 +3383,14 @@ void Achievements::DrawLeaderboardsWindow()
 			ImGui::PushStyleColor(ImGuiCol_HeaderHovered, ImGui::GetColorU32(ImGuiFullscreen::UIPrimaryColor));
 			ImGui::PushStyleColor(ImGuiCol_HeaderActive, ImGui::GetColorU32(ImGuiFullscreen::UISecondaryColor));
 
-			if (ImGui::BeginChild("leaderboards_content", ImVec2(content_width, 0.0f), 0, 0))
+			if (ImGui::BeginChild("leaderboards_content", ImVec2(content_width, 0.0f), ImGuiChildFlags_NavFlattened, 0))
 			{
+				if (has_multiple_subsets && !sidebar_has_focus &&
+					(ImGui::IsKeyPressed(ImGuiKey_GamepadDpadLeft, false) || ImGui::IsKeyPressed(ImGuiKey_LeftArrow, false)))
+				{
+					sidebar_has_focus = true;
+					focus_sidebar = true;
+				}
 
 				if (s_restore_leaderboard_scroll)
 				{

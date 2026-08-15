@@ -74,7 +74,7 @@ struct PipelineSelectorMTL
 	GSHWDrawConfig::PSSelector ps;
 	PipelineSelectorExtrasMTL extras;
 	GSHWDrawConfig::VSSelector vs;
-	u8 pad[7];
+	u8 pad[3];
 	PipelineSelectorMTL()
 	{
 		memset(this, 0, sizeof(*this));
@@ -101,7 +101,7 @@ struct PipelineSelectorMTL
 	}
 };
 
-static_assert(sizeof(PipelineSelectorMTL) == 28);
+static_assert(sizeof(PipelineSelectorMTL) == 24);
 
 template <>
 struct std::hash<PipelineSelectorMTL>
@@ -279,6 +279,7 @@ public:
 	std::unordered_map<PipelineSelectorMTL, MRCOwned<id<MTLRenderPipelineState>>> m_hw_pipeline;
 
 	MRCOwned<MTLRenderPassDescriptor*> m_render_pass_desc[16];
+	MRCOwned<MTLRenderPassDescriptor*> m_full_rov_render_pass_desc;
 
 	MRCOwned<id<MTLSamplerState>> m_sampler_hw[1 << 8];
 
@@ -316,12 +317,14 @@ public:
 		// Clear line (Things below here are tracked by `has` and don't need to be cleared to reset)
 		SamplerSelector sampler_sel;
 		u8 blend_color;
+		struct { u32 w, h; } full_rov_size;
 		GSVector4i scissor;
 		PipelineSelectorMTL pipeline_sel;
 		GSHWDrawConfig::VSConstantBuffer cb_vs;
 		GSHWDrawConfig::PSConstantBuffer cb_ps;
 		MainRenderEncoder(const MainRenderEncoder&) = delete;
 		MainRenderEncoder() = default;
+		bool is_full_rov() const { return encoder && !color_target && !depth_target && !stencil_target; }
 	} m_current_render;
 	MRCOwned<id<MTLCommandBuffer>> m_texture_upload_cmdbuf;
 	MRCOwned<id<MTLBlitCommandEncoder>> m_texture_upload_encoder;
@@ -330,6 +333,8 @@ public:
 	MRCOwned<id<MTLBlitCommandEncoder>> m_vertex_upload_encoder;
 	id<MTLTexture> m_ds_as_rt_texture = nil;
 	GSTexture* m_ds_as_rt_gstexture = nullptr;
+	MRCOwned<id<MTLTexture>> m_rov_dummy_texture;
+	struct { u32 w, h; } m_rov_dummy_texture_size = {};
 
 	struct DebugEntry
 	{
@@ -372,12 +377,16 @@ public:
 	void FlushEncodersForReadback();
 	/// End current render pass without flushing
 	void EndRenderPass();
+	/// Prepare to begin a new render pass
+	void PrepareBeginRenderPass();
 	/// Begin a new render pass (may reuse existing)
 	void BeginRenderPass(NSString* name, GSTexture* color, MTLLoadAction color_load, GSTexture* depth, MTLLoadAction depth_load, GSTexture* stencil = nullptr, MTLLoadAction stencil_load = MTLLoadActionDontCare, bool rt1 = false);
+	/// Begin a new full-ROV render pass (may reuse existing)
+	void BeginFullROV(NSString* name, uint32_t width, uint32_t height);
 	/// Call at the end of each frame
 	void FrameCompleted();
 
-	GSTexture* CreateSurface(GSTexture::Type type, int width, int height, int levels, GSTexture::Format format) override;
+	GSTexture* CreateSurface(GSTexture::Usage usage, int width, int height, int levels, GSTexture::Format format) override;
 
 	void DoMerge(GSTexture* sTex[3], GSVector4* sRect, GSTexture* dTex, GSVector4* dRect, const GSRegPMODE& PMODE, const GSRegEXTBUF& EXTBUF, u32 c, const Filter filter) override;
 	void DoInterlace(GSTexture* sTex, const GSVector4& sRect, GSTexture* dTex, const GSVector4& dRect, ShaderInterlace shader, Filter filter, const InterlaceConstantBuffer& cb) override;
@@ -414,6 +423,9 @@ public:
 	float GetAndResetAccumulatedGPUTime() override;
 	void AccumulateCommandBufferTime(id<MTLCommandBuffer> buffer);
 
+	bool SetGPUPipelineStatisticsEnabled(bool enabled) override { return false; }
+	GPUPipelineStatistics GetAndResetAccumulatedGPUPipelineStatistics() override { return {}; }
+
 	std::unique_ptr<GSDownloadTexture> CreateDownloadTexture(u32 width, u32 height, GSTexture::Format format) override;
 
 	void ClearSamplerCache() override;
@@ -439,6 +451,7 @@ public:
 	void MRESetDSS(id<MTLDepthStencilState> dss);
 	void MRESetSampler(SamplerSelector sel);
 	void MRESetTexture(GSTexture* tex, int pos);
+	void MRESetTexture(id<MTLTexture> tex, int pos);
 	void MRESetVertices(id<MTLBuffer> buffer, size_t offset);
 	void MRESetVSIndices(id<MTLBuffer> buffer, size_t offset);
 	void MRESetScissor(const GSVector4i& scissor);
@@ -452,6 +465,7 @@ public:
 	// MARK: Render HW
 
 	void SetupDestinationAlpha(GSTexture* rt, GSTexture* ds, const GSVector4i& r, SetDATM datm);
+	void PrepareROVTexture(GSTexture** ptex);
 	void RenderHW(GSHWDrawConfig& config) override;
 	void SendHWDraw(GSHWDrawConfig& config, id<MTLRenderCommandEncoder> enc, id<MTLBuffer> buffer, size_t off,
 		bool one_barrier, bool full_barrier);

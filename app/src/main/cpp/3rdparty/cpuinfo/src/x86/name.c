@@ -307,6 +307,15 @@ static bool transform_token(char* token_start, char* token_end, struct parser_st
 			}
 			break;
 		case 4:
+			/*
+			 * Erase everything starting with "with" on AMD
+			 * processors, e.g. "AMD Ryzen 5 PRO 6650U with Radeon
+			 * Graphics"
+			 */
+			if (erase_matching(token_start, token_length, "with")) {
+				return false;
+			}
+
 			/* Remember to erase "Dual Core" in "AMD Athlon(tm) 64
 			 * X2 Dual Core Processor 3800+" */
 			if (memcmp(token_start, "Dual", token_length) == 0) {
@@ -612,6 +621,8 @@ uint32_t cpuinfo_x86_normalize_brand_string(const char raw_name[48], char normal
 					break;
 				case '@':
 					parser_state.frequency_separator = char_ptr;
+					*char_ptr = ' ';
+					break;
 				case '\0':
 				case '\t':
 					*char_ptr = ' ';

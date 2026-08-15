@@ -348,6 +348,7 @@ void VMManager::SetState(VMState state)
 		}
 		else
 		{
+			FullscreenUI::OnVMResumed();
 			Host::OnVMResumed();
 			ResetResumeTimestamp();
 		}

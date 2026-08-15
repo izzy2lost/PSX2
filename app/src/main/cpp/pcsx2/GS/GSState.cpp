@@ -289,55 +289,58 @@ void GSState::ResetDrawBufferIdx()
 {
 	int entry_ptr = 0;
 
-	for (int i = 0; i < m_used_buffers_idx; i++)
+	if (GSConfig.UserHacks_DrawBuffering && m_used_buffers_idx > 1)
 	{
-		// There can be situations like VSync where it won't purge the draws, this is bad for us!
-		if (m_index_buffers[i].tail > 0 || i == m_current_buffer_idx)
+		for (int i = 0; i < m_used_buffers_idx; i++)
 		{
-			if (m_index_buffers[i].tail == 0)
-				m_env_buffers[i].draw_rect = GSVector4i::zero();
-
-			if (entry_ptr == i && (m_index_buffers[i].tail > 0 || i == m_current_buffer_idx))
+			// There can be situations like VSync where it won't purge the draws, this is bad for us!
+			if (m_index_buffers[i].tail > 0 || i == m_current_buffer_idx)
 			{
+				if (m_index_buffers[i].tail == 0)
+					m_env_buffers[i].draw_rect = GSVector4i::zero();
+
+				if (entry_ptr == i && (m_index_buffers[i].tail > 0 || i == m_current_buffer_idx))
+				{
+					entry_ptr++;
+					continue;
+				}
+
+				memcpy(m_vertex_buffers[entry_ptr].buff, m_vertex_buffers[i].buff, sizeof(GSVertex) * m_vertex_buffers[i].tail);
+
+				m_vertex_buffers[entry_ptr].head = m_vertex_buffers[i].head;
+				m_vertex_buffers[entry_ptr].tail = m_vertex_buffers[i].tail;
+				m_vertex_buffers[entry_ptr].next = m_vertex_buffers[i].next;
+
+				memcpy(m_index_buffers[entry_ptr].buff, m_index_buffers[i].buff, sizeof(u16) * m_index_buffers[i].tail);
+				m_index_buffers[entry_ptr].tail = m_index_buffers[i].tail;
+
+				if (m_vertex_buffers[entry_ptr].tail != 0)
+				{
+					memcpy(m_vertex_buffers[entry_ptr].xy, m_vertex_buffers[i].xy, sizeof(m_vertex_buffers[i].xy));
+					m_vertex_buffers[entry_ptr].xyhead = m_vertex_buffers[i].xyhead;
+					m_vertex_buffers[entry_ptr].xy_tail = m_vertex_buffers[i].xy_tail;
+				}
+				else
+				{
+					m_vertex_buffers[entry_ptr].xy_tail = 0;
+				}
+
+				memcpy(&m_env_buffers[entry_ptr], &m_env_buffers[i], sizeof(m_env_buffers[i]));
+
+
+				if (i == m_current_buffer_idx)
+					m_current_buffer_idx = entry_ptr;
+
 				entry_ptr++;
-				continue;
 			}
 
-			memcpy(m_vertex_buffers[entry_ptr].buff, m_vertex_buffers[i].buff, sizeof(GSVertex) * m_vertex_buffers[i].tail);
-
-			m_vertex_buffers[entry_ptr].head = m_vertex_buffers[i].head;
-			m_vertex_buffers[entry_ptr].tail = m_vertex_buffers[i].tail;
-			m_vertex_buffers[entry_ptr].next = m_vertex_buffers[i].next;
-
-			memcpy(m_index_buffers[entry_ptr].buff, m_index_buffers[i].buff, sizeof(u16) * m_index_buffers[i].tail);
-			m_index_buffers[entry_ptr].tail = m_index_buffers[i].tail;
-
-			if (m_vertex_buffers[entry_ptr].tail != 0)
+			if (i != (entry_ptr - 1))
 			{
-				memcpy(m_vertex_buffers[entry_ptr].xy, m_vertex_buffers[i].xy, sizeof(m_vertex_buffers[i].xy));
-				m_vertex_buffers[entry_ptr].xyhead = m_vertex_buffers[i].xyhead;
-				m_vertex_buffers[entry_ptr].xy_tail = m_vertex_buffers[i].xy_tail;
+				m_index_buffers[i].tail = 0;
+				memset(&m_env_buffers[i], 0, sizeof(GSDrawBufferEnv));
+				m_vertex_buffers[i].head = m_vertex_buffers[i].tail = m_vertex_buffers[i].next = 0;
+				m_vertex_buffers[i].xy_tail = 0;
 			}
-			else
-			{
-				m_vertex_buffers[entry_ptr].xy_tail = 0;
-			}
-
-			memcpy(&m_env_buffers[entry_ptr], &m_env_buffers[i], sizeof(m_env_buffers[i]));
-
-
-			if (i == m_current_buffer_idx)
-				m_current_buffer_idx = entry_ptr;
-
-			entry_ptr++;
-		}
-
-		if (i != (entry_ptr - 1))
-		{
-			m_index_buffers[i].tail = 0;
-			memset(&m_env_buffers[i], 0, sizeof(GSDrawBufferEnv));
-			m_vertex_buffers[i].head = m_vertex_buffers[i].tail = m_vertex_buffers[i].next = 0;
-			m_vertex_buffers[i].xy_tail = 0;
 		}
 	}
 		
@@ -370,6 +373,7 @@ void GSState::ResetDrawBufferIdx()
 void GSState::ResetDrawBuffers()
 {
 	m_used_buffers_idx = 1;
+	m_max_vertex_count = 0;
 
 	for (int i = 0; i < MAX_DRAW_BUFFERS; i++)
 	{
@@ -380,27 +384,20 @@ void GSState::ResetDrawBuffers()
 		m_index = &m_index_buffers[i];
 		m_vertex = &m_vertex_buffers[i];
 		m_vertex_buffers[i].head = m_vertex_buffers[i].tail = m_vertex_buffers[i].next = 0;
-		GrowVertexBuffer();
 	}
 
+	GrowVertexBuffer();
 	ResetDrawBufferIdx();
 }
 
 // exclude_current is used if there is a flush for a reason other than the normal context change.
 void GSState::FlushBuffers(bool flush_base_only, bool use_flush_reason, GSFlushReason flush_reason)
 {
-	const int current_idx = m_current_buffer_idx;
-	bool restore_env = false;
-
-	if (m_used_buffers_idx > 0)
+	if (m_used_buffers_idx > 1)
 	{
-		if (m_used_buffers_idx > 1)
-		{
-			restore_env = true;
-			memcpy(&m_temp_env, &m_env, sizeof(m_env));
-		}
-		else if (m_index_buffers[0].tail == 0)
-			return;
+		const int current_idx = m_current_buffer_idx;
+		bool restore_env = true;
+		memcpy(&m_temp_env, &m_env, sizeof(m_env));
 
 		const int max_flushes = flush_base_only ? 1 : m_used_buffers_idx;
 		for (int i = 0; i < max_flushes; i++)
@@ -440,19 +437,26 @@ void GSState::FlushBuffers(bool flush_base_only, bool use_flush_reason, GSFlushR
 			else
 				FlushDraw(GSFlushReason::CONTEXTCHANGE);
 		}
+
+		// Restore the environment
+		m_current_buffer_idx = current_idx;
+		m_index = &m_index_buffers[m_current_buffer_idx];
+		m_vertex = &m_vertex_buffers[m_current_buffer_idx];
+
+		const int ctx = m_env_buffers[m_current_buffer_idx].m_backed_up_ctx;
+		std::memcpy(&m_prev_env, &m_env_buffers[m_current_buffer_idx].m_env, 88);
+		std::memcpy(&m_prev_env.CTXT[0], &m_env_buffers[m_current_buffer_idx].m_env.CTXT[0], 96);
+		std::memcpy(&m_prev_env.CTXT[1], &m_env_buffers[m_current_buffer_idx].m_env.CTXT[1], 96);
+		std::memcpy(&m_prev_env.CTXT[ctx].offset, &m_env_buffers[m_current_buffer_idx].m_env.CTXT[ctx].offset, sizeof(m_env_buffers[m_current_buffer_idx].m_env.CTXT[ctx].offset));
+		std::memcpy(&m_prev_env.CTXT[ctx].scissor, &m_env_buffers[m_current_buffer_idx].m_env.CTXT[ctx].scissor, sizeof(m_env_buffers[m_current_buffer_idx].m_env.CTXT[ctx].scissor));
 	}
-
-	// Restore the environment
-	m_current_buffer_idx = current_idx;
-	m_index = &m_index_buffers[m_current_buffer_idx];
-	m_vertex = &m_vertex_buffers[m_current_buffer_idx];
-
-	const int ctx = m_env_buffers[m_current_buffer_idx].m_backed_up_ctx;
-	std::memcpy(&m_prev_env, &m_env_buffers[m_current_buffer_idx].m_env, 88);
-	std::memcpy(&m_prev_env.CTXT[0], &m_env_buffers[m_current_buffer_idx].m_env.CTXT[0], 96);
-	std::memcpy(&m_prev_env.CTXT[1], &m_env_buffers[m_current_buffer_idx].m_env.CTXT[1], 96);
-	std::memcpy(&m_prev_env.CTXT[ctx].offset, &m_env_buffers[m_current_buffer_idx].m_env.CTXT[ctx].offset, sizeof(m_env_buffers[m_current_buffer_idx].m_env.CTXT[ctx].offset));
-	std::memcpy(&m_prev_env.CTXT[ctx].scissor, &m_env_buffers[m_current_buffer_idx].m_env.CTXT[ctx].scissor, sizeof(m_env_buffers[m_current_buffer_idx].m_env.CTXT[ctx].scissor));
+	else
+	{
+		if (use_flush_reason || flush_reason == VSYNC)
+			FlushDraw(flush_reason);
+		else
+			FlushDraw(GSFlushReason::CONTEXTCHANGE);
+	}
 }
 
 void GSState::PushBuffer()
@@ -469,32 +473,35 @@ void GSState::PushBuffer()
 	{
 		m_index = &m_index_buffers[m_used_buffers_idx];
 		m_vertex = &m_vertex_buffers[m_used_buffers_idx];
+		GSVertexBuff& vtx_buff = *m_vertex;
 
 		const u32 base = m_vertex_buffers[m_current_buffer_idx].head;
-		const u32 copy_amt = m_vertex_buffers[m_current_buffer_idx].tail - base;
+		u32 copy_amt = m_vertex_buffers[m_current_buffer_idx].tail - base;
 
 		m_vertex->tail = 0;
 
-		if (copy_amt)
-			memcpy(m_vertex->buff, &m_vertex_buffers[m_current_buffer_idx].buff[base], sizeof(GSVertex) * copy_amt);
+		if (copy_amt && m_env.PRIM.PRIM == m_env_buffers[m_current_buffer_idx].m_env.PRIM.PRIM)
+			memcpy(vtx_buff.buff, &m_vertex_buffers[m_current_buffer_idx].buff[base], sizeof(GSVertex) * copy_amt);
+		else
+			copy_amt = 0;
 
-		m_vertex->head = 0;
-		m_vertex->next = 0;
-		m_vertex->tail += copy_amt;
+		vtx_buff.head = 0;
+		vtx_buff.next = 0;
+		vtx_buff.tail += copy_amt;
 
 		if (copy_amt)
 		{
 			for (u32 i = 0; i < copy_amt; i++)
 			{
-				m_vertex->xy[i & 3] = m_vertex_buffers[m_current_buffer_idx].xy[((m_vertex_buffers[m_current_buffer_idx].xy_tail - copy_amt) + i) & 3];
-				m_vertex->xy_tail++;
+				vtx_buff.xy[i & 3] = m_vertex_buffers[m_current_buffer_idx].xy[((m_vertex_buffers[m_current_buffer_idx].xy_tail - copy_amt) + i) & 3];
+				vtx_buff.xy_tail++;
 
 				if (i == 0)
-					m_vertex->xyhead = m_vertex_buffers[m_current_buffer_idx].xyhead;
+					vtx_buff.xyhead = m_vertex_buffers[m_current_buffer_idx].xyhead;
 			}
 		}
 		else
-			m_vertex->xy_tail = 0;
+			vtx_buff.xy_tail = 0;
 
 		m_current_buffer_idx = m_used_buffers_idx;
 		temp_draw_rect = GSVector4i::zero();
@@ -502,6 +509,18 @@ void GSState::PushBuffer()
 		m_used_buffers_idx++;
 		m_recent_buffer_switch = true;
 	}
+}
+
+void GSState::SetDrawBufferEnv()
+{
+	memcpy(&m_env_buffers[m_current_buffer_idx].m_env, &m_env, sizeof(GSDrawingEnvironment));
+	m_env_buffers[m_current_buffer_idx].m_backed_up_ctx = m_backed_up_ctx;
+}
+
+void GSState::SetDrawBuffDirty()
+{
+	m_env_buffers[m_current_buffer_idx].m_dirty_regs = m_dirty_gs_regs;
+	m_env_buffers[m_current_buffer_idx].draw_rect = temp_draw_rect;
 }
 
 bool GSState::CanBufferNewDraw()
@@ -618,21 +637,30 @@ bool GSState::CanBufferNewDraw()
 				// We found a matching draw
 				m_index = &m_index_buffers[i];
 				m_vertex = &m_vertex_buffers[i];
+				GSVertexBuff& vtx_buff = *m_vertex;
+				GSIndexBuff& idx_buff = *m_index;
 
-				const u32 copy_amt = m_vertex_buffers[m_current_buffer_idx].tail - m_vertex_buffers[m_current_buffer_idx].head;
-
-				m_recent_buffer_switch = m_vertex->tail == m_vertex->head;
-				if (m_index->tail)
-					m_vertex->tail = m_index->buff[m_index->tail - 1] + 1;
+				if (idx_buff.tail)
+					vtx_buff.tail = std::max(idx_buff.buff[idx_buff.tail - 1], idx_buff.buff[std::max(static_cast<int>(idx_buff.tail) - 2, 0)]) + 1;
 				else
-					m_vertex->tail = 0;
+					vtx_buff.tail = 0;
 
-				if (copy_amt)
-					memcpy(&m_vertex->buff[m_vertex->tail], &m_vertex_buffers[m_current_buffer_idx].buff[m_vertex_buffers[m_current_buffer_idx].head], sizeof(GSVertex) * copy_amt);
+				vtx_buff.head = vtx_buff.tail;
+				vtx_buff.next = vtx_buff.head;
 
-				m_vertex->head = m_vertex->tail;
-				m_vertex->next = m_vertex->head;
-				m_vertex->tail += copy_amt;
+				u32 copy_amt = m_vertex_buffers[m_current_buffer_idx].tail - m_vertex_buffers[m_current_buffer_idx].head;
+
+				if (copy_amt && m_env_buffers[i].m_env.PRIM.PRIM == m_env_buffers[m_current_buffer_idx].m_env.PRIM.PRIM)
+				{
+					memcpy(&vtx_buff.buff[vtx_buff.tail], &m_vertex_buffers[m_current_buffer_idx].buff[m_vertex_buffers[m_current_buffer_idx].head], sizeof(GSVertex) * copy_amt);
+
+					vtx_buff.tail += copy_amt;
+				}
+				else
+					copy_amt = 0;
+
+				m_recent_buffer_switch = vtx_buff.tail == vtx_buff.head;
+
 				m_backed_up_ctx = m_env_buffers[i].m_backed_up_ctx;
 				temp_draw_rect = m_env_buffers[i].draw_rect;
 				m_env_buffers[i].m_dirty_regs = 0;
@@ -648,18 +676,17 @@ bool GSState::CanBufferNewDraw()
 				{
 					for (u32 i = 0; i < copy_amt; i++)
 					{
-						m_vertex->xy[m_vertex->xy_tail & 3] = m_vertex_buffers[m_current_buffer_idx].xy[((m_vertex_buffers[m_current_buffer_idx].xy_tail - copy_amt) + i) & 3];
-						m_vertex->xy_tail++;
+						vtx_buff.xy[vtx_buff.xy_tail & 3] = m_vertex_buffers[m_current_buffer_idx].xy[((m_vertex_buffers[m_current_buffer_idx].xy_tail - copy_amt) + i) & 3];
+						vtx_buff.xy_tail++;
 
 						if (i == 0)
-							m_vertex->xyhead = m_vertex_buffers[m_current_buffer_idx].xyhead;
+							vtx_buff.xyhead = m_vertex_buffers[m_current_buffer_idx].xyhead;
 					}
 				}
 				else
-					m_vertex->xy_tail = 0;
+					vtx_buff.xy_tail = 0;
 
 				m_current_buffer_idx = i;
-
 			}
 
 			m_dirty_gs_regs = 0;
@@ -690,18 +717,6 @@ bool GSState::CanBufferNewDraw()
 	PushBuffer();
 
 	return true;
-}
-
-void GSState::SetDrawBufferEnv()
-{
-	memcpy(&m_env_buffers[m_current_buffer_idx].m_env, &m_env, sizeof(GSDrawingEnvironment));
-	m_env_buffers[m_current_buffer_idx].m_backed_up_ctx = m_backed_up_ctx;
-}
-
-void GSState::SetDrawBuffDirty()
-{
-	m_env_buffers[m_current_buffer_idx].m_dirty_regs = m_dirty_gs_regs;
-	m_env_buffers[m_current_buffer_idx].draw_rect = temp_draw_rect;
 }
 
 void GSState::ResetHandlers()
@@ -1673,7 +1688,7 @@ void GSState::ApplyTEX0(GIFRegTEX0& TEX0)
 	{
 		for (int b = 0; b < m_used_buffers_idx; b++)
 		{
-			GSDrawingEnvironment& buffered_env = m_env_buffers[b].m_env;
+			GSDrawingEnvironment& buffered_env = (m_current_buffer_idx == b) ? m_prev_env : m_env_buffers[b].m_env;
 			if ((buffered_env.PRIM.TME && (buffered_env.CTXT[buffered_env.PRIM.CTXT].TEX0.PSM & 0x7) >= 3) || (m_mem.m_clut.IsInvalid() & 2))
 				Flush(GSFlushReason::CLUTCHANGE);
 		}
@@ -2509,16 +2524,19 @@ void GSState::FlushPrim()
 		}
 
 		GSVertex buff[2];
+		GSVertexBuff& vtx_buff = *m_vertex;
+		GSIndexBuff& idx_buff = *m_index;
 		s_n++;
 
-		const u32 head = m_vertex->head;
-		const u32 tail = m_vertex->tail;
-		const u32 next = m_vertex->next;
+		const u32 head = vtx_buff.head;
+		const u32 tail = vtx_buff.tail;
+		const u32 next = vtx_buff.next;
 		u32 unused = 0;
 
 		if (tail > head)
 		{
-			switch (PRIM->PRIM)
+			// NOTE: Do not use PRIM->PRIM as the previous environment may have been restored and it may have changed from strip to fan, which messes up the backup.
+			switch (m_env.PRIM.PRIM)
 			{
 				case GS_POINTLIST:
 					pxAssert(0);
@@ -2527,19 +2545,19 @@ void GSState::FlushPrim()
 				case GS_LINESTRIP:
 				case GS_SPRITE:
 					unused = 1;
-					buff[0] = m_vertex->buff[tail - 1];
+					buff[0] = vtx_buff.buff[tail - 1];
 					break;
 				case GS_TRIANGLELIST:
 				case GS_TRIANGLESTRIP:
 					unused = std::min<u32>(tail - head, 2);
-					memcpy(buff, &m_vertex->buff[tail - unused], sizeof(GSVertex) * 2);
+					memcpy(buff, &vtx_buff.buff[tail - unused], sizeof(GSVertex) * 2);
 					break;
 				case GS_TRIANGLEFAN:
-					buff[0] = m_vertex->buff[head];
+					buff[0] = vtx_buff.buff[head];
 					unused = 1;
 					if (tail - 1 > head)
 					{
-						buff[1] = m_vertex->buff[tail - 1];
+						buff[1] = vtx_buff.buff[tail - 1];
 						unused = 2;
 					}
 					break;
@@ -2563,7 +2581,7 @@ void GSState::FlushPrim()
 #endif
 		// Update scissor, it may have been modified by a previous draw
 		m_env.CTXT[PRIM->CTXT].UpdateScissor();
-		m_vt.Update(m_vertex->buff, m_index->buff, m_vertex->tail, m_index->tail, GSUtil::GetPrimClass(PRIM->PRIM));
+		m_vt.Update(vtx_buff.buff, idx_buff.buff, vtx_buff.tail, idx_buff.tail, GSUtil::GetPrimClass(PRIM->PRIM));
 
 		// Texel coordinate rounding
 		// Helps Manhunt (lights shining through objects).
@@ -2575,13 +2593,13 @@ void GSState::FlushPrim()
 			{
 				const bool is_sprite = GSUtil::GetPrimClass(PRIM->PRIM) == GS_PRIM_CLASS::GS_SPRITE_CLASS;
 				// ST's have the lowest 9 bits (or greater depending on exponent difference) rounding down (from hardware tests).
-				for (int i = m_index->tail - 1; i >= 0; i--)
+				for (int i = idx_buff.tail - 1; i >= 0; i--)
 				{
-					GSVertex* v = &m_vertex->buff[m_index->buff[i]];
+					GSVertex* v = &vtx_buff.buff[idx_buff.buff[i]];
 
 					// Only Q on the second vertex is valid
 					if (!(i & 1) && is_sprite)
-						v->RGBAQ.Q = m_vertex->buff[m_index->buff[i + 1]].RGBAQ.Q;
+						v->RGBAQ.Q = vtx_buff.buff[idx_buff.buff[i + 1]].RGBAQ.Q;
 
 					int T = std::bit_cast<int>(v->ST.T);
 					int Q = std::bit_cast<int>(v->RGBAQ.Q);
@@ -2634,7 +2652,7 @@ void GSState::FlushPrim()
 			Draw();
 
 		g_perfmon.Put(GSPerfMon::Draw, 1);
-		g_perfmon.Put(GSPerfMon::Prim, m_index->tail / GSUtil::GetVertexCount(PRIM->PRIM));
+		g_perfmon.Put(GSPerfMon::Prim, idx_buff.tail / GSUtil::GetVertexCount(PRIM->PRIM));
 
 		if (GSConfig.ShouldDump(s_n, g_perfmon.GetFrame()))
 		{
@@ -2646,38 +2664,38 @@ void GSState::FlushPrim()
 			}
 		}
 
-		m_index->tail = 0;
-		m_vertex->head = 0;
+		idx_buff.tail = 0;
+		vtx_buff.head = 0;
 
 		if (unused > 0)
 		{
-			memcpy(m_vertex->buff, buff, sizeof(GSVertex) * unused);
+			memcpy(vtx_buff.buff, buff, sizeof(GSVertex) * unused);
 
-			m_vertex->tail = unused;
-			m_vertex->next = next > head ? next - head : 0;
+			vtx_buff.tail = unused;
+			vtx_buff.next = next > head ? next - head : 0;
 
 			// If it's a Triangle fan the XY buffer needs to be updated to point to the correct head vert
 			// Jak 3 shadows get spikey (with autoflush) if you don't.
-			if (PRIM->PRIM == GS_TRIANGLEFAN)
+			if (m_env.PRIM.PRIM == GS_TRIANGLEFAN)
 			{
 				for (u32 i = 0; i < unused; i++)
 				{
-					GSVector4i* RESTRICT vert_ptr = (GSVector4i*)&m_vertex->buff[i];
+					GSVector4i* RESTRICT vert_ptr = (GSVector4i*)&vtx_buff.buff[i];
 					GSVector4i v = vert_ptr[1];
 					v = v.xxxx().u16to32().sub32(m_xyof);
-					m_vertex->xy[i & 3] = v;
-					m_vertex->xy_tail = unused;
+					vtx_buff.xy[i & 3] = v;
+					vtx_buff.xy_tail = unused;
 				}
 			}
 		}
 		else
 		{
-			m_vertex->tail = 0;
-			m_vertex->next = 0;
+			vtx_buff.tail = 0;
+			vtx_buff.next = 0;
 		}
 	}
 }
-GSVector4i GSState::GetTEX0Rect(GSDrawingContext prev_ctx)
+GSVector4i GSState::GetTEX0Rect(const GSDrawingContext& prev_ctx)
 {
 	GSVector4i ret = GSVector4i::zero();
 
@@ -2723,27 +2741,19 @@ void GSState::CheckWriteOverlap(bool req_write, bool req_read)
 	const GIFRegBITBLTBUF& blit = m_env.BITBLTBUF;
 
 	const GSVector4i write_rect = GSVector4i(m_env.TRXPOS.DSAX, m_env.TRXPOS.DSAY, m_env.TRXPOS.DSAX + w, m_env.TRXPOS.DSAY + h);
-	const u32 write_start_bp = GSLocalMemory::GetStartBlockAddress(blit.DBP, blit.DBW, blit.DPSM, write_rect);
-	const u32 write_end_bp = ((GSLocalMemory::GetEndBlockAddress(blit.DBP, blit.DBW, blit.DPSM, write_rect) + 1) + (GS_BLOCKS_PER_PAGE - 1)) & ~(GS_BLOCKS_PER_PAGE - 1);
 
 	for (int i = 0; i < m_used_buffers_idx; i++)
 	{
 		GSIndexBuff* cur_index_buff = &m_index_buffers[i];
 		GSVertexBuff* cur_vertex_buff = &m_vertex_buffers[i];
-		const GSDrawingContext& prev_ctx = m_env_buffers[i].m_env.CTXT[m_env_buffers[i].m_backed_up_ctx];
-		const GSDrawingEnvironment& prev_env = m_env_buffers[i].m_env;
-		GSVector4i tex_rect = prev_env.PRIM.TME ? GetTEX0Rect(prev_ctx) : GSVector4i::zero();
+		const GSDrawingContext& prev_ctx = m_current_buffer_idx == i ? m_prev_env.CTXT[m_backed_up_ctx] :m_env_buffers[i].m_env.CTXT[m_env_buffers[i].m_backed_up_ctx];
+		const GSDrawingEnvironment& prev_env = m_current_buffer_idx == i ? m_prev_env : m_env_buffers[i].m_env;
 
 		if (cur_index_buff->tail > 0)
 		{
-			// Only flush on a NEW transfer if a pending one is using the same address or overlap.
-			// Check Fast & Furious (Hardare mode) and Assault Suits Valken (either renderer) and Tomb Raider - Angel of Darkness menu (TBP != DBP but overlaps).
-			// Cartoon Network overwrites its own Z buffer in the middle of a draw.
-			// Alias wraps its transfers, so be careful
-			const GSVector4i read_rect = GSVector4i(m_env.TRXPOS.SSAX, m_env.TRXPOS.SSAY, m_env.TRXPOS.SSAX + w, m_env.TRXPOS.SSAY + h);
-
 			if (req_write && prev_env.PRIM.TME)
 			{
+				GSVector4i tex_rect = prev_env.PRIM.TME ? GetTEX0Rect(prev_ctx) : GSVector4i::zero();
 				// Tex rect could be invalid showing 1024x1024 when it isn't. If the frame is only 1 page wide, it's either a big strip or a single page draw.
 				// This large texture causes misdetection of overlapping writes, causing our heuristics in the hardware renderer for future draws to be missing.
 				// Either way if we check the queued up coordinates, it should give us a fair idea. (Cabela's Trophy Bucks)
@@ -2842,6 +2852,11 @@ void GSState::CheckWriteOverlap(bool req_write, bool req_read)
 				}
 			}
 
+			// Only flush on a NEW transfer if a pending one is using the same address or overlap.
+			// Check Fast & Furious (Hardare mode) and Assault Suits Valken (either renderer) and Tomb Raider - Angel of Darkness menu (TBP != DBP but overlaps).
+			// Cartoon Network overwrites its own Z buffer in the middle of a draw.
+			// Alias wraps its transfers, so be careful
+			const GSVector4i read_rect = GSVector4i(m_env.TRXPOS.SSAX, m_env.TRXPOS.SSAY, m_env.TRXPOS.SSAX + w, m_env.TRXPOS.SSAY + h);
 			const u32 frame_mask = GSLocalMemory::m_psm[prev_ctx.FRAME.PSM].fmsk;
 			const bool frame_required = (!(prev_ctx.TEST.ATE && prev_ctx.TEST.ATST == 0 && (prev_ctx.TEST.AFAIL == 2 || prev_ctx.TEST.AFAIL == 0)) && ((prev_ctx.FRAME.FBMSK & frame_mask) != frame_mask)) || prev_ctx.TEST.DATE;
 			const GSVector4i draw_rect = (m_current_buffer_idx == i) ? temp_draw_rect : m_env_buffers[i].draw_rect;
@@ -2874,6 +2889,9 @@ void GSState::CheckWriteOverlap(bool req_write, bool req_read)
 
 	if (req_write)
 	{
+		const u32 write_start_bp = GSLocalMemory::GetStartBlockAddress(blit.DBP, blit.DBW, blit.DPSM, write_rect);
+		const u32 write_end_bp = ((GSLocalMemory::GetEndBlockAddress(blit.DBP, blit.DBW, blit.DPSM, write_rect) + 1) + (GS_BLOCKS_PER_PAGE - 1)) & ~(GS_BLOCKS_PER_PAGE - 1);
+
 		// Invalid the CLUT if it crosses paths.
 		m_mem.m_clut.InvalidateRange(write_start_bp, write_end_bp);
 	}
@@ -2976,7 +2994,7 @@ void GSState::InitReadFIFO(u8* mem, int len)
 	// Read the image all in one go.
 	m_mem.ReadImageX(m_tr.x, m_tr.y, m_tr.buff, m_tr.total, m_env.BITBLTBUF, m_env.TRXPOS, m_env.TRXREG);
 
-	if (GSConfig.SaveRT && GSConfig.ShouldDump(s_n, g_perfmon.GetFrame()))
+	if (GSConfig.SaveTransferImages && GSConfig.ShouldDump(s_n, g_perfmon.GetFrame()))
 	{
 		const std::string s(GetDrawDumpPath(
 			"%05lld_read_%05x_%d_%s_%d_%d_%d_%d.bmp",
@@ -3808,56 +3826,49 @@ void GSState::UpdateVertexKick()
 	m_fpGIFPackedRegHandlersC[GIF_REG_STQRGBAXYZ2] = m_fpGIFPackedRegHandlerSTQRGBAXYZ2[prim];
 }
 
+static void GrowBuffer(void** pbuff, size_t old_size, size_t new_size, bool vertices)
+{
+	void* new_buff = _aligned_malloc(new_size, 32);
+	if (!new_buff)
+	{
+		Console.Error("GS: failed to allocate %zu bytes for %s.", new_size, vertices ? "vertices" : "indices");
+		pxFailRel("Memory allocation failed");
+	}
+	if (*pbuff)
+	{
+		if (old_size)
+		{
+			std::memcpy(new_buff, *pbuff, old_size);
+		}
+		_aligned_free(*pbuff);
+	}
+	*pbuff = new_buff;
+}
+
+template <typename T>
+static void GrowBuffer(T** pbuff, size_t old_count, size_t new_count)
+{
+	static_assert(std::is_same_v<T, GSVertex> || std::is_same_v<T, u16>, "For use with indices or vertices");
+	GrowBuffer(reinterpret_cast<void**>(pbuff), old_count * sizeof(T), new_count * sizeof(T), std::is_same_v<T, GSVertex>);
+}
+
 void GSState::GrowVertexBuffer()
 {
-	const u32 maxcount = std::max<u32>(m_vertex->maxcount * 3 / 2, 10000);
-	const u32 old_vertex_size = sizeof(GSVertex) * m_vertex->tail;
-	const u32 new_vertex_size = sizeof(GSVertex) * maxcount;
-	const u32 old_index_size = sizeof(u16) * m_index->tail;
-	const u32 new_index_size = sizeof(u16) * maxcount * 6; // Worst case index list is a list of points with vs expansion, 6 indices per point
+	const u32 maxcount = std::max<u32>(m_max_vertex_count * 3 / 2, 10000);
+	const u32 new_vertex_count = maxcount;
+	const u32 new_index_count = maxcount * 6; // Worst case index list is a list of points with vs expansion, 6 indices per point
 
-	// Structure describing buffers to reallocate
-	struct AllocDesc
+	for (GSVertexBuff& buf : m_vertex_buffers)
 	{
-		void** pbuff;
-		u32 old_size;
-		u32 new_size;
-	};
-	const std::array<AllocDesc, 5> alloc_desc = {{
-		{reinterpret_cast<void**>(&m_vertex->buff),      old_vertex_size, new_vertex_size},
-		// discard contents of buff_copy by setting old_size = 0
-		{reinterpret_cast<void**>(&m_vertex->buff_copy), 0,               new_vertex_size},
-		{reinterpret_cast<void**>(&m_draw_vertex.buff), old_vertex_size, new_vertex_size},
-		{reinterpret_cast<void**>(&m_index->buff),       old_index_size,  new_index_size},
-		{reinterpret_cast<void**>(&m_draw_index.buff),  old_index_size,  new_index_size}
-	}};
-
-	// For logging
-	u32 total_size = 0;
-	for (const auto& desc : alloc_desc)
-		total_size += desc.new_size;
-
-	// Reallocate each of the needed buffers
-	for (const auto [pbuff, old_size, new_size] : alloc_desc)
-	{
-		void* new_buff = _aligned_malloc(new_size, 32);
-		if (!new_buff)
-		{
-			Console.Error("GS: failed to allocate %zu bytes for vertices and indices.", total_size);
-			pxFailRel("Memory allocation failed");
-		}
-		if (*pbuff)
-		{
-			if (old_size)
-			{
-				std::memcpy(new_buff, *pbuff, old_size);
-			}
-			_aligned_free(*pbuff);
-		}
-		*pbuff = new_buff;
+		GrowBuffer(&buf.buff, buf.tail, new_vertex_count);
+		GrowBuffer(&buf.buff_copy, 0, new_vertex_count);
 	}
+	for (GSIndexBuff& buf : m_index_buffers)
+		GrowBuffer(&buf.buff, buf.tail, new_index_count);
+	GrowBuffer(&m_draw_vertex.buff, m_vertex->tail, new_vertex_count);
+	GrowBuffer(&m_draw_index.buff, m_index->tail, new_index_count);
 
-	m_vertex->maxcount = maxcount - 3; // -3 to have some space at the end of the buffer before DrawingKick can grow it
+	m_max_vertex_count = maxcount - 3; // -3 to have some space at the end of the buffer before DrawingKick can grow it
 }
 
 // For returning order of vertices to form a right triangle
@@ -4771,12 +4782,12 @@ bool GSState::SpriteDrawWithoutGaps()
 	const GSVertex* v = &m_vertex->buff[0];
 	const int first_dpY = v[1].XYZ.Y - v[0].XYZ.Y;
 	const int first_dpX = v[1].XYZ.X - v[0].XYZ.X;
-
+	const u32 next_count = m_vertex->next;
 	// Horizontal Match.
 	if (((first_dpX + 8) >> 4) == m_r_no_scissor.z)
 	{
 		// Borrowed from MergeSprite() modified to calculate heights.
-		for (u32 i = 2; i < m_vertex->next; i += 2)
+		for (u32 i = 2; i < next_count; i += 2)
 		{
 			const int last_pY = v[i - 1].XYZ.Y;
 			const int dpY = v[i + 1].XYZ.Y - v[i].XYZ.Y;
@@ -4793,7 +4804,7 @@ bool GSState::SpriteDrawWithoutGaps()
 	{
 		// Borrowed from MergeSprite().
 		const int offset_X = m_context->XYOFFSET.OFX;
-		for (u32 i = 2; i < m_vertex->next; i += 2)
+		for (u32 i = 2; i < next_count; i += 2)
 		{
 			const int last_pX = v[i - 1].XYZ.X;
 			const int this_start_X = v[i].XYZ.X;
@@ -4810,7 +4821,7 @@ bool GSState::SpriteDrawWithoutGaps()
 			else
 			{
 				const int dpY = v[i + 1].XYZ.Y - v[i].XYZ.Y;
-				if ((std::abs(dpY - first_dpY) >= 16 && (i + 2) < m_vertex->next) || std::abs(this_start_X - last_pX) >= 16)
+				if ((std::abs(dpY - first_dpY) >= 16 && (i + 2) < next_count) || std::abs(this_start_X - last_pX) >= 16)
 					return false;
 			}
 		}
@@ -4823,7 +4834,7 @@ bool GSState::SpriteDrawWithoutGaps()
 	{
 		int lastXEdge = std::max(v[1].XYZ.X, v[0].XYZ.X);
 		int lastYEdge = std::max(v[1].XYZ.Y, v[0].XYZ.Y);
-		for (u32 i = 2; i < m_vertex->next; i += 2)
+		for (u32 i = 2; i < next_count; i += 2)
 		{
 			const int dpY = v[i + 1].XYZ.Y - v[i].XYZ.Y;
 			
@@ -5405,7 +5416,7 @@ __forceinline void GSState::CheckCLUTValidity(u32 prim)
 
 	for (int i = 0; i < m_used_buffers_idx; i++)
 	{
-		GSDrawingEnvironment& buffered_env = m_env_buffers[i].m_env;
+		GSDrawingEnvironment& buffered_env = (m_current_buffer_idx == i) ? m_prev_env : m_env_buffers[i].m_env;
 		const GSDrawingContext& ctx = buffered_env.CTXT[buffered_env.PRIM.CTXT];
 		if ((m_index_buffers[i].tail > 0 || (m_vertex_buffers[i].tail == n - 1)) && (GSLocalMemory::m_psm[ctx.TEX0.PSM].pal == 0 || !buffered_env.PRIM.TME))
 		{
@@ -5421,7 +5432,8 @@ __forceinline void GSState::CheckCLUTValidity(u32 prim)
 				if (prim != GS_POINTLIST || (m_index_buffers[i].tail > 1))
 					endbp = fpsm.info.bn(temp_draw_rect.z - 1, temp_draw_rect.w - 1, ctx.FRAME.Block(), ctx.FRAME.FBW);
 
-				m_mem.m_clut.InvalidateRange(startbp, endbp, true);
+				if (m_mem.m_clut.InvalidateRange(startbp, endbp, true))
+					break;
 			}
 		}
 	}
@@ -5434,6 +5446,8 @@ __forceinline void GSState::HandleAutoFlush()
 	if ((m_index->tail & 1) && (prim == GS_TRIANGLESTRIP || prim == GS_TRIANGLEFAN) && !m_texflush_flag)
 		return;
 
+	GSVertexBuff& vtx_buff = *m_vertex;
+	GSIndexBuff& idx_buff = *m_index;
 	// To briefly explain what's going on here, what we are checking for is draws over a texture when the source and destination are themselves.
 	// Because one page of the texture gets buffered in the Texture Cache (the PS2's one) if any of those pixels are overwritten, you still read the old data.
 	// So we need to calculate if a page boundary is being crossed for the format it is in and if the same part of the texture being written and read inside the draw.
@@ -5442,8 +5456,8 @@ __forceinline void GSState::HandleAutoFlush()
 	{
 		int  n = 1;
 		u32 buff[3];
-		const u32 head = m_vertex->head;
-		const u32 tail = m_vertex->tail;
+		const u32 head = vtx_buff.head;
+		const u32 tail = vtx_buff.tail;
 
 		switch (prim)
 		{
@@ -5510,7 +5524,7 @@ __forceinline void GSState::HandleAutoFlush()
 		// Get the rest of the rect.
 		for (int i = 0; i < (n - 1); i++)
 		{
-			const GSVertex* v = &m_vertex->buff[buff[i]];
+			const GSVertex* v = &vtx_buff.buff[buff[i]];
 
 			xy_coord.x = (static_cast<int>(v->XYZ.X) - static_cast<int>(m_context->XYOFFSET.OFX)) >> 4;
 			xy_coord.y = (static_cast<int>(v->XYZ.Y) - static_cast<int>(m_context->XYOFFSET.OFY)) >> 4;
@@ -5562,7 +5576,7 @@ __forceinline void GSState::HandleAutoFlush()
 			return;
 
 		// Get the last texture position from the last draw.
-		const GSVertex* v = &m_vertex->buff[m_index->buff[m_index->tail - 1]];
+		const GSVertex* v = &vtx_buff.buff[idx_buff.buff[idx_buff.tail - 1]];
 
 		if (PRIM->FST)
 		{
@@ -5652,13 +5666,13 @@ __forceinline void GSState::HandleAutoFlush()
 				const GSVector2i offset = GSVector2i(m_context->XYOFFSET.OFX, m_context->XYOFFSET.OFY);
 				const GSVector4i scissor = m_context->scissor.in;
 				GSVector4i old_draw_rect = GSVector4i::zero();
-				int current_draw_end = m_index->tail;
+				int current_draw_end = idx_buff.tail;
 
 				while (current_draw_end >= n)
 				{
 					for (int i = current_draw_end - 1; i >= current_draw_end - n; i--)
 					{
-						const GSVertex* v = &m_vertex->buff[m_index->buff[i]];
+						const GSVertex* v = &vtx_buff.buff[idx_buff.buff[i]];
 
 						if (prim == GS_SPRITE && (i & 1))
 						{
@@ -5753,27 +5767,31 @@ __fi bool GSState::CheckOverlapVerts(u32 n)
 
 __noinline bool GSState::CheckOverlapVertsSlow(u32 n)
 {
-	if (((m_vertex->tail + 1) - m_vertex->head) == n)
+	GSVertexBuff& vtx_buff = *m_vertex;
+	GSIndexBuff& idx_buff = *m_index;
+
+	if (((vtx_buff.tail + 1) - vtx_buff.head) == n)
 	{
 		m_recent_buffer_switch = false;
 
 		if (m_used_buffers_idx > 1)
 		{
-			const GSVertex* v = &m_vertex->buff[0];
+			const GSVertex* RESTRICT v = &vtx_buff.buff[0];
+			const GSVector2i off_xy = GSVector2i(m_context->XYOFFSET.OFX, m_context->XYOFFSET.OFY);
 			GSVector2i cur_verts[3];
 
-			GSVector4i new_area = GSVector4i(m_v.XYZ.X - m_context->XYOFFSET.OFX, m_v.XYZ.Y - m_context->XYOFFSET.OFY).xyxy();
+			GSVector4i new_area = GSVector4i(m_v.XYZ.X - off_xy.x, m_v.XYZ.Y - off_xy.y).xyxy();
 			cur_verts[0] = GSVector2i(new_area.x, new_area.y);
 
 			for (u32 i = 0; i < (n - 1); i++)
 			{
-				const int pos = (m_vertex->tail - 1) - i;
+				const int pos = (vtx_buff.tail - 1) - i;
 				
 				GSVector2i prev_vert;
 				if (m_env.PRIM.PRIM == GS_TRIANGLEFAN && i == (n - 2))
-					prev_vert = GSVector2i(v[m_vertex->head].XYZ.X - m_context->XYOFFSET.OFX, v[m_vertex->head].XYZ.X - m_context->XYOFFSET.OFY);
+					prev_vert = GSVector2i(v[vtx_buff.head].XYZ.X - off_xy.y, v[vtx_buff.head].XYZ.X - off_xy.y);
 				else
-					prev_vert = GSVector2i(v[pos].XYZ.X - m_context->XYOFFSET.OFX, v[pos].XYZ.Y - m_context->XYOFFSET.OFY);
+					prev_vert = GSVector2i(v[pos].XYZ.X - off_xy.x, v[pos].XYZ.Y - off_xy.y);
 
 				cur_verts[i + 1] = prev_vert;
 
@@ -5783,13 +5801,13 @@ __noinline bool GSState::CheckOverlapVertsSlow(u32 n)
 				new_area.w = std::max(new_area.w, prev_vert.y);
 			}
 
-			if (m_index->tail > 0)
+			if (idx_buff.tail > 0)
 			{
 				u32 matching_verts = 0;
 				for (u32 i = 0; i < n; i++)
 				{
-					const u32 pos = m_index->buff[(m_index->tail - n) + i];
-					const GSVector2i prev_vert = GSVector2i(v[pos].XYZ.X - m_context->XYOFFSET.OFX, v[pos].XYZ.Y - m_context->XYOFFSET.OFY);
+					const u32 pos = idx_buff.buff[(idx_buff.tail - n) + i];
+					const GSVector2i prev_vert = GSVector2i(v[pos].XYZ.X - off_xy.x, v[pos].XYZ.Y - off_xy.y);
 
 					for (u32 j = 0; j < n; j++)
 					{
@@ -5818,48 +5836,6 @@ __noinline bool GSState::CheckOverlapVertsSlow(u32 n)
 					return true;
 			}
 		}
-		
-		/*const GSVertex* v = &m_vertex->buff[0];
-
-		GSVector4i new_area = GSVector4i(m_v.XYZ.X - m_context->XYOFFSET.OFX, m_v.XYZ.Y - m_context->XYOFFSET.OFY).xyxy();
-		for (u32 i = 0; i < (n - 1); i++)
-		{
-			const int pos = m_index->buff[(m_index->tail - 1) - i];
-			GSVector2i pre_vert = GSVector2i(v[pos].XYZ.X - m_context->XYOFFSET.OFX, v[pos].XYZ.Y - m_context->XYOFFSET.OFY);
-			new_area.x = std::min(new_area.x, pre_vert.x);
-			new_area.z = std::max(new_area.z, pre_vert.x);
-			new_area.y = std::min(new_area.y, pre_vert.y);
-			new_area.w = std::max(new_area.w, pre_vert.y);
-		}
-		new_area = new_area.sra32<4>();
-
-		if (new_area.rintersect(temp_draw_rect).eq(new_area))
-		{
-			const int end_pos = m_index->tail - (n - 1);
-			//Need to check if it's already drawn at this vector with this setup, if it has, it means one of the other draws might be drawing over it, which is a bad time for us, so best check.
-			for (int j = 0; j < end_pos; j+=n)
-			{
-				if (v[m_index->buff[j]].XYZ.X == m_v.XYZ.X && v[m_index->buff[j]].XYZ.Y == m_v.XYZ.Y)
-				{
-					int min_point = std::max(j - 2, 0);
-					int match = 0;
-
-					for (int k = min_point; k < (min_point + 5); k++)
-					{
-						if (k == j)
-							continue;
-
-						if (v[m_index->buff[k]].XYZ.X == v[m_vertex->tail - 2].XYZ.X && v[m_index->buff[k]].XYZ.Y == v[m_vertex->tail - 2].XYZ.Y)
-							match |= 1;
-						if (v[m_index->buff[k]].XYZ.X == v[m_vertex->tail - 1].XYZ.X && v[m_index->buff[k]].XYZ.Y == v[m_vertex->tail - 1].XYZ.Y)
-							match |= 2;
-					}
-
-					if (match)
-						return true;
-				}
-			}
-		}*/
 	}
 	return false;
 }
@@ -5869,28 +5845,30 @@ __forceinline void GSState::VertexKick(u32 skip)
 {
 	constexpr u32 n = NumIndicesForPrim(prim);
 	constexpr int primclass = GSUtil::GetPrimClass(prim);
+	GSVertexBuff& vtx_buff = *m_vertex;
+	GSIndexBuff& idx_buff = *m_index;
 	static_assert(n > 0);
-
-	pxAssert(m_vertex->tail < m_vertex->maxcount + 3);
+	pxAssert(vtx_buff.tail < m_max_vertex_count + 3);
 
 	if constexpr (prim == GS_INVALID)
 	{
-		m_vertex->tail = m_vertex->head;
+		vtx_buff.tail = vtx_buff.head;
 		return;
 	}
 
-	if (CheckOverlapVerts(n))
-		Flush(CONTEXTCHANGE);
+	if (GSConfig.UserHacks_DrawBuffering)
+		if (CheckOverlapVerts(n))
+			Flush(CONTEXTCHANGE);
 	
-	if (auto_flush && skip == 0 && m_index->tail > 0 && ((m_vertex->tail + 1) - m_vertex->head) >= n)
+	if (auto_flush && skip == 0 && idx_buff.tail > 0 && ((vtx_buff.tail + 1) - vtx_buff.head) >= n)
 	{
 		HandleAutoFlush<prim>();
 	}
 
-	u32 head = m_vertex->head;
-	u32 tail = m_vertex->tail;
-	u32 next = m_vertex->next;
-	u32 xy_tail = m_vertex->xy_tail;
+	u32 head = vtx_buff.head;
+	u32 tail = vtx_buff.tail;
+	u32 next = vtx_buff.next;
+	u32 xy_tail = vtx_buff.xy_tail;
 
 	// Config test first: this runs per vertex kick, and with the hack disabled (the
 	// default) the reorder skips the GSIsHardwareRenderer() call and psm-table walk.
@@ -5908,7 +5886,7 @@ __forceinline void GSState::VertexKick(u32 skip)
 	const GSVector4i new_v0(m_v.m[0]);
 	const GSVector4i new_v1(m_v.m[1]);
 
-	GSVector4i* RESTRICT tailptr = (GSVector4i*)&m_vertex->buff[tail];
+	GSVector4i* RESTRICT tailptr = (GSVector4i*)&vtx_buff.buff[tail];
 
 	tailptr[0] = new_v0;
 	tailptr[1] = new_v1;
@@ -5916,31 +5894,19 @@ __forceinline void GSState::VertexKick(u32 skip)
 	// We maintain the X/Y coordinates for the last 4 vertices, as well as the head for triangle fans, so we can compute
 	// the min/max, and cull degenerate triangles, which saves draws in some cases. Why 4? Mod 4 is cheaper than Mod 3.
 	const GSVector4i xy = new_v1.xxxx().u16to32().sub32(m_xyof);
-	m_vertex->xy[xy_tail & 3] = xy;
+	vtx_buff.xy[xy_tail & 3] = xy;
 
 	// Backup head for triangle fans so we can read it later, otherwise it'll get lost after the 4th vertex.
 	if (prim == GS_TRIANGLEFAN && tail == head)
-		m_vertex->xyhead = xy;
+		vtx_buff.xyhead = xy;
 
-	m_vertex->tail = ++tail;
-	m_vertex->xy_tail = ++xy_tail;
+	vtx_buff.tail = ++tail;
+	vtx_buff.xy_tail = ++xy_tail;
 
 	const u32 m = tail - head;
 
 	if (m < n)
 		return;
-
-	if (m_index->tail == 0/* && ((m_backed_up_ctx != m_env.PRIM.CTXT) || m_dirty_gs_regs)*/)
-	{
-		const int ctx = m_env.PRIM.CTXT;
-		std::memcpy(&m_prev_env, &m_env, 88);
-		std::memcpy(&m_prev_env.CTXT[ctx], &m_env.CTXT[ctx], 96);
-		std::memcpy(&m_prev_env.CTXT[ctx].offset, &m_env.CTXT[ctx].offset, sizeof(m_env.CTXT[ctx].offset));
-		std::memcpy(&m_prev_env.CTXT[ctx].scissor, &m_env.CTXT[ctx].scissor, sizeof(m_env.CTXT[ctx].scissor));
-		m_dirty_gs_regs = 0;
-		m_backed_up_ctx = m_env.PRIM.CTXT;
-		SetDrawBufferEnv();
-	}
 
 	// Skip draws when scissor is out of range (i.e. bottom-right is less than top-left), since everything will get clipped.
 	skip |= static_cast<u32>(m_scissor_invalid);
@@ -5948,9 +5914,9 @@ __forceinline void GSState::VertexKick(u32 skip)
 	GSVector4i bbox;
 	if (skip == 0)
 	{
-		const GSVector4i v0 = m_vertex->xy[(xy_tail - 1) & 3];
-		const GSVector4i v1 = m_vertex->xy[(xy_tail - 2) & 3];
-		const GSVector4i v2 = (prim == GS_TRIANGLEFAN) ? m_vertex->xyhead : m_vertex->xy[(xy_tail - 3) & 3];
+		const GSVector4i v0 = vtx_buff.xy[(xy_tail - 1) & 3];
+		const GSVector4i v1 = vtx_buff.xy[(xy_tail - 2) & 3];
+		const GSVector4i v2 = (prim == GS_TRIANGLEFAN) ? vtx_buff.xyhead : vtx_buff.xy[(xy_tail - 3) & 3];
 
 		if constexpr (n == 1)
 		{
@@ -6015,14 +5981,14 @@ __forceinline void GSState::VertexKick(u32 skip)
 			case GS_LINELIST:
 			case GS_TRIANGLELIST:
 			case GS_SPRITE:
-				m_vertex->tail = head; // no need to check or grow the buffer length
+				vtx_buff.tail = head; // no need to check or grow the buffer length
 				break;
 			case GS_LINESTRIP:
 			case GS_TRIANGLESTRIP:
-				m_vertex->head = head + 1;
+				vtx_buff.head = head + 1;
 				[[fallthrough]];
 			case GS_TRIANGLEFAN:
-				if (tail >= m_vertex->maxcount)
+				if (tail >= m_max_vertex_count)
 					GrowVertexBuffer(); // in case too many vertices were skipped
 				break;
 			default:
@@ -6032,71 +5998,85 @@ __forceinline void GSState::VertexKick(u32 skip)
 		return;
 	}
 
-	if (tail >= m_vertex->maxcount)
+	if (idx_buff.tail == 0 /* && ((m_backed_up_ctx != m_env.PRIM.CTXT) || m_dirty_gs_regs)*/)
+	{
+		const int ctx = m_env.PRIM.CTXT;
+		std::memcpy(&m_prev_env, &m_env, 88);
+		std::memcpy(&m_prev_env.CTXT[ctx], &m_env.CTXT[ctx], 96);
+		std::memcpy(&m_prev_env.CTXT[ctx].offset, &m_env.CTXT[ctx].offset, sizeof(m_env.CTXT[ctx].offset));
+		std::memcpy(&m_prev_env.CTXT[ctx].scissor, &m_env.CTXT[ctx].scissor, sizeof(m_env.CTXT[ctx].scissor));
+		m_dirty_gs_regs = 0;
+		m_backed_up_ctx = m_env.PRIM.CTXT;
+
+		if (GSConfig.UserHacks_DrawBuffering)
+			SetDrawBufferEnv();
+	}
+
+	if (tail >= m_max_vertex_count)
 		GrowVertexBuffer();
 
-	u16* RESTRICT buff = &m_index->buff[m_index->tail];
+	u16* RESTRICT buff = &idx_buff.buff[idx_buff.tail];
 
 	switch (prim)
 	{
 		case GS_POINTLIST:
 			buff[0] = static_cast<u16>(head + 0);
-			m_vertex->head = head + 1;
-			m_vertex->next = head + 1;
-			m_index->tail += 1;
+			vtx_buff.head = head + 1;
+			vtx_buff.next = head + 1;
+			idx_buff.tail += 1;
 			break;
 		case GS_LINELIST:
 			buff[0] = static_cast<u16>(head + 0);
 			buff[1] = static_cast<u16>(head + 1);
-			m_vertex->head = head + 2;
-			m_vertex->next = head + 2;
-			m_index->tail += 2;
+			vtx_buff.head = head + 2;
+			vtx_buff.next = head + 2;
+			idx_buff.tail += 2;
 			break;
 		case GS_LINESTRIP:
 			if (next < head)
 			{
-				m_vertex->buff[next + 0] = m_vertex->buff[head + 0];
-				m_vertex->buff[next + 1] = m_vertex->buff[head + 1];
+				vtx_buff.buff[next + 0] = vtx_buff.buff[head + 0];
+				vtx_buff.buff[next + 1] = vtx_buff.buff[head + 1];
 				head = next;
-				m_vertex->tail = next + 2;
+				vtx_buff.tail = next + 2;
 			}
 			buff[0] = static_cast<u16>(head + 0);
 			buff[1] = static_cast<u16>(head + 1);
-			m_vertex->head = head + 1;
-			m_vertex->next = head + 2;
-			m_index->tail += 2;
+			vtx_buff.head = head + 1;
+			vtx_buff.next = head + 2;
+			idx_buff.tail += 2;
 			break;
 		case GS_TRIANGLELIST:
 			buff[0] = static_cast<u16>(head + 0);
 			buff[1] = static_cast<u16>(head + 1);
 			buff[2] = static_cast<u16>(head + 2);
-			m_vertex->head = head + 3;
-			m_vertex->next = head + 3;
-			m_index->tail += 3;
+			vtx_buff.head = head + 3;
+			vtx_buff.next = head + 3;
+			idx_buff.tail += 3;
 			break;
 		case GS_TRIANGLESTRIP:
 			if (next < head)
 			{
-				m_vertex->buff[next + 0] = m_vertex->buff[head + 0];
-				m_vertex->buff[next + 1] = m_vertex->buff[head + 1];
-				m_vertex->buff[next + 2] = m_vertex->buff[head + 2];
+				vtx_buff.buff[next + 0] = vtx_buff.buff[head + 0];
+				vtx_buff.buff[next + 1] = vtx_buff.buff[head + 1];
+				vtx_buff.buff[next + 2] = vtx_buff.buff[head + 2];
 				head = next;
-				m_vertex->tail = next + 3;
+				vtx_buff.tail = next + 3;
 			}
 			buff[0] = static_cast<u16>(head + 0);
 			buff[1] = static_cast<u16>(head + 1);
 			buff[2] = static_cast<u16>(head + 2);
-			m_vertex->head = head + 1;
-			m_vertex->next = head + 3;
-			m_index->tail += 3;
+			vtx_buff.head = head + 1;
+			vtx_buff.next = head + 3;
+			idx_buff.tail += 3;
 			break;
 		case GS_TRIANGLEFAN:
 			// TODO: remove gaps, next == head && head < tail - 3 || next > head && next < tail - 2 (very rare)
 			buff[0] = static_cast<u16>(head + 0);
 			buff[1] = static_cast<u16>(tail - 2);
 			buff[2] = static_cast<u16>(tail - 1);
-			m_vertex->next = tail;
-			m_index->tail += 3;
+			vtx_buff.next = tail;
+			idx_buff.tail += 3;
 			break;
 		case GS_SPRITE:
 			buff[0] = static_cast<u16>(head + 0);
@@ -6104,11 +6084,11 @@ __forceinline void GSState::VertexKick(u32 skip)
 
 			// Update the first vert's Q for ease of doing Autoflush
 			if (!m_env.PRIM.FST)
-				m_vertex->buff[buff[0]].RGBAQ.Q = m_vertex->buff[buff[1]].RGBAQ.Q;
+				vtx_buff.buff[buff[0]].RGBAQ.Q = vtx_buff.buff[buff[1]].RGBAQ.Q;
 
-			m_vertex->head = head + 2;
-			m_vertex->next = head + 2;
-			m_index->tail += 2;
+			vtx_buff.head = head + 2;
+			vtx_buff.next = head + 2;
+			idx_buff.tail += 2;
 			break;
 		default:
 			ASSUME(0);
@@ -6116,14 +6096,14 @@ __forceinline void GSState::VertexKick(u32 skip)
 
 	// Update rectangle for the current draw. Needs exclusive endpoints.
 	const GSVector4i draw_rect = bbox.sra32<4>() + GSVector4i(0, 0, 1, 1);
-	if (m_index->tail != n)
+	if (idx_buff.tail != n)
 		temp_draw_rect = temp_draw_rect.runion(draw_rect);
 	else
 		temp_draw_rect = draw_rect;
 	temp_draw_rect = temp_draw_rect.rintersect(m_context->scissor.in);
 
 	constexpr u32 max_vertices = MaxVerticesForPrim(prim);
-	if (max_vertices != 0 && m_vertex->tail >= max_vertices)
+	if (max_vertices != 0 && vtx_buff.tail >= max_vertices)
 		Flush(VERTEXCOUNT);
 }
 
@@ -6285,7 +6265,6 @@ GSState::TextureMinMaxResult GSState::GetTextureMinMax(GIFRegTEX0 TEX0, GIFRegCL
 			const GSVector4i scissored_rc(int_rc.rintersect(m_context->scissor.in));
 			if (!int_rc.eq(scissored_rc))
 			{
-
 				const GSVertex* vert_first = &m_vertex->buff[m_index->buff[0]];
 				const GSVertex* vert_second = &m_vertex->buff[m_index->buff[1]];
 				const GSVertex* vert_third = &m_vertex->buff[m_index->buff[2]];

@@ -170,24 +170,12 @@ void FullscreenUI::ApplyLayoutSettings(const SettingsInterface* bsi)
 			return InputLayout::Playstation;
 		if (mode == "nintendo")
 			return InputLayout::Nintendo;
+		if (mode == "generic")
+			return InputLayout::Generic;
 		return InputLayout::Unknown;
 	};
 
-	switch (parse_glyph_layout(glyph_mode))
-	{
-		case InputLayout::Xbox:
-			InputManager::SetGamepadIconPreference(InputLayout::Xbox);
-			break;
-		case InputLayout::Playstation:
-			InputManager::SetGamepadIconPreference(InputLayout::Playstation);
-			break;
-		case InputLayout::Nintendo:
-			InputManager::SetGamepadIconPreference(InputLayout::Nintendo);
-			break;
-		default:
-			InputManager::SetGamepadIconPreference(InputLayout::Unknown);
-			break;
-	}
+	InputManager::SetGamepadIconPreference(parse_glyph_layout(glyph_mode));
 
 	const InputLayout layout = ImGuiFullscreen::GetGamepadLayout();
 
@@ -380,8 +368,8 @@ bool FullscreenUI::HasActiveWindow()
 bool FullscreenUI::AreAnyDialogsOpen()
 {
 	return (s_save_state_selector_open || s_about_window_open || s_cover_downloader_open ||
-			s_input_binding_type != InputBindingInfo::Type::Unknown || ImGuiFullscreen::IsChoiceDialogOpen() ||
-			ImGuiFullscreen::IsFileSelectorOpen());
+			s_achievements_login_open || s_input_binding_type != InputBindingInfo::Type::Unknown ||
+			ImGuiFullscreen::IsChoiceDialogOpen() || ImGuiFullscreen::IsFileSelectorOpen());
 }
 
 void FullscreenUI::CheckForConfigChanges(const Pcsx2Config& old_config)
@@ -444,6 +432,28 @@ void FullscreenUI::OnVMDestroyed()
 		s_was_paused_on_quick_menu_open = false;
 		s_current_pause_submenu = PauseSubMenu::None;
 		ReturnToMainWindow();
+	});
+}
+
+void FullscreenUI::OnVMResumed()
+{
+	if (!IsInitialized())
+		return;
+
+	MTGS::RunOnGSThread([]() {
+		if (!IsInitialized())
+			return;
+
+		if (s_current_main_window == MainWindowType::PauseMenu ||
+			s_current_main_window == MainWindowType::Settings ||
+			s_current_main_window == MainWindowType::Achievements ||
+			s_current_main_window == MainWindowType::Leaderboards)
+		{
+			s_current_main_window = MainWindowType::None;
+			s_current_pause_submenu = PauseSubMenu::None;
+			s_pause_menu_was_open = false;
+			QueueResetFocus(FocusResetType::WindowChanged);
+		}
 	});
 }
 
@@ -535,6 +545,7 @@ void FullscreenUI::Shutdown(bool clear_state)
 		CloseCoverDownloaderWindow();
 		s_cover_image_map.clear();
 		s_game_list_sorted_entries = {};
+		s_last_unsorted_entries = {};
 		s_game_list_directories_cache = {};
 		s_game_cheat_unlabelled_count = 0;
 		s_enabled_game_cheat_cache = {};
@@ -893,8 +904,8 @@ void FullscreenUI::DoStartDisc()
 	std::vector<std::string> devices(GetOpticalDriveList());
 	if (devices.empty())
 	{
-		ShowToast(std::string(), FSUI_STR("Could not find any CD/DVD-ROM devices. Please ensure you have a drive connected and sufficient "
-										  "permissions to access it."));
+		ShowToast(ICON_FA_COMPACT_DISC, FSUI_STR("Could not find any CD/DVD-ROM devices. Please ensure you have a drive connected and sufficient "
+												 "permissions to access it."));
 		return;
 	}
 
@@ -978,7 +989,7 @@ void FullscreenUI::DoChangeDiscFromFile()
 		{
 			if (!VMManager::IsDiscFileName(path))
 			{
-				ShowToast({}, fmt::format(FSUI_FSTR("{} is not a valid disc image."), Path::GetFileName(path)));
+				ShowToast(ICON_FA_TRIANGLE_EXCLAMATION, fmt::format(FSUI_FSTR("{} is not a valid disc image."), Path::GetFileName(path)));
 			}
 			else
 			{
@@ -1298,9 +1309,11 @@ void FullscreenUI::DrawLandingTemplate(ImVec2* menu_pos, ImVec2* menu_size)
 #else
 			localtime_r(&utc_time_t, &tm_local);
 #endif
-			heading_str.format(FSUI_FSTR("{:%H:%M}"), tm_local);
+			char buf[256];
+			std::strftime(buf, sizeof(buf), "%X", &tm_local);
+			heading_str.assign(buf);
 
-			const ImVec2 time_size = heading_font.first->CalcTextSizeA(heading_font.second, FLT_MAX, 0.0f, "00:00");
+			const ImVec2 time_size = heading_font.first->CalcTextSizeA(heading_font.second, FLT_MAX, 0.0f, heading_str.c_str());
 			time_pos = ImVec2(heading_size.x - LayoutScale(LAYOUT_MENU_BUTTON_X_PADDING) - time_size.x,
 				LayoutScale(LAYOUT_MENU_BUTTON_Y_PADDING));
 			ImGuiFullscreen::AddTextWithShadow(
@@ -1563,20 +1576,10 @@ void FullscreenUI::DrawPauseMenu(MainWindowType type)
 		const float image_width = 60.0f;
 		const float image_height = 90.0f;
 		const std::string_view path_string(Path::GetFileName(s_current_disc_path));
-		const ImVec2 title_size(
-			g_large_font.first->CalcTextSizeA(g_large_font.second, std::numeric_limits<float>::max(), -1.0f, s_current_game_title.c_str()));
-		const ImVec2 path_size(path_string.empty() ?
-								   ImVec2(0.0f, 0.0f) :
-								   g_medium_font.first->CalcTextSizeA(g_medium_font.second, std::numeric_limits<float>::max(), -1.0f,
-									   path_string.data(), path_string.data() + path_string.length()));
-		const ImVec2 subtitle_size(g_medium_font.first->CalcTextSizeA(
-			g_medium_font.second, std::numeric_limits<float>::max(), -1.0f, s_current_game_subtitle.c_str()));
 
-		ImVec2 title_pos(display_size.x - LayoutScale(10.0f + image_width + 20.0f) - title_size.x,
-			display_size.y - LayoutScale(LAYOUT_FOOTER_HEIGHT) - LayoutScale(10.0f + image_height));
-		ImVec2 path_pos(display_size.x - LayoutScale(10.0f + image_width + 20.0f) - path_size.x,
-			title_pos.y + g_large_font.second + LayoutScale(4.0f));
-		ImVec2 subtitle_pos(display_size.x - LayoutScale(10.0f + image_width + 20.0f) - subtitle_size.x,
+		ImVec2 title_pos(LayoutScale(10.0f + image_width + 20.0f), LayoutScale(10.0f));
+		ImVec2 path_pos(LayoutScale(10.0f + image_width + 20.0f), title_pos.y + g_large_font.second + LayoutScale(4.0f));
+		ImVec2 subtitle_pos(LayoutScale(10.0f + image_width + 20.0f),
 			(path_string.empty() ? title_pos.y + g_large_font.second : path_pos.y + g_medium_font.second) + LayoutScale(4.0f));
 
 		float rp_height = 0.0f;
@@ -1593,12 +1596,8 @@ void FullscreenUI::DrawPauseMenu(MainWindowType type)
 				// Add a small extra gap if any Rich Presence is displayed
 				rp_height = rp_size.y - g_medium_font.second + LayoutScale(2.0f);
 
-				const ImVec2 rp_pos(display_size.x - LayoutScale(20.0f + 50.0f + 20.0f) - rp_size.x,
-					subtitle_pos.y + g_medium_font.second + LayoutScale(4.0f) - rp_height);
-
-				title_pos.y -= rp_height;
-				path_pos.y -= rp_height;
-				subtitle_pos.y -= rp_height;
+				const ImVec2 rp_pos(LayoutScale(10.0f + image_width + 20.0f),
+					subtitle_pos.y + g_medium_font.second + LayoutScale(4.0f));
 
 				DrawShadowedText(dl, g_medium_font, rp_pos, text_color, rp.data(), rp.data() + rp.length(), wrap_width);
 			}
@@ -1611,8 +1610,7 @@ void FullscreenUI::DrawPauseMenu(MainWindowType type)
 		}
 		DrawShadowedText(dl, g_medium_font, subtitle_pos, text_color, s_current_game_subtitle.c_str());
 
-		const ImVec2 image_min(display_size.x - LayoutScale(10.0f + image_width),
-			display_size.y - LayoutScale(LAYOUT_FOOTER_HEIGHT) - LayoutScale(10.0f + image_height) - rp_height);
+		const ImVec2 image_min(LayoutScale(10.0f), LayoutScale(10.0f));
 		const ImVec2 image_max(image_min.x + LayoutScale(image_width), image_min.y + LayoutScale(image_height) + rp_height);
 		{
 			auto lock = GameList::GetLock();
@@ -1962,7 +1960,7 @@ bool FullscreenUI::OpenLoadStateSelectorForGame(const std::string& game_path)
 		}
 	}
 
-	ShowToast({}, FSUI_STR("No save states found."), 5.0f);
+	ShowToast(ICON_FA_FLOPPY_DISK, FSUI_STR("No save states found."), 5.0f);
 	return false;
 }
 
@@ -1977,7 +1975,7 @@ bool FullscreenUI::OpenSaveStateSelector(bool is_loading)
 		return true;
 	}
 
-	ShowToast({}, FSUI_STR("No save states found."), 5.0f);
+	ShowToast(ICON_FA_FLOPPY_DISK, FSUI_STR("No save states found."), 5.0f);
 	return false;
 }
 
@@ -2133,12 +2131,12 @@ void FullscreenUI::DrawSaveStateSelector(bool is_loading)
 					{
 						if (!FileSystem::FileExists(entry.path.c_str()))
 						{
-							ShowToast({}, fmt::format(FSUI_FSTR("{} does not exist."), ImGuiFullscreen::RemoveHash(entry.title)));
+							ShowToast(ICON_FA_TRIANGLE_EXCLAMATION, fmt::format(FSUI_FSTR("{} does not exist."), ImGuiFullscreen::RemoveHash(entry.title)));
 							is_open = true;
 						}
 						else if (FileSystem::DeleteFilePath(entry.path.c_str()))
 						{
-							ShowToast({}, fmt::format(FSUI_FSTR("{} deleted."), ImGuiFullscreen::RemoveHash(entry.title)));
+							ShowToast(ICON_FA_TRASH, fmt::format(FSUI_FSTR("{} deleted."), ImGuiFullscreen::RemoveHash(entry.title)));
 							if (s_save_state_selector_loading)
 								s_save_state_selector_slots.erase(s_save_state_selector_slots.begin() + i);
 							else
@@ -2158,7 +2156,7 @@ void FullscreenUI::DrawSaveStateSelector(bool is_loading)
 						}
 						else
 						{
-							ShowToast({}, fmt::format(FSUI_FSTR("Failed to delete {}."), ImGuiFullscreen::RemoveHash(entry.title)));
+							ShowToast(ICON_FA_TRIANGLE_EXCLAMATION, fmt::format(FSUI_FSTR("Failed to delete {}."), ImGuiFullscreen::RemoveHash(entry.title)));
 							is_open = false;
 						}
 					}
@@ -2385,7 +2383,7 @@ void FullscreenUI::DrawResumeStateSelector()
 			}
 			else
 			{
-				ShowToast(std::string(), FSUI_STR("Failed to delete save state."));
+				ShowToast(ICON_FA_TRIANGLE_EXCLAMATION, FSUI_STR("Failed to delete save state."));
 			}
 		}
 
@@ -2458,7 +2456,6 @@ void FullscreenUI::PopulateGameListEntryList()
 	static int s_last_sort = -1;
 	static bool s_last_reverse = false;
 	static bool s_last_prefer_eng = false;
-	static std::vector<const GameList::Entry*> s_last_unsorted_entries;
 
 	// Sort can be expensive, try to avoid when possible
 	const u32 count = GameList::GetEntryCount();
@@ -2619,6 +2616,11 @@ void FullscreenUI::DrawGameListWindow()
 	{
 		OpenCoverDownloaderWindow();
 	}
+	else if (ImGui::IsKeyPressed(ImGuiKey_GamepadL2, false) || ImGui::IsKeyPressed(ImGuiKey_F5, false))
+	{
+		ShowToast(std::string(), FSUI_STR("Scanning for new games..."), 4.0f);
+		Host::RefreshGameListAsync(false);
+	}
 
 	switch (s_game_list_view)
 	{
@@ -2653,6 +2655,7 @@ void FullscreenUI::DrawGameListWindow()
 			std::make_pair(glyphs.dpad, FSUI_VSTR("Select Game")),
 			std::make_pair(glyphs.select, FSUI_VSTR("Cover Downloader")),
 			std::make_pair(glyphs.start, FSUI_VSTR("Settings")),
+			std::make_pair(ICON_PF_LEFT_TRIGGER_L2, FSUI_VSTR("Refresh List")),
 			std::make_pair(swapNorthWest ? glyphs.west : glyphs.north, FSUI_VSTR("Change View")),
 			std::make_pair(swapNorthWest ? glyphs.north : glyphs.west, FSUI_VSTR("Launch Options")),
 			std::make_pair(glyphs.confirm(circleOK), FSUI_VSTR("Start Game")),
@@ -2667,6 +2670,7 @@ void FullscreenUI::DrawGameListWindow()
 			std::make_pair(ICON_PF_F2, FSUI_VSTR("Settings")),
 			std::make_pair(ICON_PF_F3, FSUI_VSTR("Launch Options")),
 			std::make_pair(ICON_PF_F4, FSUI_VSTR("Cover Downloader")),
+			std::make_pair(ICON_PF_F5, FSUI_VSTR("Refresh List")),
 			std::make_pair(ICON_PF_ENTER, FSUI_VSTR("Start Game")),
 			std::make_pair(ICON_PF_ESC, FSUI_VSTR("Back")),
 		});
@@ -3401,9 +3405,9 @@ void FullscreenUI::ExitFullscreenAndOpenURL(const std::string_view url)
 void FullscreenUI::CopyTextToClipboard(std::string title, const std::string_view text)
 {
 	if (Host::CopyTextToClipboard(text))
-		ShowToast(std::string(), std::move(title));
+		ShowToast(ICON_FA_CLIPBOARD, std::move(title));
 	else
-		ShowToast(std::string(), FSUI_STR("Failed to copy text to clipboard."));
+		ShowToast(ICON_FA_TRIANGLE_EXCLAMATION, FSUI_STR("Failed to copy text to clipboard."));
 }
 
 void FullscreenUI::OpenAboutWindow()
@@ -3876,7 +3880,7 @@ void FullscreenUI::SwitchToAchievementsWindow()
 
 	if (!Achievements::HasAchievements())
 	{
-		ShowToast(std::string(), FSUI_STR("This game has no achievements."));
+		ShowToast(ICON_FA_TROPHY, FSUI_STR("This game has no achievements."));
 		return;
 	}
 
@@ -3920,7 +3924,7 @@ void FullscreenUI::SwitchToLeaderboardsWindow()
 
 	if (!Achievements::HasLeaderboards())
 	{
-		ShowToast(std::string(), FSUI_STR("This game has no leaderboards."));
+		ShowToast(ICON_FA_TROPHY, FSUI_STR("This game has no leaderboards."));
 		return;
 	}
 
@@ -4021,6 +4025,7 @@ TRANSLATE_NOOP("FullscreenUI", "Your memory card is still saving data.\n\nWARNIN
 TRANSLATE_NOOP("FullscreenUI", "No save present in this slot.");
 TRANSLATE_NOOP("FullscreenUI", "No save states found.");
 TRANSLATE_NOOP("FullscreenUI", "Failed to delete save state.");
+TRANSLATE_NOOP("FullscreenUI", "Scanning for new games...");
 TRANSLATE_NOOP("FullscreenUI", "empty title");
 TRANSLATE_NOOP("FullscreenUI", "no serial");
 TRANSLATE_NOOP("FullscreenUI", "Failed to copy text to clipboard.");
@@ -4080,7 +4085,6 @@ TRANSLATE_NOOP("FullscreenUI", "Downloading covers...");
 TRANSLATE_NOOP("FullscreenUI", "An error occurred while deleting empty game settings:\n{}");
 TRANSLATE_NOOP("FullscreenUI", "An error occurred while saving game settings:\n{}");
 TRANSLATE_NOOP("FullscreenUI", "{} is not a valid disc image.");
-TRANSLATE_NOOP("FullscreenUI", "{:%H:%M}");
 TRANSLATE_NOOP("FullscreenUI", "This Session: {}");
 TRANSLATE_NOOP("FullscreenUI", "All Time: {}");
 TRANSLATE_NOOP("FullscreenUI", "Save Slot {0}");
@@ -4125,6 +4129,7 @@ TRANSLATE_NOOP("FullscreenUI", "Options");
 TRANSLATE_NOOP("FullscreenUI", "Load/Save State");
 TRANSLATE_NOOP("FullscreenUI", "Select Game");
 TRANSLATE_NOOP("FullscreenUI", "Cover Downloader");
+TRANSLATE_NOOP("FullscreenUI", "Refresh List");
 TRANSLATE_NOOP("FullscreenUI", "Change View");
 TRANSLATE_NOOP("FullscreenUI", "Launch Options");
 TRANSLATE_NOOP("FullscreenUI", "Startup Error");
