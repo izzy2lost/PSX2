@@ -198,6 +198,27 @@
             android:layout_height="wrap_content"
             android:layout_marginBottom="12dp"/>
 
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Edge Cropping"
+            android:textSize="14sp"
+            android:paddingBottom="4dp"/>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Hides junk pixels along the left/right edges that a CRT's overscan used to cover."
+            android:textSize="12sp"
+            android:alpha="0.7"
+            android:paddingBottom="4dp"/>
+
+        <Spinner
+            android:id="@+id/sp_edge_crop"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"/>
+
         <com.google.android.material.materialswitch.MaterialSwitch
             android:id="@+id/sw_vsync"
             style="@style/Widget.Material3.CompoundButton.MaterialSwitch"

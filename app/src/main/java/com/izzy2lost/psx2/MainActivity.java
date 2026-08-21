@@ -1564,6 +1564,10 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
         // HUD visibility
         boolean hudVisible = prefs.getBoolean("hud_visible", false);
         NativeApp.setHudVisible(hudVisible);
+
+        // Edge cropping: trims the junk columns a CRT's overscan used to hide
+        int edgeCrop = prefs.getInt("edge_crop", 8);
+        NativeApp.setEdgeCrop(edgeCrop);
         
         // Set brighter default brightness (60 instead of 50)
         NativeApp.setShadeBoost(true);
@@ -2990,6 +2994,9 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
 
             boolean vsyncEnabled = prefs.getBoolean("vsync_enabled", false);
             NativeApp.setVsyncEnabled(vsyncEnabled);
+
+            int edgeCrop = prefs.getInt("edge_crop", 8);
+            NativeApp.setEdgeCrop(edgeCrop);
             
             // Apply renderer setting
             int renderer = prefs.getInt("renderer", -1);

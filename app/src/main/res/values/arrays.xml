@@ -19,6 +19,14 @@
         <item>10:7 (Uncommon)</item>
     </string-array>
 
+    <string-array name="edge_crop_entries">
+        <item>Off (Show Full Frame)</item>
+        <item>4 px (Subtle)</item>
+        <item>8 px (Recommended)</item>
+        <item>12 px (Strong)</item>
+        <item>16 px (Maximum)</item>
+    </string-array>
+
     <string-array name="blending_accuracy_entries">
         <item>Minimum (Fastest, may break effects)</item>
         <item>Basic (Recommended)</item>

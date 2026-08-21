@@ -825,6 +825,22 @@ Java_com_izzy2lost_psx2_NativeApp_setShadeBoostSaturation(JNIEnv *env, jclass cl
 
 extern "C"
 JNIEXPORT void JNICALL
+Java_com_izzy2lost_psx2_NativeApp_setEdgeCrop(JNIEnv *env, jclass clazz,
+                                               jint p_pixels) {
+    // Trims junk columns the PS2 left at the edges of the visible framebuffer, which
+    // a CRT's overscan hid. Cropped in native PS2 pixels, applied symmetrically so the
+    // picture stays centred; the core rescales the remaining area to fill the display.
+    const int pixels = std::max(0, std::min(32, (int)p_pixels));
+    s_settings_interface.SetIntValue("EmuCore/GS", "CropLeft", pixels);
+    s_settings_interface.SetIntValue("EmuCore/GS", "CropRight", pixels);
+
+    if (VMManager::HasValidVM()) {
+        VMManager::ApplySettings();
+    }
+}
+
+extern "C"
+JNIEXPORT void JNICALL
 Java_com_izzy2lost_psx2_NativeApp_saveGameSettings(JNIEnv *env, jclass clazz, jstring p_filename, 
                                                      jint p_blending_accuracy, jint p_renderer, 
                                                      jint p_resolution, jboolean p_widescreen_patches,

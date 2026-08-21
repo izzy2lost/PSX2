@@ -142,6 +142,12 @@ public class NativeApp {
         runNativeSettingAsync("setVsyncEnabled", () -> setVsyncEnabled(enabled));
     }
     
+    // Edge cropping (hides junk pixels at the left/right screen edges)
+    public static native void setEdgeCrop(int pixels);
+    public static void setEdgeCropAsync(int pixels) {
+        runNativeSettingAsync("setEdgeCrop", () -> setEdgeCrop(pixels));
+    }
+
     // Shade Boost (brightness/contrast/saturation)
     public static native void setShadeBoost(boolean enabled);
     public static void setShadeBoostAsync(boolean enabled) {

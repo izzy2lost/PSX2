@@ -30,6 +30,11 @@ public class SettingsDialogFragment extends DialogFragment {
     private static final int RENDERER_SOFTWARE = 13;
     private static final int RENDERER_VULKAN = 14;
 
+    // Native PS2 pixels trimmed from each side by default. The PS2 often leaves junk in
+    // the outermost columns of the visible framebuffer; a CRT's overscan hid it, a flat
+    // panel does not. 8px clears the usual case and is well inside old overscan margins.
+    private static final int DEFAULT_EDGE_CROP = 8;
+
     // Static method to load and apply settings on app startup
     public static void loadAndApplySettings(Context context) {
         SharedPreferences prefs = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
@@ -46,6 +51,7 @@ public class SettingsDialogFragment extends DialogFragment {
         boolean precacheTextures = prefs.getBoolean("precache_textures", false);
         boolean vsyncEnabled = prefs.getBoolean("vsync_enabled", false);
         boolean hudVisible = prefs.getBoolean("hud_visible", false);
+        int edgeCrop = prefs.getInt("edge_crop", DEFAULT_EDGE_CROP);
         
         // Debug logging
         android.util.Log.d("SettingsDialog", "Loading renderer setting: " + renderer +
@@ -64,6 +70,7 @@ public class SettingsDialogFragment extends DialogFragment {
         NativeApp.setPrecacheTextureReplacements(precacheTextures);
         NativeApp.setVsyncEnabled(vsyncEnabled);
         NativeApp.setHudVisible(hudVisible);
+        NativeApp.setEdgeCrop(edgeCrop);
         
         // Set brighter default brightness (60 instead of 50)
         NativeApp.setShadeBoost(true);
@@ -91,6 +98,7 @@ public class SettingsDialogFragment extends DialogFragment {
         Spinner spScale = view.findViewById(R.id.sp_scale);
         Spinner spBlending = view.findViewById(R.id.sp_blending_accuracy);
         Spinner spAspectRatio = view.findViewById(R.id.sp_aspect_ratio);
+        Spinner spEdgeCrop = view.findViewById(R.id.sp_edge_crop);
         MaterialSwitch swWidescreen = view.findViewById(R.id.sw_widescreen);
         MaterialSwitch swNoInterlacing = view.findViewById(R.id.sw_no_interlacing);
         MaterialSwitch swLoadTextures = view.findViewById(R.id.sw_load_textures);
@@ -225,6 +233,12 @@ public class SettingsDialogFragment extends DialogFragment {
         aspectAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         spAspectRatio.setAdapter(aspectAdapter);
 
+        // Populate edge crop spinner
+        ArrayAdapter<CharSequence> edgeCropAdapter = ArrayAdapter.createFromResource(ctx,
+                R.array.edge_crop_entries, android.R.layout.simple_spinner_item);
+        edgeCropAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        if (spEdgeCrop != null) spEdgeCrop.setAdapter(edgeCropAdapter);
+
         SharedPreferences prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE);
         int savedRenderer = prefs.getInt("renderer", RENDERER_AUTO);
         float savedScale = prefs.getFloat("upscale_multiplier", 1.0f);
@@ -238,6 +252,7 @@ public class SettingsDialogFragment extends DialogFragment {
         boolean savedHud = prefs.getBoolean("hud_visible", false);
         boolean savedCheatsGlobal = prefs.getBoolean("enable_cheats", false);
         int savedBlending = prefs.getInt("blending_accuracy", 1);
+        int savedEdgeCrop = prefs.getInt("edge_crop", DEFAULT_EDGE_CROP);
 
         if (savedRenderer == RENDERER_VULKAN && rbVk != null) rbVk.setChecked(true);
         else if (savedRenderer == RENDERER_SOFTWARE && rbSw != null) rbSw.setChecked(true);
@@ -256,6 +271,8 @@ public class SettingsDialogFragment extends DialogFragment {
         } else {
             spAspectRatio.setSelection(1); // Default to Auto 4:3/3:2
         }
+
+        if (spEdgeCrop != null) spEdgeCrop.setSelection(edgeCropToIndex(savedEdgeCrop));
 
         swWidescreen.setChecked(savedWidescreen);
         swNoInterlacing.setChecked(savedNoInterlacing);
@@ -290,6 +307,9 @@ public class SettingsDialogFragment extends DialogFragment {
             boolean vsyncEnabled = swVsync.isChecked();
             boolean hudVisible = (swDevHud != null && swDevHud.isChecked());
             boolean enableCheatsGlobal = swCheatsGlobal != null && swCheatsGlobal.isChecked();
+            int edgeCrop = (spEdgeCrop != null)
+                    ? indexToEdgeCrop(spEdgeCrop.getSelectedItemPosition())
+                    : DEFAULT_EDGE_CROP;
 
              // Persist settings to SharedPreferences
              int blendingLevel = spBlending.getSelectedItemPosition();
@@ -306,6 +326,7 @@ public class SettingsDialogFragment extends DialogFragment {
                     .putBoolean("vsync_enabled", vsyncEnabled)
                     .putBoolean("hud_visible", hudVisible)
                     .putBoolean("enable_cheats", enableCheatsGlobal)
+                    .putInt("edge_crop", edgeCrop)
                     .apply();
 
              // Apply in one batch to avoid repeated ApplySettings calls
@@ -321,12 +342,14 @@ public class SettingsDialogFragment extends DialogFragment {
                 final boolean vsyncEnabledToApply = vsyncEnabled;
                 final boolean hudVisibleToApply = hudVisible;
                 final boolean precacheTextureReplacementsToApply = precacheTextureReplacements;
+                final int edgeCropToApply = edgeCrop;
                 NativeApp.runNativeSettingAsync("applyGlobalSettings", () -> {
                     NativeApp.applyGlobalSettingsBatch(rendererToApply, scaleToApply, aspectRatioToApply, blendingLevelToApply,
                             widescreenPatchesToApply, noInterlacingPatchesToApply, loadTexturesToApply,
                             asyncTextureLoadingToApply, vsyncEnabledToApply, hudVisibleToApply);
                     // Apply precache separately (not part of the batch JNI)
                     NativeApp.setPrecacheTextureReplacements(precacheTextureReplacementsToApply);
+                    NativeApp.setEdgeCrop(edgeCropToApply);
                 });
             } catch (Throwable t) {
                 android.util.Log.e("SettingsDialog", "Apply failed: " + t.getMessage());
@@ -353,6 +376,25 @@ public class SettingsDialogFragment extends DialogFragment {
         });
         
         return dialog;
+    }
+
+    private static int edgeCropToIndex(int pixels) {
+        if (pixels <= 0) return 0;
+        if (pixels <= 4) return 1;
+        if (pixels <= 8) return 2;
+        if (pixels <= 12) return 3;
+        return 4;
+    }
+
+    private static int indexToEdgeCrop(int index) {
+        switch (index) {
+            case 0: return 0;
+            case 1: return 4;
+            case 3: return 12;
+            case 4: return 16;
+            case 2:
+            default: return 8;
+        }
     }
 
     private static int scaleToIndex(float scale) {
