@@ -529,8 +529,14 @@ PadBase* Pad::CreatePad(u8 unifiedSlot, ControllerType controllerType, size_t ej
 
 bool Pad::HasConnectedPad(u8 unifiedSlot)
 {
-	return (
-		unifiedSlot < NUM_CONTROLLER_PORTS && s_controllers[unifiedSlot]->GetType() != ControllerType::NotConnected);
+	// The bounds test does not cover a slot whose pad has been reset by Pad::Shutdown(),
+	// which the input-display overlay can still ask about while a VM is starting or
+	// tearing down.
+	if (unifiedSlot >= NUM_CONTROLLER_PORTS)
+		return false;
+
+	const PadBase* const pad = s_controllers[unifiedSlot].get();
+	return pad && pad->GetType() != ControllerType::NotConnected;
 }
 
 PadBase* Pad::GetPad(u8 port, u8 slot)
@@ -668,7 +674,14 @@ void Pad::SetControllerState(u32 controller, u32 bind, float value)
 	if (controller >= NUM_CONTROLLER_PORTS)
 		return;
 
-	s_controllers[controller]->Set(bind, value);
+	// Pads only exist while a VM is alive; Pad::Shutdown() resets them all. Unlike the
+	// desktop frontends, the Android on-screen controls stay live before boot, between
+	// games and during shutdown, so a touch can land when there is no pad to drive.
+	PadBase* const pad = s_controllers[controller].get();
+	if (!pad)
+		return;
+
+	pad->Set(bind, value);
 	MirrorControllerStateToJVS(controller, bind, value);
 }
 

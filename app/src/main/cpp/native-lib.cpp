@@ -36,7 +36,9 @@
 #include <atomic>
 #include <algorithm>
 #include <cctype>
+#include <condition_variable>
 #include <deque>
+#include <functional>
 #include <future>
 #include <mutex>
 #ifdef __ANDROID__
@@ -81,6 +83,12 @@ struct TouchscreenPointerUpdate
 
 static std::mutex s_touchscreen_pointer_mutex;
 static std::deque<TouchscreenPointerUpdate> s_touchscreen_pointer_updates;
+
+// Work handed to the CPU thread by core code (patches, save-state hotkeys,
+// achievements, PINE). Drained by Host::PumpMessagesOnCPUThread().
+static std::mutex s_cpu_thread_task_mutex;
+static std::deque<std::function<void()>> s_cpu_thread_tasks;
+static std::atomic<std::thread::id> s_cpu_thread_id{};
 
 static void QueueTouchscreenPointerUpdate(float x, float y, bool pressed)
 {
@@ -1355,6 +1363,21 @@ void Host::OnGameChanged(const std::string& title, const std::string& elf_overri
 }
 
 void Host::PumpMessagesOnCPUThread() {
+    // Drain queued CPU-thread work first: the arcade pointer handling below returns
+    // early for non-arcade games, which would otherwise strand these tasks forever.
+    for (;;)
+    {
+        std::function<void()> task;
+        {
+            std::lock_guard lock(s_cpu_thread_task_mutex);
+            if (s_cpu_thread_tasks.empty())
+                break;
+            task = std::move(s_cpu_thread_tasks.front());
+            s_cpu_thread_tasks.pop_front();
+        }
+        task();
+    }
+
     std::deque<TouchscreenPointerUpdate> updates;
     {
         std::lock_guard lock(s_touchscreen_pointer_mutex);
@@ -1701,6 +1724,9 @@ Java_com_izzy2lost_psx2_NativeApp_runVMThread(JNIEnv *env, jclass clazz,
         return false;
     }
 
+    // Claim CPU-thread identity for Host::RunOnCPUThread before any core code runs.
+    s_cpu_thread_id.store(std::this_thread::get_id(), std::memory_order_release);
+
     if (!VMManager::Internal::CPUThreadInitialize()) {
         Console.Error("CPUThreadInitialize failed");
         VMManager::Internal::CPUThreadShutdown();
@@ -1771,6 +1797,13 @@ Java_com_izzy2lost_psx2_NativeApp_runVMThread(JNIEnv *env, jclass clazz,
     }
     ////
     VMManager::Internal::CPUThreadShutdown();
+
+    // Nothing can service queued work once this thread goes away.
+    s_cpu_thread_id.store(std::thread::id(), std::memory_order_release);
+    {
+        std::lock_guard lock(s_cpu_thread_task_mutex);
+        s_cpu_thread_tasks.clear();
+    }
 
     return initialized;
 }
@@ -2169,7 +2202,59 @@ void Host::OnSaveStateSaved(const std::string_view filename)
 
 void Host::RunOnCPUThread(std::function<void()> function, bool block /* = false */)
 {
-    pxFailRel("Not implemented");
+    if (!function)
+        return;
+
+    const std::thread::id cpu_thread = s_cpu_thread_id.load(std::memory_order_acquire);
+
+    // Already on the CPU thread: run inline. A blocking caller would otherwise wait
+    // forever for a queue only it can drain.
+    if (cpu_thread == std::this_thread::get_id())
+    {
+        function();
+        return;
+    }
+
+    // No CPU thread to run on. These tasks act on VM state that does not exist yet,
+    // so dropping them is correct -- and far better than the abort this used to be.
+    if (cpu_thread == std::thread::id())
+    {
+        Console.Warning("Host::RunOnCPUThread called with no CPU thread; dropping task.");
+        return;
+    }
+
+    if (!block)
+    {
+        std::lock_guard lock(s_cpu_thread_task_mutex);
+        s_cpu_thread_tasks.push_back(std::move(function));
+        return;
+    }
+
+    struct BlockingTask
+    {
+        std::mutex mutex;
+        std::condition_variable cv;
+        bool done = false;
+    };
+    const auto state = std::make_shared<BlockingTask>();
+
+    {
+        std::lock_guard lock(s_cpu_thread_task_mutex);
+        s_cpu_thread_tasks.push_back([func = std::move(function), state]() {
+            func();
+            {
+                std::lock_guard done_lock(state->mutex);
+                state->done = true;
+            }
+            state->cv.notify_all();
+        });
+    }
+
+    // Bounded wait: if the VM stops before draining the queue, time out rather than
+    // hanging the caller forever. The task keeps the state alive either way.
+    std::unique_lock done_lock(state->mutex);
+    if (!state->cv.wait_for(done_lock, std::chrono::seconds(5), [&state]() { return state->done; }))
+        Console.Warning("Host::RunOnCPUThread timed out waiting for the CPU thread.");
 }
 
 void Host::RefreshGameListAsync(bool invalidate_cache)
