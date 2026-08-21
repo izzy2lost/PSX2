@@ -96,6 +96,11 @@ namespace Achievements
 	/// Returns true if RetroAchievements game data has been loaded.
 	bool HasActiveGame();
 
+	/// Starts a token login against the already-running client. Android stores its own
+	/// copy of the credentials and signs in outside the VM lifecycle, so it needs to log
+	/// in without going through Initialize(). Returns false when no client exists yet.
+	bool LoginWithTokenAsync(const char* username, const char* token);
+
 	/// Gets the achievement list for Android (returns nullptr if no game loaded).
 	/// Caller must call rc_client_destroy_achievement_list() when done.
 	void* GetAchievementListForAndroid();

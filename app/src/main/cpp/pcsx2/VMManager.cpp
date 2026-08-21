@@ -468,7 +468,11 @@ bool VMManager::Internal::CPUThreadInitialize()
 	// This also sorts out input sources.
 	LoadSettings();
 
-	if (EmuConfig.Achievements.Enabled)
+	// The Android UI can bring achievements up outside the VM lifecycle -- the
+	// "Sign back in?" prompt calls achievementsInitialize() straight from Java -- and
+	// Initialize() asserts that no client exists yet. Without this guard, booting a
+	// game after signing in trips pxAssertRel(!s_client) and aborts the CPU thread.
+	if (EmuConfig.Achievements.Enabled && !Achievements::IsActive())
 		Achievements::Initialize();
 
 	ReloadPINE();

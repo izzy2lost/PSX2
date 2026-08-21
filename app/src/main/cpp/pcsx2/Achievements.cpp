@@ -386,6 +386,24 @@ bool Achievements::HasActiveGame()
 	return s_game_id != 0;
 }
 
+bool Achievements::LoginWithTokenAsync(const char* username, const char* token)
+{
+	if (!username || !token || !*username || !*token)
+		return false;
+
+	auto lock = GetLock();
+	if (!s_client)
+		return false;
+
+	// Already logged in, or a login is in flight - nothing to do.
+	if (IsLoggedInOrLoggingIn())
+		return true;
+
+	Console.WriteLn("Achievements: Starting token login for '%s'...", username);
+	s_login_request = rc_client_begin_login_with_token(s_client, username, token, ClientLoginWithTokenCallback, nullptr);
+	return true;
+}
+
 void* Achievements::GetAchievementListForAndroid()
 {
 	if (!s_client || !HasActiveGame())
@@ -1908,6 +1926,15 @@ void Achievements::ClientLoginWithPasswordCallback(int result, const char* error
 	}
 
 	ShowLoginSuccess(client);
+
+	// Identify the running game now that we're logged in, the same way the token login
+	// callback does. IdentifyGame() caches the crc/hash before bailing out when logged
+	// out, so a later call short-circuits on the unchanged crc and the game would never
+	// be loaded -- leaving achievements stuck reporting no active game until reboot.
+	// A temporary client (created when achievements aren't active) never becomes
+	// s_client, and BeginLoadGame() works on s_client, so skip that case.
+	if (client == s_client && VMManager::HasValidVM())
+		BeginLoadGame();
 }
 
 void Achievements::ClientLoginWithTokenCallback(int result, const char* error_message, rc_client_t* client, void* userdata)

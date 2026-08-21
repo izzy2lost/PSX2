@@ -726,6 +726,7 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
         RetroAchievementsManager.initialize(this);
         
         // Initialize controller input handler
+        ControllerInputHandler.reloadMapping(this);
         mControllerInputHandler = new ControllerInputHandler(this);
         
         // Log connected controllers for debugging
@@ -980,6 +981,17 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
                             try {
                                 showAboutDialog();
                             } catch (Throwable ignored) {}
+                        });
+                    }
+                    View btnTestController = header.findViewById(R.id.drawer_btn_test_controller);
+                    if (btnTestController != null) {
+                        btnTestController.setOnClickListener(v -> {
+                            try {
+                                ControllerTestDialogFragment.newInstance()
+                                        .show(getSupportFragmentManager(), "controller_test");
+                            } catch (Throwable t) {
+                                android.util.Log.e("MainActivity", "Failed to open controller dialog: " + t.getMessage());
+                            }
                         });
                     }
 
@@ -1529,7 +1541,7 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
 
     private void applySavedSettings() {
         SharedPreferences prefs = getSharedPreferences("app_prefs", MODE_PRIVATE);
-        // Renderer constants (match SettingsDialogFragment)
+        // Renderer constants (match the drawer's renderer toggle)
         final int RENDERER_OPENGL = 12;
         final int RENDERER_SOFTWARE = 13;
         final int RENDERER_VULKAN = 14;
@@ -1566,7 +1578,7 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
         NativeApp.setHudVisible(hudVisible);
 
         // Edge cropping: trims the junk columns a CRT's overscan used to hide
-        int edgeCrop = prefs.getInt("edge_crop", 8);
+        int edgeCrop = prefs.getInt("edge_crop", DEFAULT_EDGE_CROP);
         NativeApp.setEdgeCrop(edgeCrop);
         
         // Set brighter default brightness (60 instead of 50)
@@ -1990,7 +2002,9 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
     @Override
     protected void onDestroy() {
         try {
-            NativeApp.achievementsLogout();
+            // Tear the client down, but do not log out: Achievements::Logout() deletes the
+            // stored username and token, so signing in would be required on every launch
+            // and the token login that identifies the running game could never run.
             NativeApp.achievementsShutdown();
         } catch (Throwable t) {
             android.util.Log.w("MainActivity", "Error shutting down achievements on exit: " + t.getMessage());
@@ -2462,6 +2476,28 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
         }
     }
     
+    /** Native PS2 pixels trimmed from each side by default. See ControllerMapping's sibling note. */
+    static final int DEFAULT_EDGE_CROP = 8;
+
+    static int edgeCropPixelsToIndex(int pixels) {
+        if (pixels <= 0) return 0;
+        if (pixels <= 4) return 1;
+        if (pixels <= 8) return 2;
+        if (pixels <= 12) return 3;
+        return 4;
+    }
+
+    static int edgeCropIndexToPixels(int index) {
+        switch (index) {
+            case 0: return 0;
+            case 1: return 4;
+            case 3: return 12;
+            case 4: return 16;
+            case 2:
+            default: return 8;
+        }
+    }
+
     private void handleAnalogInput(int axis, float value) {
         // Convert analog input to button presses for the native interface    
         // For analog sticks, only send positive values (negative values are handled by opposite direction)
@@ -2484,6 +2520,11 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
             case ControllerInputHandler.PAD_R2:
                 // Triggers: 0-255 range
                 NativeApp.setPadButton(axis, Math.round(value * 255), value > 0.1f);
+                break;
+            default:
+                // A trigger the user remapped onto a digital button still arrives here as
+                // an analog value; treat it as pressed/released so the binding works.
+                NativeApp.setPadButton(axis, pressed ? 255 : 0, pressed);
                 break;
         }
     }
@@ -2574,6 +2615,47 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
                 }
                 @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
             });
+
+        Spinner spAudioOut = header.findViewById(R.id.drawer_sp_audio_output);
+        if (spAudioOut != null) {
+            spAudioOut.setOnItemSelectedListener(null);
+            if (spAudioOut.getAdapter() == null) {
+                ArrayAdapter<CharSequence> audioAdapter = ArrayAdapter.createFromResource(this,
+                        R.array.audio_output_entries, android.R.layout.simple_spinner_item);
+                audioAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+                spAudioOut.setAdapter(audioAdapter);
+            }
+            spAudioOut.setSelection(AudioOutputPreference.getMode(this), false);
+            spAudioOut.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+                @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
+                    if (position == AudioOutputPreference.getMode(MainActivity.this)) return;
+                    AudioOutputPreference.setMode(MainActivity.this, position);
+                    AudioOutputPreference.apply(MainActivity.this);
+                }
+                @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
+            });
+        }
+
+        Spinner spEdgeCrop = header.findViewById(R.id.drawer_sp_edge_crop);
+        if (spEdgeCrop != null) {
+            spEdgeCrop.setOnItemSelectedListener(null);
+            if (spEdgeCrop.getAdapter() == null) {
+                ArrayAdapter<CharSequence> cropAdapter = ArrayAdapter.createFromResource(this,
+                        R.array.edge_crop_entries, android.R.layout.simple_spinner_item);
+                cropAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+                spEdgeCrop.setAdapter(cropAdapter);
+            }
+            spEdgeCrop.setSelection(edgeCropPixelsToIndex(prefs.getInt("edge_crop", DEFAULT_EDGE_CROP)), false);
+            spEdgeCrop.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+                @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
+                    int pixels = edgeCropIndexToPixels(position);
+                    if (pixels == prefs.getInt("edge_crop", DEFAULT_EDGE_CROP)) return;
+                    prefs.edit().putInt("edge_crop", pixels).apply();
+                    NativeApp.setEdgeCropAsync(pixels);
+                }
+                @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
+            });
+        }
         }
 
         // Resolution Scale spinner
@@ -2995,8 +3077,10 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
             boolean vsyncEnabled = prefs.getBoolean("vsync_enabled", false);
             NativeApp.setVsyncEnabled(vsyncEnabled);
 
-            int edgeCrop = prefs.getInt("edge_crop", 8);
+            int edgeCrop = prefs.getInt("edge_crop", DEFAULT_EDGE_CROP);
             NativeApp.setEdgeCrop(edgeCrop);
+
+            AudioOutputPreference.apply(this);
             
             // Apply renderer setting
             int renderer = prefs.getInt("renderer", -1);

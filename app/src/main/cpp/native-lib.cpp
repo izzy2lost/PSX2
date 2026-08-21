@@ -841,6 +841,29 @@ Java_com_izzy2lost_psx2_NativeApp_setEdgeCrop(JNIEnv *env, jclass clazz,
 
 extern "C"
 JNIEXPORT void JNICALL
+Java_com_izzy2lost_psx2_NativeApp_setAudioOutputDevice(JNIEnv *env, jclass clazz,
+                                                       jint p_device_id) {
+    // Pins game audio to a specific AAudio output device. Needed because a USB
+    // controller that exposes an audio interface (e.g. the Amazon Luna pad) makes
+    // Android route everything to the controller's headphone jack. A non-positive id
+    // means "no preference", restoring stock system routing.
+    //
+    // The id rides in SPU2/Output DeviceName because SPU2 already recreates the output
+    // stream when that value changes, so a switch takes effect while a game is running.
+    if (p_device_id > 0) {
+        s_settings_interface.SetStringValue("SPU2/Output", "DeviceName",
+            StringUtil::StdStringFromFormat("%d", (int)p_device_id).c_str());
+    } else {
+        s_settings_interface.SetStringValue("SPU2/Output", "DeviceName", "");
+    }
+
+    if (VMManager::HasValidVM()) {
+        VMManager::ApplySettings();
+    }
+}
+
+extern "C"
+JNIEXPORT void JNICALL
 Java_com_izzy2lost_psx2_NativeApp_saveGameSettings(JNIEnv *env, jclass clazz, jstring p_filename, 
                                                      jint p_blending_accuracy, jint p_renderer, 
                                                      jint p_resolution, jboolean p_widescreen_patches,

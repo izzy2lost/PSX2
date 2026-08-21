@@ -120,7 +120,7 @@ std::unique_ptr<AudioStream> AudioStream::CreateStream(AudioBackend backend, u32
 			return CreateSDLAudioStream(sample_rate, parameters, stretch_enabled, error);
 
         case AudioBackend::Oboe:
-            return CreateOboeAudioStream(sample_rate, parameters, stretch_enabled, error);
+            return CreateOboeAudioStream(sample_rate, parameters, device_name, stretch_enabled, error);
 
 		case AudioBackend::Null:
 			return CreateNullStream(sample_rate, parameters.buffer_ms);

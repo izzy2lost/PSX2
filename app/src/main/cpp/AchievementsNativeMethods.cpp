@@ -257,10 +257,17 @@ Java_com_izzy2lost_psx2_NativeApp_achievementsLoginWithToken(JNIEnv* env, jclass
 
 	__android_log_print(ANDROID_LOG_INFO, "PCSX2Achievements", "Attempting token login for user: %s", username_str);
 
-	// Store credentials using Host functions
+	// Store credentials so a later Initialize() can reuse them...
 	Host::SetBaseStringSettingValue("Achievements", "Username", username_str);
 	Host::SetBaseStringSettingValue("Achievements", "Token", token_str);
-	__android_log_print(ANDROID_LOG_INFO, "PCSX2Achievements", "Token login credentials set");
+
+	// ...but storing them is not a login. When the client is already up (the UI signs in
+	// outside the VM lifecycle) nothing else will start one, leaving us logged out when
+	// the game boots and achievements silently never load.
+	if (Achievements::LoginWithTokenAsync(username_str, token_str))
+		__android_log_print(ANDROID_LOG_INFO, "PCSX2Achievements", "Token login started");
+	else
+		__android_log_print(ANDROID_LOG_INFO, "PCSX2Achievements", "Token credentials stored; login deferred to init");
 
 	env->ReleaseStringUTFChars(username, username_str);
 	env->ReleaseStringUTFChars(token, token_str);

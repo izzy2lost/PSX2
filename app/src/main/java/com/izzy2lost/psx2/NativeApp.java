@@ -142,6 +142,12 @@ public class NativeApp {
         runNativeSettingAsync("setVsyncEnabled", () -> setVsyncEnabled(enabled));
     }
     
+    // Audio output device (0 = follow system routing)
+    public static native void setAudioOutputDevice(int deviceId);
+    public static void setAudioOutputDeviceAsync(int deviceId) {
+        runNativeSettingAsync("setAudioOutputDevice", () -> setAudioOutputDevice(deviceId));
+    }
+
     // Edge cropping (hides junk pixels at the left/right screen edges)
     public static native void setEdgeCrop(int pixels);
     public static void setEdgeCropAsync(int pixels) {

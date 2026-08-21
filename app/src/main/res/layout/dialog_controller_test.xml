@@ -11,29 +11,82 @@
         android:orientation="vertical">
 
         <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Detected Controllers"
+            android:textStyle="bold"
+            android:textColor="@color/brand_primary"
+            android:paddingBottom="6dp"/>
+
+        <TextView
             android:id="@+id/tv_controller_list"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:text="Detecting controllers..."
             android:textSize="14sp"
-            android:paddingBottom="16dp"/>
+            android:paddingBottom="12dp"/>
 
         <View
             android:layout_width="match_parent"
             android:layout_height="1dp"
             android:background="?android:attr/dividerHorizontal"
-            android:layout_marginBottom="16dp"/>
+            android:layout_marginBottom="12dp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Button Mapping"
+            android:textStyle="bold"
+            android:textColor="@color/brand_primary"
+            android:paddingBottom="4dp"/>
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Tap a PS2 button below, then press the controller button you want to use for it. Long-press a row to clear it."
+            android:textSize="12sp"
+            android:alpha="0.7"
+            android:paddingBottom="10dp"/>
+
+        <LinearLayout
+            android:id="@+id/ll_mapping_rows"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"/>
+
+        <Button
+            android:id="@+id/btn_reset_mapping"
+            style="?android:attr/borderlessButtonStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="end"
+            android:text="Reset to Defaults"
+            android:textColor="@color/brand_primary"/>
+
+        <View
+            android:layout_width="match_parent"
+            android:layout_height="1dp"
+            android:background="?android:attr/dividerHorizontal"
+            android:layout_marginTop="4dp"
+            android:layout_marginBottom="12dp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Live Input Test"
+            android:textStyle="bold"
+            android:textColor="@color/brand_primary"
+            android:paddingBottom="4dp"/>
 
         <TextView
             android:id="@+id/tv_input_log"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Input Log:\n\nPress any button or move analog sticks to test..."
+            android:text="Press any button or move a stick to test..."
             android:textSize="12sp"
             android:fontFamily="monospace"
-            android:background="?android:attr/selectableItemBackground"
             android:padding="8dp"
-            android:minHeight="200dp"/>
+            android:minHeight="120dp"/>
 
     </LinearLayout>
 </ScrollView>

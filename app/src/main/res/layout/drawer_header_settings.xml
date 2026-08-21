@@ -310,6 +310,54 @@
             android:layout_height="wrap_content"
             android:layout_marginBottom="8dp"/>
 
+        <!-- Edge Cropping -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Edge Cropping"
+            android:textStyle="bold"
+            android:textColor="@color/brand_primary"
+            android:paddingTop="12dp"
+            android:paddingBottom="2dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Hides junk pixels at the left/right edges that a CRT's overscan used to cover."
+            android:textSize="12sp"
+            android:alpha="0.7"
+            android:paddingBottom="4dp" />
+
+        <Spinner
+            android:id="@+id/drawer_sp_edge_crop"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"/>
+
+        <!-- Audio output -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Audio Output"
+            android:textStyle="bold"
+            android:textColor="@color/brand_primary"
+            android:paddingTop="12dp"
+            android:paddingBottom="2dp" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Some USB controllers act as a sound card and steal audio to their own headphone jack. Pick Phone Speaker to keep game sound on the phone."
+            android:textSize="12sp"
+            android:alpha="0.7"
+            android:paddingBottom="4dp" />
+
+        <Spinner
+            android:id="@+id/drawer_sp_audio_output"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"/>
+
         <com.google.android.material.materialswitch.MaterialSwitch
             android:id="@+id/drawer_sw_vsync"
             android:layout_width="match_parent"

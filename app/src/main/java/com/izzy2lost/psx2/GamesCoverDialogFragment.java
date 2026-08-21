@@ -606,6 +606,16 @@ public class GamesCoverDialogFragment extends DialogFragment {
                         });
                     }
 
+                    View btnTestController = header.findViewById(R.id.drawer_btn_test_controller);
+                    if (btnTestController != null) {
+                        btnTestController.setOnClickListener(v -> {
+                            try {
+                                ControllerTestDialogFragment.newInstance()
+                                        .show(getParentFragmentManager(), "controller_test");
+                            } catch (Throwable ignored) {}
+                        });
+                    }
+
                     // Setup drawer settings controls to mirror quick actions
                     setupDialogDrawerSettings(header);
                 }
@@ -756,6 +766,48 @@ public class GamesCoverDialogFragment extends DialogFragment {
                     if (position == prefs.getInt("aspect_ratio", 1)) return;
                     prefs.edit().putInt("aspect_ratio", position).apply();
                     NativeApp.setAspectRatioAsync(position);
+                }
+                @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
+            });
+        }
+
+        android.widget.Spinner spAudioOut = header.findViewById(R.id.drawer_sp_audio_output);
+        if (spAudioOut != null) {
+            spAudioOut.setOnItemSelectedListener(null);
+            if (spAudioOut.getAdapter() == null) {
+                android.widget.ArrayAdapter<CharSequence> audioAdapter = android.widget.ArrayAdapter.createFromResource(requireContext(),
+                        R.array.audio_output_entries, android.R.layout.simple_spinner_item);
+                audioAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+                spAudioOut.setAdapter(audioAdapter);
+            }
+            spAudioOut.setSelection(AudioOutputPreference.getMode(requireContext()), false);
+            spAudioOut.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+                @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
+                    if (position == AudioOutputPreference.getMode(requireContext())) return;
+                    AudioOutputPreference.setMode(requireContext(), position);
+                    AudioOutputPreference.apply(requireContext());
+                }
+                @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
+            });
+        }
+
+        android.widget.Spinner spEdgeCrop = header.findViewById(R.id.drawer_sp_edge_crop);
+        if (spEdgeCrop != null) {
+            spEdgeCrop.setOnItemSelectedListener(null);
+            if (spEdgeCrop.getAdapter() == null) {
+                android.widget.ArrayAdapter<CharSequence> cropAdapter = android.widget.ArrayAdapter.createFromResource(requireContext(),
+                        R.array.edge_crop_entries, android.R.layout.simple_spinner_item);
+                cropAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+                spEdgeCrop.setAdapter(cropAdapter);
+            }
+            spEdgeCrop.setSelection(
+                    MainActivity.edgeCropPixelsToIndex(prefs.getInt("edge_crop", MainActivity.DEFAULT_EDGE_CROP)), false);
+            spEdgeCrop.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+                @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
+                    int pixels = MainActivity.edgeCropIndexToPixels(position);
+                    if (pixels == prefs.getInt("edge_crop", MainActivity.DEFAULT_EDGE_CROP)) return;
+                    prefs.edit().putInt("edge_crop", pixels).apply();
+                    NativeApp.setEdgeCropAsync(pixels);
                 }
                 @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
             });

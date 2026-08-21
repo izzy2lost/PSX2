@@ -18,6 +18,7 @@
 #include "common/Assertions.h"
 #include "common/Console.h"
 #include "common/Error.h"
+#include "common/StringUtil.h"
 
 #include "oboe/Oboe.h"
 
@@ -25,7 +26,7 @@ namespace {
     class OboeAudioStream : public AudioStream, oboe::AudioStreamDataCallback, oboe::AudioStreamErrorCallback
     {
     public:
-        OboeAudioStream(u32 sample_rate, const AudioStreamParameters& parameters);
+        OboeAudioStream(u32 sample_rate, const AudioStreamParameters& parameters, int32_t device_id);
         ~OboeAudioStream() override;
 
         void SetPaused(bool paused) override;
@@ -43,6 +44,11 @@ namespace {
     private:
         bool m_playing = false;
         bool m_stop_requested = false;
+
+        // AAudio output device to pin the stream to, or oboe::kUnspecified to let
+        // Android pick. Used to keep game audio on the phone speaker when a USB
+        // controller with an audio interface (e.g. Luna) would otherwise steal it.
+        int32_t m_device_id = oboe::kUnspecified;
 
         std::shared_ptr<oboe::AudioStream> m_stream;
     };
@@ -121,7 +127,7 @@ bool OboeAudioStream::Open() {
     builder.setSampleRate(m_sample_rate);
     builder.setChannelCount(static_cast<int>(m_output_channels));
     builder.setChannelConversionAllowed(true);
-    builder.setDeviceId(oboe::kUnspecified);
+    builder.setDeviceId(m_device_id);
 
     const int32_t buffer_frames = static_cast<int32_t>(AudioStream::GetBufferSizeForMS(m_sample_rate, m_parameters.buffer_ms));
     builder.setBufferCapacityInFrames(buffer_frames);
@@ -136,6 +142,18 @@ bool OboeAudioStream::Open() {
         Console.Error("(OboeMod) openStream() failed: %d (exclusive), retrying shared", result);
         builder.setSharingMode(oboe::SharingMode::Shared);
         result = builder.openStream(m_stream);
+
+        // A pinned device can disappear (unplugged, or an id that is no longer valid).
+        // Losing audio entirely would be worse than ignoring the preference, so drop
+        // back to whatever Android picks rather than failing into the null backend.
+        if (result != oboe::Result::OK && m_device_id != oboe::kUnspecified)
+        {
+            Console.Error("(OboeMod) openStream() failed: %d on device %d, retrying with system default",
+                result, m_device_id);
+            builder.setDeviceId(oboe::kUnspecified);
+            result = builder.openStream(m_stream);
+        }
+
         if (result != oboe::Result::OK)
         {
             Console.Error("(OboeMod) openStream() failed: %d (shared)", result);
@@ -223,8 +241,8 @@ void OboeAudioStream::SetPaused(bool paused)
     m_paused = paused;
 }
 
-OboeAudioStream::OboeAudioStream(u32 sample_rate, const AudioStreamParameters& parameters)
-        : AudioStream(sample_rate, parameters)
+OboeAudioStream::OboeAudioStream(u32 sample_rate, const AudioStreamParameters& parameters, int32_t device_id)
+        : AudioStream(sample_rate, parameters), m_device_id(device_id)
 {
 }
 
@@ -234,9 +252,24 @@ OboeAudioStream::~OboeAudioStream()
 }
 
 std::unique_ptr<AudioStream> AudioStream::CreateOboeAudioStream(u32 sample_rate, const AudioStreamParameters& parameters,
-    bool stretch_enabled, Error* error)
+    const char* device_name, bool stretch_enabled, Error* error)
 {
-    std::unique_ptr<OboeAudioStream> stream = std::make_unique<OboeAudioStream>(sample_rate, parameters);
+    // device_name carries an AAudio output device id as a decimal string; empty (or
+    // unparseable) means "no preference", which is what upstream always did.
+    int32_t device_id = oboe::kUnspecified;
+    if (device_name && device_name[0] != '\0')
+    {
+        const std::optional<s32> parsed = StringUtil::FromChars<s32>(device_name);
+        if (parsed.has_value() && parsed.value() > 0)
+            device_id = static_cast<int32_t>(parsed.value());
+        else if (!parsed.has_value())
+            Console.Warning("(OboeMod) Ignoring unparseable audio device id '%s'", device_name);
+    }
+
+    if (device_id != oboe::kUnspecified)
+        Console.WriteLn("(OboeMod) Pinning output to AAudio device %d", device_id);
+
+    std::unique_ptr<OboeAudioStream> stream = std::make_unique<OboeAudioStream>(sample_rate, parameters, device_id);
     if (!stream->Initialize(stretch_enabled)) {
         stream.reset();
     }

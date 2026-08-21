@@ -1,5 +1,6 @@
 package com.izzy2lost.psx2;
 
+import android.content.Context;
 import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
@@ -91,6 +92,31 @@ public class ControllerInputHandler {
         sAxisMapping.put(MotionEvent.AXIS_RTRIGGER, PAD_R2);        // Right trigger
     }
     
+    /**
+     * Re-read the user's button mapping. The static defaults above are the stock
+     * layout; this replaces them with whatever the user configured in
+     * {@link ControllerMapping}, and is called on startup and whenever a binding
+     * changes so remaps take effect without restarting.
+     */
+    public static synchronized void reloadMapping(Context ctx) {
+        if (ctx == null) return;
+        SparseIntArray configured = ControllerMapping.buildKeyToTarget(ctx);
+        sKeyMapping.clear();
+        for (int i = 0; i < configured.size(); i++) {
+            sKeyMapping.put(configured.keyAt(i), configured.valueAt(i));
+        }
+        Log.d(TAG, "Reloaded controller mapping: " + configured.size() + " bindings");
+    }
+
+    /**
+     * PS2 target currently driven by a physical key, or {@link Integer#MIN_VALUE} when
+     * that key is unbound. Used for inputs that arrive as axes rather than keycodes
+     * (HAT D-pads, analog triggers) so they honour the same remapping as buttons.
+     */
+    private static synchronized int mappedTarget(int physicalKeyCode) {
+        return sKeyMapping.get(physicalKeyCode, Integer.MIN_VALUE);
+    }
+
     public interface ControllerInputListener {
         void onControllerButtonPressed(int controllerId, int button, boolean pressed);
         void onControllerAnalogInput(int controllerId, int axis, float value);
@@ -266,15 +292,17 @@ public class ControllerInputHandler {
             }
         }
         
-        // Handle triggers
-        float leftTrigger = event.getAxisValue(MotionEvent.AXIS_LTRIGGER);
-        if (mListener != null) {
-            mListener.onControllerAnalogInput(controllerId, PAD_L2, leftTrigger);
+        // Handle triggers (routed through the mapping, so a remapped L2/R2 still works)
+        int leftTriggerTarget = mappedTarget(KeyEvent.KEYCODE_BUTTON_L2);
+        if (mListener != null && leftTriggerTarget != Integer.MIN_VALUE) {
+            mListener.onControllerAnalogInput(controllerId, leftTriggerTarget,
+                    event.getAxisValue(MotionEvent.AXIS_LTRIGGER));
         }
-        
-        float rightTrigger = event.getAxisValue(MotionEvent.AXIS_RTRIGGER);
-        if (mListener != null) {
-            mListener.onControllerAnalogInput(controllerId, PAD_R2, rightTrigger);
+
+        int rightTriggerTarget = mappedTarget(KeyEvent.KEYCODE_BUTTON_R2);
+        if (mListener != null && rightTriggerTarget != Integer.MIN_VALUE) {
+            mListener.onControllerAnalogInput(controllerId, rightTriggerTarget,
+                    event.getAxisValue(MotionEvent.AXIS_RTRIGGER));
         }
 
         // Handle D-pad via HAT axes (some controllers report D-pad this way)
@@ -288,20 +316,32 @@ public class ControllerInputHandler {
 
             DpadState state = getDpadState(controllerId);
 
+            // HAT D-pads are physically the D-pad, so send whatever the user bound the
+            // matching D-pad key to. State is tracked even while unbound, so releasing an
+            // unbound direction cannot leave a stale press behind after a rebind.
+            int leftTarget = mappedTarget(KeyEvent.KEYCODE_DPAD_LEFT);
+            int rightTarget = mappedTarget(KeyEvent.KEYCODE_DPAD_RIGHT);
+            int upTarget = mappedTarget(KeyEvent.KEYCODE_DPAD_UP);
+            int downTarget = mappedTarget(KeyEvent.KEYCODE_DPAD_DOWN);
+
             if (state.left != left) {
-                mListener.onControllerButtonPressed(controllerId, PAD_LEFT, left);
+                if (leftTarget != Integer.MIN_VALUE)
+                    mListener.onControllerButtonPressed(controllerId, leftTarget, left);
                 state.left = left;
             }
             if (state.right != right) {
-                mListener.onControllerButtonPressed(controllerId, PAD_RIGHT, right);
+                if (rightTarget != Integer.MIN_VALUE)
+                    mListener.onControllerButtonPressed(controllerId, rightTarget, right);
                 state.right = right;
             }
             if (state.up != up) {
-                mListener.onControllerButtonPressed(controllerId, PAD_UP, up);
+                if (upTarget != Integer.MIN_VALUE)
+                    mListener.onControllerButtonPressed(controllerId, upTarget, up);
                 state.up = up;
             }
             if (state.down != down) {
-                mListener.onControllerButtonPressed(controllerId, PAD_DOWN, down);
+                if (downTarget != Integer.MIN_VALUE)
+                    mListener.onControllerButtonPressed(controllerId, downTarget, down);
                 state.down = down;
             }
         }
