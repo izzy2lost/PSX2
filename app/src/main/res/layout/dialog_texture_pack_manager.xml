@@ -52,7 +52,7 @@
         android:layout_height="wrap_content"
         android:gravity="center"
         android:padding="8dp"
-        android:text="Downloads: sashkinbro/EmuCoreX-Textures Releases"
+        android:text="Downloads: izzy2lost/EmuCoreX-Textures Releases"
         android:textColor="@color/brand_primary"
         android:textSize="12sp"
         android:textStyle="bold" />

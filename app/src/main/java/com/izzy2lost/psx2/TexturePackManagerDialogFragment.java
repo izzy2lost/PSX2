@@ -218,6 +218,8 @@ public final class TexturePackManagerDialogFragment extends DialogFragment {
                 .append("\nVersion: ").append(entry.version)
                 .append("\nDownload: ")
                 .append(TexturePackDownloadWorker.formatBytes(entry.sizeBytes))
+                .append(entry.isSplitArchive()
+                        ? " in " + entry.parts.size() + " parts" : "")
                 .append("\nFiles: ").append(entry.fileCount)
                 .append("\n\nThe GitHub Release asset will be SHA-256 verified before installation. ")
                 .append("Installing another catalog pack for this game replaces only the ")
@@ -240,15 +242,30 @@ public final class TexturePackManagerDialogFragment extends DialogFragment {
 
     private void enqueue(TexturePackAdapter.Row row) {
         final TexturePackCatalog.Entry entry = row.entry;
-        final androidx.work.Data input = new androidx.work.Data.Builder()
+        final androidx.work.Data.Builder builder = new androidx.work.Data.Builder()
                 .putString(TexturePackDownloadWorker.KEY_PACK_ID, entry.id)
                 .putString(TexturePackDownloadWorker.KEY_PACK_NAME, entry.name)
                 .putString(TexturePackDownloadWorker.KEY_SERIAL, row.serial)
                 .putString(TexturePackDownloadWorker.KEY_DOWNLOAD_URL, entry.downloadUrl)
                 .putString(TexturePackDownloadWorker.KEY_SHA256, entry.sha256)
                 .putLong(TexturePackDownloadWorker.KEY_SIZE_BYTES, entry.sizeBytes)
-                .putInt(TexturePackDownloadWorker.KEY_FILE_COUNT, entry.fileCount)
-                .build();
+                .putInt(TexturePackDownloadWorker.KEY_FILE_COUNT, entry.fileCount);
+        if (entry.isSplitArchive()) {
+            final int count = entry.parts.size();
+            final String[] urls = new String[count];
+            final long[] sizes = new long[count];
+            final String[] hashes = new String[count];
+            for (int index = 0; index < count; index++) {
+                final TexturePackCatalog.Part part = entry.parts.get(index);
+                urls[index] = part.downloadUrl;
+                sizes[index] = part.sizeBytes;
+                hashes[index] = part.sha256;
+            }
+            builder.putStringArray(TexturePackDownloadWorker.KEY_PART_URLS, urls)
+                    .putLongArray(TexturePackDownloadWorker.KEY_PART_SIZES, sizes)
+                    .putStringArray(TexturePackDownloadWorker.KEY_PART_HASHES, hashes);
+        }
+        final androidx.work.Data input = builder.build();
         final Constraints constraints = new Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
                 .build();

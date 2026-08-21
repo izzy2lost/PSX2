@@ -46,7 +46,7 @@ public final class TexturePackInstaller {
             Pattern.compile("^[A-Z]{4}-[0-9]{5}$");
     private static final int MAX_ENTRIES = 50_000;
     private static final long MAX_ENTRY_BYTES = 512L * 1024L * 1024L;
-    private static final long MAX_EXPANDED_BYTES = 8L * 1024L * 1024L * 1024L;
+    private static final long MAX_EXPANDED_BYTES = 32L * 1024L * 1024L * 1024L;
     private static final int BUFFER_BYTES = 1024 * 1024;
     private static final String MANAGED_DIRECTORY = "EmuCoreX";
     private static final String ACTIVE_DIRECTORY = "active";
@@ -133,7 +133,7 @@ public final class TexturePackInstaller {
             }
             expandedBytes += size;
             if (expandedBytes > MAX_EXPANDED_BYTES) {
-                throw new IOException("Texture pack expands beyond 8 GiB");
+                throw new IOException("Texture pack expands beyond 32 GiB");
             }
             final String key = String.join("/", relative).toLowerCase(Locale.ROOT);
             if (!seenPaths.add(key)) {

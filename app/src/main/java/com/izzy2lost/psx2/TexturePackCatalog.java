@@ -29,24 +29,51 @@ import java.util.regex.Pattern;
 /** Loads and validates the public EmuCoreX texture catalog. */
 public final class TexturePackCatalog {
     public static final String CATALOG_URL =
-            "https://raw.githubusercontent.com/sashkinbro/EmuCoreX-Textures/main/textures.json";
+            "https://raw.githubusercontent.com/izzy2lost/EmuCoreX-Textures/main/textures.json";
     public static final String RELEASES_URL =
-            "https://github.com/sashkinbro/EmuCoreX-Textures/releases";
+            "https://github.com/izzy2lost/EmuCoreX-Textures/releases";
 
-    private static final String RELEASE_DOWNLOAD_PREFIX =
-            "/sashkinbro/EmuCoreX-Textures/releases/download/";
+    /**
+     * Mirror downloads are accepted from this fork and from the upstream
+     * repository it tracks, because catalog entries can still carry either link.
+     */
+    static final String[] RELEASE_DOWNLOAD_PREFIXES = {
+            "/izzy2lost/EmuCoreX-Textures/releases/download/",
+            "/sashkinbro/EmuCoreX-Textures/releases/download/",
+    };
     private static final Pattern SERIAL_PATTERN =
             Pattern.compile("^[A-Z]{4}-[0-9]{5}$");
     private static final Pattern HASH_PATTERN =
             Pattern.compile("^[0-9A-Fa-f]{64}$");
     private static final Pattern SAFE_ID_PATTERN =
-            Pattern.compile("^[A-Za-z0-9._-]{1,180}$");
+            Pattern.compile("^[A-Za-z0-9._-]{1,256}$");
     private static final int CONNECT_TIMEOUT_MS = 15_000;
     private static final int READ_TIMEOUT_MS = 30_000;
+    private static final Pattern ARCHIVE_PATH_PATTERN =
+            Pattern.compile("^.+\\.zip$");
+    private static final Pattern PART_PATH_PATTERN =
+            Pattern.compile("^.+\\.zip\\.part[0-9]{3,6}$");
     private static final int MAX_CATALOG_BYTES = 2 * 1024 * 1024;
-    private static final long MAX_ARCHIVE_BYTES = 2L * 1024L * 1024L * 1024L;
+    /** GitHub caps a single release asset at 2 GiB, so larger packs ship split. */
+    public static final long MAX_ASSET_BYTES = 2L * 1024L * 1024L * 1024L;
+    /** Upper bound for a reassembled archive built from ordered parts. */
+    public static final long MAX_ARCHIVE_BYTES = 24L * 1024L * 1024L * 1024L;
+    public static final int MAX_PARTS = 24;
 
     private TexturePackCatalog() {}
+
+    /** One ordered slice of a split archive. */
+    public static final class Part {
+        public final String downloadUrl;
+        public final long sizeBytes;
+        public final String sha256;
+
+        private Part(String downloadUrl, long sizeBytes, String sha256) {
+            this.downloadUrl = downloadUrl;
+            this.sizeBytes = sizeBytes;
+            this.sha256 = sha256.toUpperCase(Locale.ROOT);
+        }
+    }
 
     public static final class Entry {
         public final String id;
@@ -63,6 +90,8 @@ public final class TexturePackCatalog {
         public final long sizeBytes;
         public final String sha256;
         public final int fileCount;
+        /** Ordered parts of a split archive; empty when the pack is one asset. */
+        public final List<Part> parts;
 
         private Entry(
                 String id,
@@ -78,7 +107,8 @@ public final class TexturePackCatalog {
                 String license,
                 long sizeBytes,
                 String sha256,
-                int fileCount) {
+                int fileCount,
+                List<Part> parts) {
             this.id = id;
             this.name = name;
             this.gameTitle = gameTitle;
@@ -93,6 +123,11 @@ public final class TexturePackCatalog {
             this.sizeBytes = sizeBytes;
             this.sha256 = sha256.toUpperCase(Locale.ROOT);
             this.fileCount = fileCount;
+            this.parts = Collections.unmodifiableList(parts);
+        }
+
+        public boolean isSplitArchive() {
+            return !parts.isEmpty();
         }
     }
 
@@ -200,50 +235,14 @@ public final class TexturePackCatalog {
             final Set<String> ids = new LinkedHashSet<>();
 
             for (int index = 0; index < items.length(); index++) {
-                final JSONObject item = items.getJSONObject(index);
-                final String id = requiredString(item, "id");
-                if (!SAFE_ID_PATTERN.matcher(id).matches() || !ids.add(id)) {
-                    throw new IOException("Invalid or duplicate texture pack id: " + id);
+                final Entry entry;
+                try {
+                    entry = parseEntry(items.getJSONObject(index), ids);
+                } catch (IOException | JSONException skipped) {
+                    // One malformed entry must never hide the rest of the catalog.
+                    continue;
                 }
-
-                final ArrayList<String> serials =
-                        requiredStringArray(item, "serials", SERIAL_PATTERN, true);
-                final ArrayList<String> authors =
-                        requiredStringArray(item, "authors", null, false);
-                final String downloadUrl = requiredString(item, "downloadUrl");
-                // The upstream catalog can retain links to original-author assets,
-                // but this app intentionally offers only the mirrored downloads
-                // published on the repository Releases page requested by PSX2.
-                if (!isApprovedDownloadUrl(downloadUrl)) continue;
-                final String sourceUrl = requiredHttpsUrl(item, "sourceUrl");
-                final long sizeBytes = item.getLong("sizeBytes");
-                final int fileCount = item.getInt("fileCount");
-                final String hash = requiredString(item, "sha256");
-                if (sizeBytes <= 0 || sizeBytes >= MAX_ARCHIVE_BYTES) {
-                    throw new IOException("Invalid archive size for " + id);
-                }
-                if (fileCount <= 0 || fileCount > 50_000) {
-                    throw new IOException("Invalid texture count for " + id);
-                }
-                if (!HASH_PATTERN.matcher(hash).matches()) {
-                    throw new IOException("Invalid SHA-256 for " + id);
-                }
-
-                entries.add(new Entry(
-                        id,
-                        requiredString(item, "name"),
-                        requiredString(item, "gameTitle"),
-                        serials,
-                        requiredString(item, "version"),
-                        authors,
-                        item.optString("credits", ""),
-                        item.optString("description", ""),
-                        downloadUrl,
-                        sourceUrl,
-                        item.optString("license", ""),
-                        sizeBytes,
-                        hash,
-                        fileCount));
+                if (entry != null) entries.add(entry);
             }
             if (entries.isEmpty()) {
                 throw new IOException("Texture catalog is empty");
@@ -252,6 +251,105 @@ public final class TexturePackCatalog {
         } catch (JSONException error) {
             throw new IOException("Texture catalog JSON is invalid", error);
         }
+    }
+
+    /**
+     * Returns the validated entry, or null when the entry is well formed but not
+     * offered by this app. Throws when the entry itself is unusable.
+     */
+    private static Entry parseEntry(JSONObject item, Set<String> ids)
+            throws JSONException, IOException {
+        final String id = requiredString(item, "id");
+        if (!SAFE_ID_PATTERN.matcher(id).matches() || ids.contains(id)) {
+            throw new IOException("Invalid or duplicate texture pack id: " + id);
+        }
+
+        final ArrayList<String> serials =
+                requiredStringArray(item, "serials", SERIAL_PATTERN, true);
+        final ArrayList<String> authors =
+                requiredStringArray(item, "authors", null, false);
+        final String downloadUrl = requiredString(item, "downloadUrl");
+        // The catalog can retain links to original-author assets, but this app
+        // intentionally offers only the mirrored downloads published on the
+        // repository Releases page requested by PSX2.
+        final List<Part> parts = parseParts(item, id);
+        if (parts == null) return null;
+        if (parts.isEmpty()
+                ? !isApprovedUrl(downloadUrl, ARCHIVE_PATH_PATTERN)
+                : !downloadUrl.equals(parts.get(0).downloadUrl)) {
+            return null;
+        }
+        final String sourceUrl = requiredHttpsUrl(item, "sourceUrl");
+        final long sizeBytes = item.getLong("sizeBytes");
+        final int fileCount = item.getInt("fileCount");
+        final String hash = requiredString(item, "sha256");
+        final long sizeLimit = parts.isEmpty() ? MAX_ASSET_BYTES : MAX_ARCHIVE_BYTES;
+        if (sizeBytes <= 0 || sizeBytes >= sizeLimit) {
+            throw new IOException("Invalid archive size for " + id);
+        }
+        if (!parts.isEmpty() && totalPartBytes(parts) != sizeBytes) {
+            throw new IOException("Split archive size mismatch for " + id);
+        }
+        if (fileCount <= 0 || fileCount > 50_000) {
+            throw new IOException("Invalid texture count for " + id);
+        }
+        if (!HASH_PATTERN.matcher(hash).matches()) {
+            throw new IOException("Invalid SHA-256 for " + id);
+        }
+
+        ids.add(id);
+        return new Entry(
+                id,
+                requiredString(item, "name"),
+                requiredString(item, "gameTitle"),
+                serials,
+                requiredString(item, "version"),
+                authors,
+                item.optString("credits", ""),
+                item.optString("description", ""),
+                downloadUrl,
+                sourceUrl,
+                item.optString("license", ""),
+                sizeBytes,
+                hash,
+                fileCount,
+                parts);
+    }
+
+    /**
+     * Reads the ordered parts of a split archive. Returns an empty list for a
+     * single-asset pack, null when the parts are not mirrored downloads this app
+     * offers, and throws when a declared split cannot be reassembled safely.
+     */
+    private static List<Part> parseParts(JSONObject item, String id)
+            throws JSONException, IOException {
+        final JSONArray array = item.optJSONArray("parts");
+        if (array == null || array.length() == 0) return Collections.emptyList();
+        if (array.length() < 2 || array.length() > MAX_PARTS) {
+            throw new IOException("Invalid split archive part count for " + id);
+        }
+        final ArrayList<Part> parts = new ArrayList<>(array.length());
+        for (int index = 0; index < array.length(); index++) {
+            final JSONObject item2 = array.getJSONObject(index);
+            final String downloadUrl = requiredString(item2, "downloadUrl");
+            if (!isApprovedUrl(downloadUrl, PART_PATH_PATTERN)) return null;
+            final long sizeBytes = item2.getLong("sizeBytes");
+            final String hash = requiredString(item2, "sha256");
+            if (sizeBytes <= 0 || sizeBytes >= MAX_ASSET_BYTES) {
+                throw new IOException("Invalid part size for " + id);
+            }
+            if (!HASH_PATTERN.matcher(hash).matches()) {
+                throw new IOException("Invalid part SHA-256 for " + id);
+            }
+            parts.add(new Part(downloadUrl, sizeBytes, hash));
+        }
+        return parts;
+    }
+
+    private static long totalPartBytes(List<Part> parts) {
+        long total = 0;
+        for (Part part : parts) total += part.sizeBytes;
+        return total;
     }
 
     private static String requiredString(JSONObject object, String key)
@@ -296,13 +394,18 @@ public final class TexturePackCatalog {
         return new ArrayList<>(values);
     }
 
-    private static boolean isApprovedDownloadUrl(String value) throws IOException {
+    private static boolean isApprovedUrl(String value, Pattern pathPattern) throws IOException {
         try {
             final URL url = new URL(value);
-            return "https".equalsIgnoreCase(url.getProtocol())
-                    && "github.com".equalsIgnoreCase(url.getHost())
-                    && url.getPath().startsWith(RELEASE_DOWNLOAD_PREFIX)
-                    && url.getPath().toLowerCase(Locale.ROOT).endsWith(".zip");
+            if (!"https".equalsIgnoreCase(url.getProtocol())
+                    || !"github.com".equalsIgnoreCase(url.getHost())
+                    || !pathPattern.matcher(url.getPath().toLowerCase(Locale.ROOT)).matches()) {
+                return false;
+            }
+            for (String prefix : RELEASE_DOWNLOAD_PREFIXES) {
+                if (url.getPath().startsWith(prefix)) return true;
+            }
+            return false;
         } catch (IllegalArgumentException error) {
             throw new IOException("Invalid texture download URL", error);
         }
