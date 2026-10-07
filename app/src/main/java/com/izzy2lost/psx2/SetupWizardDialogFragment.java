@@ -74,6 +74,7 @@ public class SetupWizardDialogFragment extends DialogFragment {
         Dialog d = new Dialog(requireContext(), R.style.PSX2_FullScreenDialog);
         View content = LayoutInflater.from(requireContext()).inflate(R.layout.dialog_setup_intro, null);
         d.setContentView(content);
+        UiUtils.applySafeAreaPadding(content);
 
         bindViews(content);
         setupPager();

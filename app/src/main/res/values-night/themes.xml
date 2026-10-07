@@ -1,5 +1,9 @@
 <resources>
     <style name="AppTheme" parent="Theme.Material3.Dark.NoActionBar">
+        <!-- Edge-to-edge below API 35: bars are transparent via the theme rather than
+             Window.setStatusBarColor/setNavigationBarColor (deprecated in Android 15). -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="colorPrimary">@color/md_theme_primary</item>
         <item name="colorOnPrimary">@color/md_theme_onPrimary</item>
         <item name="colorPrimaryContainer">@color/md_theme_primaryContainer</item>

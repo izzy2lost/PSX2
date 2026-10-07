@@ -5,8 +5,12 @@ import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
+import android.view.View;
 import android.widget.TextView;
 import androidx.core.content.ContextCompat;
+import androidx.core.graphics.Insets;
+import androidx.core.view.ViewCompat;
+import androidx.core.view.WindowInsetsCompat;
 import androidx.fragment.app.Fragment;
 
 class UiUtils {
@@ -20,6 +24,21 @@ class UiUtils {
         // Use brand primary (now mapped to brighter pink/purple) for dialog titles
         try { tv.setTextColor(ContextCompat.getColor(ctx, R.color.brand_primary)); } catch (Throwable ignored) {}
         return tv;
+    }
+
+    /**
+     * Pads an edge-to-edge view so its content stays clear of display cutouts and of any
+     * system bars / caption bar that are visible (e.g. ChromeOS freeform windows, or when
+     * immersive mode is unavailable). Hidden immersive bars report zero insets.
+     */
+    static void applySafeAreaPadding(View view) {
+        if (view == null) return;
+        ViewCompat.setOnApplyWindowInsetsListener(view, (v, windowInsets) -> {
+            Insets safe = windowInsets.getInsets(
+                    WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+            v.setPadding(safe.left, safe.top, safe.right, safe.bottom);
+            return windowInsets;
+        });
     }
 
     static MainActivity getMainActivity(Fragment fragment) {

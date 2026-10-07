@@ -1,7 +1,6 @@
 package com.izzy2lost.psx2;
 
 import android.content.Context;
-import android.graphics.BitmapFactory;
 import android.net.Uri;
 import android.util.Log;
 
@@ -101,32 +100,16 @@ final class CoverCache {
             return false;
         }
         try (InputStream input = new BufferedInputStream(new FileInputStream(file))) {
-            if (!hasPngSignature(input)) return false;
+            return hasValidPngHeader(input);
         } catch (IOException ignored) {
             return false;
         }
-
-        final BitmapFactory.Options options = new BitmapFactory.Options();
-        options.inJustDecodeBounds = true;
-        BitmapFactory.decodeFile(file.getAbsolutePath(), options);
-        return hasSafeDimensions(options);
     }
 
     static boolean isValidPng(Context context, Uri uri) {
         if (uri == null) return false;
-        try (InputStream input = new BufferedInputStream(
-                context.getContentResolver().openInputStream(uri))) {
-            if (input == null || !hasPngSignature(input)) return false;
-        } catch (IOException | SecurityException ignored) {
-            return false;
-        }
-
-        final BitmapFactory.Options options = new BitmapFactory.Options();
-        options.inJustDecodeBounds = true;
         try (InputStream input = context.getContentResolver().openInputStream(uri)) {
-            if (input == null) return false;
-            BitmapFactory.decodeStream(input, null, options);
-            return hasSafeDimensions(options);
+            return input != null && hasValidPngHeader(new BufferedInputStream(input));
         } catch (IOException | SecurityException ignored) {
             return false;
         }
@@ -142,24 +125,37 @@ final class CoverCache {
         }
     }
 
-    private static boolean hasPngSignature(InputStream input) throws IOException {
-        final byte[] signature = new byte[PNG_SIGNATURE.length];
+    /**
+     * Validates the PNG signature and reads the dimensions straight from the IHDR chunk
+     * (always the first chunk), so no bitmap decoder is involved just to vet a cache file.
+     */
+    private static boolean hasValidPngHeader(InputStream input) throws IOException {
+        // 8-byte signature + 4-byte chunk length + "IHDR" + 4-byte width + 4-byte height
+        final byte[] header = new byte[PNG_SIGNATURE.length + 16];
         int offset = 0;
-        while (offset < signature.length) {
-            final int count = input.read(signature, offset, signature.length - offset);
+        while (offset < header.length) {
+            final int count = input.read(header, offset, header.length - offset);
             if (count == -1) return false;
             offset += count;
         }
         for (int index = 0; index < PNG_SIGNATURE.length; index++) {
-            if (signature[index] != PNG_SIGNATURE[index]) return false;
+            if (header[index] != PNG_SIGNATURE[index]) return false;
         }
-        return true;
+        final int chunk = PNG_SIGNATURE.length + 4;
+        if (header[chunk] != 'I' || header[chunk + 1] != 'H'
+                || header[chunk + 2] != 'D' || header[chunk + 3] != 'R') {
+            return false;
+        }
+        final long width = readUInt32(header, chunk + 4);
+        final long height = readUInt32(header, chunk + 8);
+        return width > 0 && height > 0
+                && width <= MAX_IMAGE_DIMENSION
+                && height <= MAX_IMAGE_DIMENSION;
     }
 
-    private static boolean hasSafeDimensions(BitmapFactory.Options options) {
-        return options.outWidth > 0 && options.outHeight > 0
-                && options.outWidth <= MAX_IMAGE_DIMENSION
-                && options.outHeight <= MAX_IMAGE_DIMENSION;
+    private static long readUInt32(byte[] bytes, int offset) {
+        return ((bytes[offset] & 0xFFL) << 24) | ((bytes[offset + 1] & 0xFFL) << 16)
+                | ((bytes[offset + 2] & 0xFFL) << 8) | (bytes[offset + 3] & 0xFFL);
     }
 
     private static String serialFromCoverName(String name) {

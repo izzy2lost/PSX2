@@ -7,6 +7,8 @@
     android:layout_height="match_parent">
 
     <androidx.constraintlayout.widget.ConstraintLayout
+        android:id="@+id/main_content"
+        android:background="@android:color/black"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:splitMotionEvents="true"

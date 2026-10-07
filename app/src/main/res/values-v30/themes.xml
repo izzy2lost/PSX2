@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- API 30+: "always" replaces the shortEdges cutout mode deprecated in API 35. -->
+    <style name="PSX2.FullScreenDialog" parent="Base.PSX2.FullScreenDialog">
+        <item name="android:windowLayoutInDisplayCutoutMode">always</item>
+    </style>
+</resources>

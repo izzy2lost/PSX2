@@ -4,6 +4,10 @@
         <item name="android:forceDarkAllowed">false</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowLightNavigationBar">false</item>
+        <!-- Edge-to-edge below API 35: bars are transparent via the theme rather than
+             Window.setStatusBarColor/setNavigationBarColor (deprecated in Android 15). -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="colorPrimary">@color/md_theme_primary</item>
         <item name="colorOnPrimary">@color/md_theme_onPrimary</item>
         <item name="colorPrimaryContainer">@color/md_theme_primaryContainer</item>
@@ -55,15 +59,19 @@
     </style>
 
     <!-- Fullscreen Material3 dialog theme with no frame and transparent window background -->
-    <style name="PSX2.FullScreenDialog" parent="Theme.Material3.Dark.NoActionBar">
+    <style name="Base.PSX2.FullScreenDialog" parent="Theme.Material3.Dark.NoActionBar">
         <item name="android:windowIsTranslucent">false</item>
         <item name="android:windowNoTitle">true</item>
         <item name="android:windowFullscreen">true</item>
-        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
         <item name="android:windowBackground">?attr/colorSurface</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:windowLightNavigationBar">false</item>
+    </style>
+
+    <!-- shortEdges is deprecated on API 35; values-v30 uses "always" instead. -->
+    <style name="PSX2.FullScreenDialog" parent="Base.PSX2.FullScreenDialog">
+        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
     </style>
 </resources>

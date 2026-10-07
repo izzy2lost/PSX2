@@ -51,12 +51,8 @@ import androidx.core.content.ContextCompat;
 import androidx.drawerlayout.widget.DrawerLayout;
 import androidx.core.view.GravityCompat;
 import androidx.activity.OnBackPressedCallback;
-import androidx.activity.EdgeToEdge;
-import androidx.core.view.ViewCompat;
-import androidx.core.view.WindowInsetsCompat;
 import androidx.core.view.WindowInsetsControllerCompat;
 import androidx.core.view.WindowCompat;
-import androidx.core.graphics.Insets;
 
 import com.google.android.material.button.MaterialButton;
 import java.io.File;
@@ -326,10 +322,13 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
         Window w = getWindow();
         if (w == null) return;
 
-        // Allow drawing into display cutouts (notches) on API 28+
+        // Allow drawing into display cutouts (notches). SHORT_EDGES is deprecated on
+        // API 35 (treated as ALWAYS there); use ALWAYS where it exists (API 30+).
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             WindowManager.LayoutParams lp = w.getAttributes();
-            lp.layoutInDisplayCutoutMode = WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
+            lp.layoutInDisplayCutoutMode = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+                    ? WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS
+                    : WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_SHORT_EDGES;
             w.setAttributes(lp);
         }
 
@@ -364,45 +363,21 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
         Window w = getWindow();
         if (w == null) return;
 
-        // API 35+ recommends avoiding setStatusBarColor/setNavigationBarColor for edge-to-edge.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.VANILLA_ICE_CREAM) {
-            WindowCompat.setDecorFitsSystemWindows(w, false);
-            WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(w, w.getDecorView());
-            if (controller != null) {
-                controller.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
-                // App is forced dark mode; keep bars non-light to avoid contrast issues.
-                controller.setAppearanceLightStatusBars(false);
-                controller.setAppearanceLightNavigationBars(false);
-            }
-        } else {
-            // Fallback to the androidx helper on older platforms
-            EdgeToEdge.enable(
-                this,
-                androidx.activity.SystemBarStyle.auto(
-                    android.graphics.Color.TRANSPARENT,
-                    android.graphics.Color.TRANSPARENT
-                ),
-                androidx.activity.SystemBarStyle.auto(
-                    android.graphics.Color.TRANSPARENT,
-                    android.graphics.Color.TRANSPARENT
-                )
-            );
-        }
+        // Edge-to-edge on every API level. This deliberately avoids EdgeToEdge.enable() /
+        // WindowCompat.enableEdgeToEdge(): both call the Window.setStatusBarColor /
+        // setNavigationBarColor APIs deprecated in Android 15. Transparent bars on older
+        // releases come from the theme (android:statusBarColor / navigationBarColor).
+        WindowCompat.setDecorFitsSystemWindows(w, false);
+        WindowInsetsControllerCompat controller = WindowCompat.getInsetsController(w, w.getDecorView());
+        controller.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
+        // App is forced dark mode; keep bars non-light to avoid contrast issues.
+        controller.setAppearanceLightStatusBars(false);
+        controller.setAppearanceLightNavigationBars(false);
     }
     
     private void setupWindowInsets() {
-        View mainView = findViewById(R.id.drawer_layout); // Use the actual root layout ID
-        if (mainView != null) {
-            ViewCompat.setOnApplyWindowInsetsListener(mainView, (v, windowInsets) -> {
-                Insets systemBars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars());
-                
-                // For a gaming app, we typically want to draw behind the system bars
-                // but ensure important UI elements are not obscured
-                v.setPadding(0, 0, 0, 0); // Draw edge-to-edge
-                
-                return windowInsets;
-            });
-        }
+        // Keep the game surface and on-screen controls clear of cutouts / visible bars.
+        UiUtils.applySafeAreaPadding(findViewById(R.id.main_content));
     }
 
     // Enable immersive mode to hide navigation and status bars
