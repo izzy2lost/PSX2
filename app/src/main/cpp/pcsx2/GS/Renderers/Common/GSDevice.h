@@ -285,7 +285,7 @@ class ShaderConvertSelector
 public:
 	constexpr ShaderConvertSelector(ShaderConvert shader = ShaderConvert::COPY, u8 mask = 0xf,
  		bool depth_out = false, Filter filter = Filter::Nearest)
-		: fields { static_cast<u32>(shader) }
+		: fields {{ static_cast<u32>(shader) }}
 	{
 		*this = SetMask(mask).SetDepthOutput(depth_out).SetFilter(filter);
 	}
@@ -522,7 +522,8 @@ static inline ShaderConvertSelector GetConvertShader(GSTexture::Format src, GSTe
 					switch (dst_bpp)
 					{
 						case 32:
-							pxAssert(src_bpp == 32);
+						case 16:
+							pxAssert(src_bpp == dst_bpp);
 							shader = ShaderConvert::DEPTH_COPY;
 							break;
 						case 24:

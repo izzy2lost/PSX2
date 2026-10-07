@@ -2349,6 +2349,11 @@ void Host::OnCoverDownloaderOpenRequested()
     // noop
 }
 
+void Host::OnGameListFavoriteChanged(const std::string& path)
+{
+    // noop: the Android library (GameLibraryScreen) doesn't use the core game list's favorites.
+}
+
 void Host::OnCreateMemoryCardOpenRequested()
 {
     // noop

@@ -135,7 +135,7 @@ if(ENABLE_QT_UI)
 	endif()
 endif()
 
-if(WIN32)
+if(WIN32 AND ARCH_X86)
 	add_subdirectory(3rdparty/rainterface EXCLUDE_FROM_ALL)
 endif()
 

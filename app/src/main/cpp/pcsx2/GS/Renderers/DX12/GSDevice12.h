@@ -75,7 +75,7 @@ public:
 				return tex->GetUAVDescriptor();
 			default:
 				pxFailRel("Impossible.");
-				return D3D12DescriptorHandle{ 0, 0 };
+				return {};
 		}
 	}
 
@@ -157,6 +157,8 @@ public:
 
 	// Partial depth copies require ProgrammableSamplePositions tier 1.
 	bool SupportsProgrammableSamplePositions();
+
+	D3D_SHADER_MODEL DetectShaderModelSupport();
 
 	enum class WaitType
 	{
@@ -380,10 +382,15 @@ private:
 	bool m_allow_tearing_supported = false;
 	bool m_using_allow_tearing = false;
 	bool m_is_exclusive_fullscreen = false;
+	D3D_SHADER_MODEL m_shader_model = D3D_SHADER_MODEL_5_1;
 	bool m_uma = false;
 	bool m_typed_casting_supported = false;
 	bool m_enhanced_barriers = false;
 	bool m_device_lost = false;
+
+	// Drivers are allowed to move barriers to the start of a renderpass.
+	// Only Adreno drivers are known to do this.
+	bool m_rp_reorders_barriers = false;
 
 	ComPtr<ID3D12RootSignature> m_tfx_root_signature;
 	ComPtr<ID3D12RootSignature> m_utility_root_signature;
@@ -438,6 +445,7 @@ private:
 
 	D3D12ShaderCache m_shader_cache;
 	ComPtr<ID3DBlob> m_convert_vs;
+	std::string m_convert_source;
 	std::string m_tfx_source;
 
 	void LookupNativeFormat(GSTexture::Format format, DXGI_FORMAT* d3d_format, DXGI_FORMAT* srv_format,

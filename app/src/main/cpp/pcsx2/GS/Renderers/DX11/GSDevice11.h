@@ -140,7 +140,7 @@ private:
 	wil::com_ptr_nothrow<ID3D11ShaderResourceView> m_expand_vb_srv;
 	wil::com_ptr_nothrow<ID3D11ShaderResourceView> m_expand_ib_vs_srv;
 
-	GSTexture* m_null_texture;
+	GSTexture* m_null_texture = nullptr;
 
 	D3D_FEATURE_LEVEL m_feature_level = D3D_FEATURE_LEVEL_10_0;
 	u32 m_vb_pos = 0; // bytes
@@ -271,8 +271,8 @@ private:
 	struct
 	{
 		wil::com_ptr_nothrow<ID3D11Buffer> cb;
-		wil::com_ptr_nothrow<ID3D11ComputeShader> cs_upscale;
-		wil::com_ptr_nothrow<ID3D11ComputeShader> cs_sharpen;
+		wil::com_ptr_nothrow<ID3D11PixelShader> ps_upscale;
+		wil::com_ptr_nothrow<ID3D11PixelShader> ps_sharpen;
 	} m_cas;
 
 	struct

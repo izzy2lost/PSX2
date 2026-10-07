@@ -3340,6 +3340,9 @@ void FullscreenUI::DrawGraphicsSettingsPage(SettingsInterface* bsi, bool show_ad
 				FSUI_CSTR("Truncate 32-bit depth values to 24 bits. Helps games struggling with Z-fighting."), "EmuCore/GS",
 				"UserHacks_Limit24BitDepth", static_cast<int>(GSLimit24BitDepth::Disabled), s_limit_24bit_depth_options,
 				std::size(s_limit_24bit_depth_options), true, 0, manual_hw_fixes);
+			DrawToggleSetting(bsi, FSUI_ICONSTR(ICON_FA_LAYER_GROUP, "Target Page Rearranging"),
+				FSUI_CSTR("Rearranges memory pages of a target if the game changes the layout at that current VRAM address."),
+				"EmuCore/GS", "UserHacks_TargetPageRearranging", false, manual_hw_fixes);
 
 			MenuHeading(FSUI_CSTR("Upscaling Fixes"));
 			DrawIntListSetting(bsi, FSUI_ICONSTR(ICON_FA_ARROWS_UP_DOWN_LEFT_RIGHT, "Half Pixel Offset"), FSUI_CSTR("Might fix some misaligned fog, bloom, or blend effect."), "EmuCore/GS",
@@ -6233,6 +6236,7 @@ TRANSLATE_NOOP("FullscreenUI", "Rewrite large ST coordinates and clamp the value
 TRANSLATE_NOOP("FullscreenUI", "When enabled GPU converts colormap-textures, otherwise the CPU will. It is a trade-off between GPU and CPU.");
 TRANSLATE_NOOP("FullscreenUI", "Attempts to reduce draw calls in games which do heavy context switching for blending purposes.");
 TRANSLATE_NOOP("FullscreenUI", "Truncate 32-bit depth values to 24 bits. Helps games struggling with Z-fighting.");
+TRANSLATE_NOOP("FullscreenUI", "Rearranges memory pages of a target if the game changes the layout at that current VRAM address.");
 TRANSLATE_NOOP("FullscreenUI", "Upscaling Fixes");
 TRANSLATE_NOOP("FullscreenUI", "Might fix some misaligned fog, bloom, or blend effect.");
 TRANSLATE_NOOP("FullscreenUI", "Emulates native PS2 coordinate scaling behavior when upscaling to reduce misalignment artifacts and seams in games that draw custom 2D elements.");
@@ -6861,6 +6865,7 @@ TRANSLATE_NOOP("FullscreenUI", "Estimate Texture Region");
 TRANSLATE_NOOP("FullscreenUI", "GPU Palette Conversion");
 TRANSLATE_NOOP("FullscreenUI", "Draw Buffering");
 TRANSLATE_NOOP("FullscreenUI", "Limit Depth to 24 Bits");
+TRANSLATE_NOOP("FullscreenUI", "Target Page Rearranging");
 TRANSLATE_NOOP("FullscreenUI", "Half Pixel Offset");
 TRANSLATE_NOOP("FullscreenUI", "Native Scaling");
 TRANSLATE_NOOP("FullscreenUI", "Round Sprite");
