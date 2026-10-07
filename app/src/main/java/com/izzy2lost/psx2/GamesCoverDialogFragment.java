@@ -15,14 +15,11 @@ import android.os.Build;
 import android.view.WindowInsets;
 import android.view.WindowInsetsController;
 import android.widget.EditText;
-import android.widget.LinearLayout;
-import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import android.app.Dialog;
 import androidx.fragment.app.DialogFragment;
-import androidx.recyclerview.widget.GridLayoutManager;
 import androidx.work.BackoffPolicy;
 import androidx.work.Constraints;
 import androidx.work.ExistingWorkPolicy;
@@ -31,13 +28,11 @@ import androidx.work.OneTimeWorkRequest;
 import androidx.work.WorkContinuation;
 import androidx.work.WorkInfo;
 import androidx.work.WorkManager;
-import com.google.android.material.button.MaterialButtonToggleGroup;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import androidx.core.view.GravityCompat;
 import java.util.Locale;
 import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Comparator;
 import java.io.File;
 
 public class GamesCoverDialogFragment extends DialogFragment {
