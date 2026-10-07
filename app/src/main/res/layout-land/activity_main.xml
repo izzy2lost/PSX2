@@ -6,19 +6,20 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
+    <!-- Game surface: full screen behind the controls, never inset-padded so the picture
+         keeps its size. Only main_content (the on-screen controls) avoids system bars. -->
+    <FrameLayout
+        android:id="@+id/fl_board"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
     <androidx.constraintlayout.widget.ConstraintLayout
         android:id="@+id/main_content"
-        android:background="@android:color/black"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:splitMotionEvents="true"
         android:keepScreenOn="true"
         tools:context=".MainActivity">
-
-    <FrameLayout
-        android:id="@+id/fl_board"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent" />
 
     <!-- Menu button in top left corner -->
     <com.google.android.material.button.MaterialButton
