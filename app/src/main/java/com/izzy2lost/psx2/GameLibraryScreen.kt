@@ -11,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -23,6 +24,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.tappableElementIgnoringVisibility
+import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -136,6 +139,7 @@ private const val CoverAspect = 567f / 878f
  * RecyclerView + CoversAdapter + item_coverflow, hint row, Covers/Packs buttons). The settings
  * drawer stays in XML around it.
  */
+@OptIn(ExperimentalLayoutApi::class) // tappableElementIgnoringVisibility
 @Composable
 fun GameLibraryContent(state: GameLibraryState, actions: GameLibraryActions, modifier: Modifier = Modifier) {
     BoxWithConstraints(
@@ -148,7 +152,9 @@ fun GameLibraryContent(state: GameLibraryState, actions: GameLibraryActions, mod
         val mode = state.viewMode ?: if (wide) LibraryViewMode.GRID else LibraryViewMode.COVERFLOW
         val landscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
 
-        Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing)) {
+        // safeDrawing covers visible bars/cutouts; the 3-button nav bar area is reserved even
+        // while immersive mode hides it, since swiping it back would cover the footer buttons.
+        Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.safeDrawing.union(WindowInsets.tappableElementIgnoringVisibility))) {
             LibraryToolbar(
                 sortLabel = state.sortLabel,
                 mode = mode,

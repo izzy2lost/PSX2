@@ -375,6 +375,8 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
     private void setupWindowInsets() {
         // Keep the game surface and on-screen controls clear of cutouts / visible bars.
         UiUtils.applySafeAreaPadding(findViewById(R.id.main_content));
+        // Quick Actions drawer slides in from the edge where the 3-button nav bar lives in landscape.
+        UiUtils.applySafeAreaPadding(findViewById(R.id.end_drawer));
     }
 
     // Enable immersive mode to hide navigation and status bars

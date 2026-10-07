@@ -29,13 +29,21 @@ class UiUtils {
     /**
      * Pads an edge-to-edge view so its content stays clear of display cutouts and of any
      * system bars / caption bar that are visible (e.g. ChromeOS freeform windows, or when
-     * immersive mode is unavailable). Hidden immersive bars report zero insets.
+     * immersive mode is unavailable).
+     *
+     * It also always reserves the 3-button navigation bar area, even while immersive mode
+     * hides it: a swipe from the edge brings the bar back over the content without changing
+     * the visible insets, and its buttons would then swallow taps meant for our controls.
+     * With gesture navigation there is no tappable bar, so this adds nothing.
      */
     static void applySafeAreaPadding(View view) {
         if (view == null) return;
         ViewCompat.setOnApplyWindowInsetsListener(view, (v, windowInsets) -> {
-            Insets safe = windowInsets.getInsets(
+            Insets visible = windowInsets.getInsets(
                     WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+            Insets navButtons = windowInsets.getInsetsIgnoringVisibility(
+                    WindowInsetsCompat.Type.tappableElement());
+            Insets safe = Insets.max(visible, navButtons);
             v.setPadding(safe.left, safe.top, safe.right, safe.bottom);
             return windowInsets;
         });
