@@ -18,8 +18,6 @@ import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.widget.FrameLayout;
-import android.widget.ArrayAdapter;
-import android.widget.Spinner;
 import android.view.ViewGroup;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
@@ -63,8 +61,6 @@ import android.provider.OpenableColumns;
 import org.json.JSONArray;
 import org.json.JSONException;
 import androidx.fragment.app.FragmentManager;
-import com.google.android.material.navigation.NavigationView;
-import com.google.android.material.button.MaterialButtonToggleGroup;
 import java.util.List;
 import java.util.Locale;
 
@@ -73,7 +69,8 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
     public static final int ORIENTATION_LANDSCAPE = 1;
     public static final int ORIENTATION_PORTRAIT = 2;
 
-    private static final String PREF_TOUCH_RIGHT_STICK = "touch_right_stick";
+    static final String PREF_TOUCH_RIGHT_STICK = "touch_right_stick";
+    private SettingsDrawerController mSettingsDrawer;
     private static final String PREF_GAMES_FOLDER_URI = "games_folder_uri";
     private static final String PREF_GAMES_FOLDER_URIS = "games_folder_uris_json";
     private static final java.util.concurrent.ExecutorService GAME_LIBRARY_EXECUTOR =
@@ -862,136 +859,24 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
                 } catch (Throwable ignored) {}
             });
         }
-        // Wire left drawer header controls (title/power/reboot/renderer)
+        // Left settings drawer (Compose): SettingsDrawer.kt
         try {
-            NavigationView nav = findViewById(R.id.nav_view);
-            if (nav != null) {
-                View header = (nav.getHeaderCount() > 0) ? nav.getHeaderView(0) : nav.inflateHeaderView(R.layout.drawer_header_settings);
-                if (header != null) {
-                    View btnPower = header.findViewById(R.id.drawer_btn_power);
-                    if (btnPower != null) {
-                        btnPower.setOnClickListener(v -> {
-                            new MaterialAlertDialogBuilder(this)
-                                    .setTitle("Power Off")
-                                    .setMessage("Quit the app?")
-                                    .setNegativeButton("Cancel", null)
-                                    .setPositiveButton("Quit", (d,w) -> { try { NativeApp.shutdown(); } catch (Throwable ignored) {} finishAffinity(); finishAndRemoveTask(); System.exit(0); })
-                                    .show();
-                        });
-                    }
-                    View btnReboot = header.findViewById(R.id.drawer_btn_reboot);
-                    if (btnReboot != null) {
-                        btnReboot.setOnClickListener(v -> {
-                            new MaterialAlertDialogBuilder(this)
-                                    .setTitle("Reboot")
-                                    .setMessage("Restart the current game?")
-                                    .setNegativeButton("Cancel", null)
-                                    .setPositiveButton("Reboot", (d,w) -> rebootEmu())
-                                    .show();
-                        });
-                    }
-                    MaterialButtonToggleGroup tg = header.findViewById(R.id.drawer_tg_renderer);
-                    View btnGameState = header.findViewById(R.id.drawer_btn_game_state);
-                    View tbAt = header.findViewById(R.id.drawer_tb_at);
-                    View tbVk = header.findViewById(R.id.drawer_tb_vk);
-                    View tbGl = header.findViewById(R.id.drawer_tb_gl);
-                    View tbSw = header.findViewById(R.id.drawer_tb_sw);
-                    if (tg != null) {
-                        int current = -1;
-                        try { current = NativeApp.getCurrentRenderer(); } catch (Throwable ignored) {}
-                        if (current == 14 && tbVk != null) tg.check(tbVk.getId());
-                        else if (current == 12 && tbGl != null) tg.check(tbGl.getId());
-                        else if (current == 13 && tbSw != null) tg.check(tbSw.getId());
-                        else if (tbAt != null) tg.check(tbAt.getId());
-                        tg.addOnButtonCheckedListener((group, checkedId, isChecked) -> {
-                            if (!isChecked) return;
-                            int r = -1;
-                            if (checkedId == (tbVk != null ? tbVk.getId() : -2)) r = 14;
-                            else if (checkedId == (tbGl != null ? tbGl.getId() : -2)) r = 12;
-                            else if (checkedId == (tbSw != null ? tbSw.getId() : -2)) r = 13;
-                            else r = -1;
-                            try {
-                                int currentRenderer = getSharedPreferences("app_prefs", MODE_PRIVATE).getInt("renderer", -1);
-                                if (currentRenderer == r) return;
-                                getSharedPreferences("app_prefs", MODE_PRIVATE).edit().putInt("renderer", r).apply();
-                                NativeApp.renderGpuAsync(r);
-                            } catch (Throwable ignored) {}
-                        });
-                    }
-                    View btnGames = header.findViewById(R.id.drawer_btn_games);
-                    if (btnGames != null) {
-                        btnGames.setOnClickListener(v -> {
-                            try {
-                                // Close drawer first
-                                DrawerLayout drawer = findViewById(R.id.drawer_layout);
-                                if (drawer != null) drawer.closeDrawer(androidx.core.view.GravityCompat.START);
-                                // Open games dialog
-                                openGamesDialog();
-                            } catch (Throwable ignored) {}
-                        });
-                    }
-                    if (btnGameState != null) {
-                        btnGameState.setOnClickListener(v -> {
-                            try {
-                                SavesDialogFragment dialog = new SavesDialogFragment();
-                                dialog.show(getSupportFragmentManager(), "saves_dialog");
-                            } catch (Throwable ignored) {}
-                        });
-                    }
-                    View btnMemcardManager = header.findViewById(R.id.drawer_btn_memcard_manager);
-                    if (btnMemcardManager != null) {
-                        btnMemcardManager.setOnClickListener(v -> {
-                            try {
-                                MemoryCardManagerDialogFragment dialog = new MemoryCardManagerDialogFragment();
-                                dialog.show(getSupportFragmentManager(), "memcard_manager_dialog");
-                            } catch (Throwable ignored) {}
-                        });
-                    }
-                    View btnCustomDriver = header.findViewById(R.id.drawer_btn_custom_driver);
-                    if (btnCustomDriver != null) {
-                        btnCustomDriver.setOnClickListener(v -> {
-                            try {
-                                new CustomDriverDialogFragment().show(getSupportFragmentManager(), "custom_driver");
-                            } catch (Throwable ignored) {}
-                        });
-                    }
-                    setupDrawerBiosControls(header);
-                    View btnAchievements = header.findViewById(R.id.drawer_btn_achievements);
-                    if (btnAchievements != null) {
-                        btnAchievements.setOnClickListener(v -> {
-                            try {
-                                AchievementsDialogFragment.newInstance()
-                                        .show(getSupportFragmentManager(), "achievements_dialog");
-                            } catch (Throwable t) {
-                                android.util.Log.e("MainActivity", "Failed to open achievements dialog: " + t.getMessage());
-                            }
-                        });
-                    }
-                    View btnAbout = header.findViewById(R.id.drawer_btn_about);
-                    if (btnAbout != null) {
-                        btnAbout.setOnClickListener(v -> {
-                            try {
-                                showAboutDialog();
-                            } catch (Throwable ignored) {}
-                        });
-                    }
-                    View btnTestController = header.findViewById(R.id.drawer_btn_test_controller);
-                    if (btnTestController != null) {
-                        btnTestController.setOnClickListener(v -> {
-                            try {
-                                ControllerTestDialogFragment.newInstance()
-                                        .show(getSupportFragmentManager(), "controller_test");
-                            } catch (Throwable t) {
-                                android.util.Log.e("MainActivity", "Failed to open controller dialog: " + t.getMessage());
-                            }
-                        });
-                    }
-
-                    // Setup drawer settings controls to mirror quick actions
-                    setupDrawerSettings(header);
-                }
+            ViewGroup drawerHost = findViewById(R.id.settings_drawer);
+            if (drawerHost != null) {
+                mSettingsDrawer = new SettingsDrawerController(this, new SettingsDrawerConfig(
+                        "Settings",
+                        this::closeSettingsDrawer,
+                        () -> {
+                            closeSettingsDrawer();
+                            openGamesDialog();
+                        },
+                        null));
+                drawerHost.removeAllViews();
+                drawerHost.addView(SettingsDrawerController.createView(this, mSettingsDrawer));
             }
-        } catch (Throwable ignored) {}
+        } catch (Throwable t) {
+            android.util.Log.e("MainActivity", "Unable to set up settings drawer", t);
+        }
         // Visibility toggle removed
 
         // PAD
@@ -2557,483 +2442,30 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
         }
     }
 
-    private void setupDrawerSettings(View header) {
-        if (header == null) return;
-
-        SharedPreferences prefs = getSharedPreferences("app_prefs", MODE_PRIVATE);
-        setupDrawerBiosControls(header);
-
-        MaterialButtonToggleGroup tgOrientation = header.findViewById(R.id.drawer_tg_orientation);
-        View tbOrientAuto = header.findViewById(R.id.drawer_tb_orientation_auto);
-        View tbOrientLand = header.findViewById(R.id.drawer_tb_orientation_landscape);
-        View tbOrientPort = header.findViewById(R.id.drawer_tb_orientation_portrait);
-        if (tgOrientation != null && tbOrientAuto != null && tbOrientLand != null && tbOrientPort != null) {
-            int savedOrientation = normalizeOrientationPref(prefs.getInt("orientation_lock", ORIENTATION_AUTO));
-            int checkId = savedOrientation == ORIENTATION_LANDSCAPE ? tbOrientLand.getId()
-                    : (savedOrientation == ORIENTATION_PORTRAIT ? tbOrientPort.getId() : tbOrientAuto.getId());
-            tgOrientation.check(checkId);
-            tgOrientation.addOnButtonCheckedListener((group, checkedId, isChecked) -> {
-                if (!isChecked) return;
-                int mode = ORIENTATION_AUTO;
-                if (checkedId == tbOrientLand.getId()) mode = ORIENTATION_LANDSCAPE;
-                else if (checkedId == tbOrientPort.getId()) mode = ORIENTATION_PORTRAIT;
-                setOrientationPreference(mode);
-            });
-        }
-
-        // Aspect Ratio spinner - setup like QuickActions
-        Spinner spAspect = header.findViewById(R.id.drawer_sp_aspect_ratio);
-        if (spAspect != null) {
-            spAspect.setOnItemSelectedListener(null);
-            if (spAspect.getAdapter() == null) {
-                ArrayAdapter<CharSequence> aspectAdapter = ArrayAdapter.createFromResource(this,
-                        R.array.aspect_ratio_entries, android.R.layout.simple_spinner_item);
-                aspectAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-                spAspect.setAdapter(aspectAdapter);
-            }
-            ArrayAdapter<?> adapter = (ArrayAdapter<?>) spAspect.getAdapter();
-            if (adapter != null) {
-                int savedAspect = prefs.getInt("aspect_ratio", 1);
-                if (savedAspect < 0 || savedAspect >= adapter.getCount()) savedAspect = 1;
-                spAspect.setSelection(savedAspect, false);
-            }
-            spAspect.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
-                @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
-                    if (position == prefs.getInt("aspect_ratio", 1)) return;
-                    prefs.edit().putInt("aspect_ratio", position).apply();
-                    NativeApp.setAspectRatioAsync(position);
-                }
-                @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
-            });
-
-        Spinner spAudioOut = header.findViewById(R.id.drawer_sp_audio_output);
-        if (spAudioOut != null) {
-            spAudioOut.setOnItemSelectedListener(null);
-            if (spAudioOut.getAdapter() == null) {
-                ArrayAdapter<CharSequence> audioAdapter = ArrayAdapter.createFromResource(this,
-                        R.array.audio_output_entries, android.R.layout.simple_spinner_item);
-                audioAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-                spAudioOut.setAdapter(audioAdapter);
-            }
-            spAudioOut.setSelection(AudioOutputPreference.getMode(this), false);
-            spAudioOut.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
-                @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
-                    if (position == AudioOutputPreference.getMode(MainActivity.this)) return;
-                    AudioOutputPreference.setMode(MainActivity.this, position);
-                    AudioOutputPreference.apply(MainActivity.this);
-                }
-                @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
-            });
-        }
-
-        Spinner spEdgeCrop = header.findViewById(R.id.drawer_sp_edge_crop);
-        if (spEdgeCrop != null) {
-            spEdgeCrop.setOnItemSelectedListener(null);
-            if (spEdgeCrop.getAdapter() == null) {
-                ArrayAdapter<CharSequence> cropAdapter = ArrayAdapter.createFromResource(this,
-                        R.array.edge_crop_entries, android.R.layout.simple_spinner_item);
-                cropAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-                spEdgeCrop.setAdapter(cropAdapter);
-            }
-            spEdgeCrop.setSelection(edgeCropPixelsToIndex(prefs.getInt("edge_crop", DEFAULT_EDGE_CROP)), false);
-            spEdgeCrop.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
-                @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
-                    int pixels = edgeCropIndexToPixels(position);
-                    if (pixels == prefs.getInt("edge_crop", DEFAULT_EDGE_CROP)) return;
-                    prefs.edit().putInt("edge_crop", pixels).apply();
-                    NativeApp.setEdgeCropAsync(pixels);
-                }
-                @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
-            });
-        }
-        }
-
-        // Resolution Scale spinner
-        Spinner spScale = header.findViewById(R.id.drawer_sp_scale);
-        if (spScale != null) {
-            spScale.setOnItemSelectedListener(null);
-            if (spScale.getAdapter() == null) {
-                ArrayAdapter<CharSequence> scaleAdapter = ArrayAdapter.createFromResource(this,
-                        R.array.scale_entries, android.R.layout.simple_spinner_item);
-                scaleAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-                spScale.setAdapter(scaleAdapter);
-            }
-            ArrayAdapter<?> adapter = (ArrayAdapter<?>) spScale.getAdapter();
-            if (adapter != null) {
-                float savedScale = prefs.getFloat("upscale_multiplier", 1.0f);
-                int scaleIndex = Math.max(0, Math.min(adapter.getCount() - 1, Math.round(savedScale) - 1));
-                spScale.setSelection(scaleIndex, false);
-            }
-            spScale.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
-                @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
-                    float scale = Math.max(1, Math.min(8, position + 1));
-                    if (Math.abs(prefs.getFloat("upscale_multiplier", 1.0f) - scale) < 0.001f) return;
-                    prefs.edit().putFloat("upscale_multiplier", scale).apply();
-                    NativeApp.renderUpscalemultiplierAsync(scale);
-                }
-                @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
-            });
-        }
-
-        // Blending Accuracy spinner - setup like QuickActions
-        Spinner spBlending = header.findViewById(R.id.drawer_sp_blending_accuracy);
-        if (spBlending != null) {
-            spBlending.setOnItemSelectedListener(null);
-            if (spBlending.getAdapter() == null) {
-                ArrayAdapter<CharSequence> blendAdapter = ArrayAdapter.createFromResource(this,
-                        R.array.blending_accuracy_entries, android.R.layout.simple_spinner_item);
-                blendAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-                spBlending.setAdapter(blendAdapter);
-            }
-            ArrayAdapter<?> adapter = (ArrayAdapter<?>) spBlending.getAdapter();
-            if (adapter != null) {
-                int savedBlend = prefs.getInt("blending_accuracy", 1);
-                if (savedBlend < 0 || savedBlend >= adapter.getCount()) savedBlend = 1;
-                spBlending.setSelection(savedBlend, false);
-            }
-            spBlending.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
-                @Override public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
-                    if (position == prefs.getInt("blending_accuracy", 1)) return;
-                    prefs.edit().putInt("blending_accuracy", position).apply();
-                    NativeApp.setBlendingAccuracyAsync(position);
-                }
-                @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
-            });
-        }
-
-        // Setup switch listeners only once
-        setupDrawerSwitchListeners(header, prefs);
-    }
-
-    private void setupDrawerSwitchListeners(View header, SharedPreferences prefs) {
-        // Vertical Sync switch
-        com.google.android.material.materialswitch.MaterialSwitch swVsync = header.findViewById(R.id.drawer_sw_vsync);
-        if (swVsync != null) {
-            swVsync.setTag("setup");
-            swVsync.setOnCheckedChangeListener((buttonView, isChecked) -> {
-                if (isChecked == prefs.getBoolean("vsync_enabled", false)) return;
-                prefs.edit().putBoolean("vsync_enabled", isChecked).apply();
-                NativeApp.setVsyncEnabledAsync(isChecked);
-            });
-        }
-
-        // Widescreen Patches switch
-        com.google.android.material.materialswitch.MaterialSwitch swWide = header.findViewById(R.id.drawer_sw_widescreen);
-        if (swWide != null) {
-            swWide.setTag("setup");
-            swWide.setOnCheckedChangeListener((buttonView, isChecked) -> {
-                if (isChecked == prefs.getBoolean("widescreen_patches", true)) return;
-                prefs.edit().putBoolean("widescreen_patches", isChecked).apply();
-                NativeApp.setWidescreenPatchesAsync(isChecked);
-            });
-        }
-
-        // No Interlacing switch
-        com.google.android.material.materialswitch.MaterialSwitch swNoInt = header.findViewById(R.id.drawer_sw_no_interlacing);
-        if (swNoInt != null) {
-            swNoInt.setTag("setup");
-            swNoInt.setOnCheckedChangeListener((buttonView, isChecked) -> {
-                if (isChecked == prefs.getBoolean("no_interlacing_patches", true)) return;
-                prefs.edit().putBoolean("no_interlacing_patches", isChecked).apply();
-                NativeApp.setNoInterlacingPatchesAsync(isChecked);
-            });
-        }
-
-        // Load Textures switch
-        com.google.android.material.materialswitch.MaterialSwitch swLoadTex = header.findViewById(R.id.drawer_sw_load_textures);
-        if (swLoadTex != null) {
-            swLoadTex.setTag("setup");
-            swLoadTex.setOnCheckedChangeListener((buttonView, isChecked) -> {
-                if (isChecked == prefs.getBoolean("load_textures", false)) return;
-                prefs.edit().putBoolean("load_textures", isChecked).apply();
-                NativeApp.setLoadTexturesAsync(isChecked);
-            });
-        }
-
-        // Async Textures switch
-        com.google.android.material.materialswitch.MaterialSwitch swAsyncTex = header.findViewById(R.id.drawer_sw_async_textures);
-        if (swAsyncTex != null) {
-            swAsyncTex.setTag("setup");
-            swAsyncTex.setOnCheckedChangeListener((buttonView, isChecked) -> {
-                if (isChecked == prefs.getBoolean("async_texture_loading", true)) return;
-                prefs.edit().putBoolean("async_texture_loading", isChecked).apply();
-                NativeApp.setAsyncTextureLoadingAsync(isChecked);
-            });
-        }
-
-        // Precache Textures switch
-        com.google.android.material.materialswitch.MaterialSwitch swPrecache = header.findViewById(R.id.drawer_sw_precache_textures);
-        if (swPrecache != null) {
-            swPrecache.setTag("setup");
-            swPrecache.setOnCheckedChangeListener((buttonView, isChecked) -> {
-                if (isChecked == prefs.getBoolean("precache_textures", false)) return;
-                prefs.edit().putBoolean("precache_textures", isChecked).apply();
-                NativeApp.setPrecacheTextureReplacementsAsync(isChecked);
-            });
-        }
-
-        // HUD Developer switch
-        com.google.android.material.materialswitch.MaterialSwitch swDevHud = header.findViewById(R.id.drawer_sw_dev_hud);
-        if (swDevHud != null) {
-            swDevHud.setTag("setup");
-            swDevHud.setOnCheckedChangeListener((buttonView, isChecked) -> {
-                if (isChecked == prefs.getBoolean("hud_visible", false)) return;
-                prefs.edit().putBoolean("hud_visible", isChecked).apply();
-                NativeApp.setHudVisibleAsync(isChecked);
-            });
-        }
-
-        // Boot the PS2 system menu at startup instead of staying idle until a game is picked
-        com.google.android.material.materialswitch.MaterialSwitch swBootBios =
-                header.findViewById(R.id.drawer_sw_boot_bios_on_start);
-        if (swBootBios != null) {
-            swBootBios.setTag("setup");
-            swBootBios.setOnCheckedChangeListener((buttonView, isChecked) -> {
-                if (isChecked == prefs.getBoolean(PREF_BOOT_BIOS_ON_START, false)) return;
-                prefs.edit().putBoolean(PREF_BOOT_BIOS_ON_START, isChecked).apply();
-                // Turning it on with nothing loaded is how you reach the PS2 menu,
-                // so honor it now rather than at the next launch.
-                if (isChecked && !hasSelectedGame() && !isThread()) startEmuThread();
-            });
-        }
-
-        // Touch right stick joystick (optional on-screen control)
-        com.google.android.material.materialswitch.MaterialSwitch swTouchRightStick = header.findViewById(R.id.drawer_sw_touch_right_stick);
-        if (swTouchRightStick != null) {
-            swTouchRightStick.setTag("setup");
-            swTouchRightStick.setOnCheckedChangeListener((buttonView, isChecked) -> {
-                prefs.edit().putBoolean(PREF_TOUCH_RIGHT_STICK, isChecked).apply();
-                if (!isChecked) releaseVirtualRightStickInputs();
-                try { updateUiForControllerPresence(); } catch (Throwable ignored) {}
-            });
-        }
-    }
-
-    private void clearDrawerSwitchListeners(View header) {
-        int[] switchIds = {
-                R.id.drawer_sw_vsync,
-                R.id.drawer_sw_widescreen,
-                R.id.drawer_sw_no_interlacing,
-                R.id.drawer_sw_load_textures,
-                R.id.drawer_sw_async_textures,
-                R.id.drawer_sw_precache_textures,
-                R.id.drawer_sw_dev_hud,
-                R.id.drawer_sw_touch_right_stick,
-                R.id.drawer_sw_boot_bios_on_start
-        };
-
-        for (int switchId : switchIds) {
-            com.google.android.material.materialswitch.MaterialSwitch switchView = header.findViewById(switchId);
-            if (switchView != null) {
-                switchView.setOnCheckedChangeListener(null);
-                switchView.setTag(null);
-            }
-        }
-    }
-
     private void refreshDrawerSettings() {
-        try {
-            NavigationView nav = findViewById(R.id.nav_view);
-            if (nav == null) {
-                android.util.Log.w("MainActivity", "NavigationView not found during refreshDrawerSettings");
-                return;
-            }
-            
-            // Ensure header exists before trying to access it
-            if (nav.getHeaderCount() == 0) {
-                android.util.Log.w("MainActivity", "NavigationView has no header during refreshDrawerSettings");
-                return;
-            }
-            
-            View header = nav.getHeaderView(0);
-            if (header == null) {
-                android.util.Log.w("MainActivity", "NavigationView header is null during refreshDrawerSettings");
-                return;
-            }
-            
-            SharedPreferences prefs = null;
-            try {
-                prefs = getSharedPreferences("app_prefs", MODE_PRIVATE);
-            } catch (Exception e) {
-                android.util.Log.e("MainActivity", "Error getting SharedPreferences: " + e.getMessage());
-                return;
-            }
-            
-            if (prefs == null) {
-                android.util.Log.e("MainActivity", "SharedPreferences is null during refreshDrawerSettings");
-                return;
-            }
-
-            refreshDrawerBiosStatus(header);
-
-            try {
-                MaterialButtonToggleGroup tgOrientation = header.findViewById(R.id.drawer_tg_orientation);
-                View tbOrientAuto = header.findViewById(R.id.drawer_tb_orientation_auto);
-                View tbOrientLand = header.findViewById(R.id.drawer_tb_orientation_landscape);
-                View tbOrientPort = header.findViewById(R.id.drawer_tb_orientation_portrait);
-                if (tgOrientation != null && tbOrientAuto != null && tbOrientLand != null && tbOrientPort != null) {
-                    int savedOrientation = normalizeOrientationPref(prefs.getInt("orientation_lock", ORIENTATION_AUTO));
-                    int checkId = savedOrientation == ORIENTATION_LANDSCAPE ? tbOrientLand.getId()
-                            : (savedOrientation == ORIENTATION_PORTRAIT ? tbOrientPort.getId() : tbOrientAuto.getId());
-                    tgOrientation.check(checkId);
-                }
-            } catch (Exception e) {
-                android.util.Log.e("MainActivity", "Error refreshing orientation toggle: " + e.getMessage());
-            }
-
-            // Refresh spinner values to reflect current settings
-            try {
-                Spinner spAspect = header.findViewById(R.id.drawer_sp_aspect_ratio);
-                if (spAspect != null && spAspect.getAdapter() != null) {
-                    int savedAspect = prefs.getInt("aspect_ratio", 1);
-                    ArrayAdapter<?> aspectAdapter = (ArrayAdapter<?>) spAspect.getAdapter();
-                    if (savedAspect >= 0 && savedAspect < aspectAdapter.getCount()) {
-                        spAspect.setSelection(savedAspect, false);
-                    }
-                }
-            } catch (Exception e) {
-                android.util.Log.e("MainActivity", "Error refreshing aspect ratio spinner: " + e.getMessage());
-            }
-
-            try {
-                Spinner spScale = header.findViewById(R.id.drawer_sp_scale);
-                if (spScale != null && spScale.getAdapter() != null) {
-                    float savedScale = prefs.getFloat("upscale_multiplier", 1.0f);
-                    ArrayAdapter<?> scaleAdapter = (ArrayAdapter<?>) spScale.getAdapter();
-                    int scaleIndex = Math.max(0, Math.min(scaleAdapter.getCount() - 1, Math.round(savedScale) - 1));
-                    spScale.setSelection(scaleIndex, false);
-                }
-            } catch (Exception e) {
-                android.util.Log.e("MainActivity", "Error refreshing scale spinner: " + e.getMessage());
-            }
-
-            try {
-                Spinner spBlending = header.findViewById(R.id.drawer_sp_blending_accuracy);
-                if (spBlending != null && spBlending.getAdapter() != null) {
-                    int savedBlend = prefs.getInt("blending_accuracy", 1);
-                    ArrayAdapter<?> blendAdapter = (ArrayAdapter<?>) spBlending.getAdapter();
-                    if (savedBlend >= 0 && savedBlend < blendAdapter.getCount()) {
-                        spBlending.setSelection(savedBlend, false);
-                    }
-                }
-            } catch (Exception e) {
-                android.util.Log.e("MainActivity", "Error refreshing blending spinner: " + e.getMessage());
-            }
-            
-            // Refresh switch states with individual error handling. Detach listeners so
-            // programmatic drawer sync never applies native settings from the UI thread.
-            clearDrawerSwitchListeners(header);
-            try {
-                com.google.android.material.materialswitch.MaterialSwitch swVsync = header.findViewById(R.id.drawer_sw_vsync);
-                if (swVsync != null) {
-                    swVsync.setChecked(prefs.getBoolean("vsync_enabled", false));
-                }
-            } catch (Exception e) {
-                android.util.Log.e("MainActivity", "Error refreshing VSync switch: " + e.getMessage());
-            }
-
-            try {
-                com.google.android.material.materialswitch.MaterialSwitch swWide = header.findViewById(R.id.drawer_sw_widescreen);
-                if (swWide != null) {
-                    swWide.setChecked(prefs.getBoolean("widescreen_patches", true));
-                }
-            } catch (Exception e) {
-                android.util.Log.e("MainActivity", "Error refreshing widescreen switch: " + e.getMessage());
-            }
-
-            try {
-                com.google.android.material.materialswitch.MaterialSwitch swNoInt = header.findViewById(R.id.drawer_sw_no_interlacing);
-                if (swNoInt != null) {
-                    swNoInt.setChecked(prefs.getBoolean("no_interlacing_patches", true));
-                }
-            } catch (Exception e) {
-                android.util.Log.e("MainActivity", "Error refreshing no interlacing switch: " + e.getMessage());
-            }
-
-            try {
-                com.google.android.material.materialswitch.MaterialSwitch swLoadTex = header.findViewById(R.id.drawer_sw_load_textures);
-                if (swLoadTex != null) {
-                    swLoadTex.setChecked(prefs.getBoolean("load_textures", false));
-                }
-            } catch (Exception e) {
-                android.util.Log.e("MainActivity", "Error refreshing load textures switch: " + e.getMessage());
-            }
-
-            try {
-                com.google.android.material.materialswitch.MaterialSwitch swAsyncTex = header.findViewById(R.id.drawer_sw_async_textures);
-                if (swAsyncTex != null) {
-                    swAsyncTex.setChecked(prefs.getBoolean("async_texture_loading", true));
-                }
-            } catch (Exception e) {
-                android.util.Log.e("MainActivity", "Error refreshing async textures switch: " + e.getMessage());
-            }
-
-            try {
-                com.google.android.material.materialswitch.MaterialSwitch swPrecache = header.findViewById(R.id.drawer_sw_precache_textures);
-                if (swPrecache != null) {
-                    swPrecache.setChecked(prefs.getBoolean("precache_textures", false));
-                }
-            } catch (Exception e) {
-                android.util.Log.e("MainActivity", "Error refreshing precache textures switch: " + e.getMessage());
-            }
-
-            try {
-                com.google.android.material.materialswitch.MaterialSwitch swDevHud = header.findViewById(R.id.drawer_sw_dev_hud);
-                if (swDevHud != null) {
-                    swDevHud.setChecked(prefs.getBoolean("hud_visible", false));
-                }
-            } catch (Exception e) {
-                android.util.Log.e("MainActivity", "Error refreshing dev HUD switch: " + e.getMessage());
-            }
-
-            try {
-                com.google.android.material.materialswitch.MaterialSwitch swTouchRightStick = header.findViewById(R.id.drawer_sw_touch_right_stick);
-                if (swTouchRightStick != null) {
-                    swTouchRightStick.setChecked(prefs.getBoolean(PREF_TOUCH_RIGHT_STICK, false));
-                }
-            } catch (Exception e) {
-                android.util.Log.e("MainActivity", "Error refreshing touch right stick switch: " + e.getMessage());
-            }
-
-            try {
-                com.google.android.material.materialswitch.MaterialSwitch swBootBios =
-                        header.findViewById(R.id.drawer_sw_boot_bios_on_start);
-                if (swBootBios != null) {
-                    swBootBios.setChecked(prefs.getBoolean(PREF_BOOT_BIOS_ON_START, false));
-                }
-            } catch (Exception e) {
-                android.util.Log.e("MainActivity", "Error refreshing boot BIOS switch: " + e.getMessage());
-            }
-
-            setupDrawerSwitchListeners(header, prefs);
-            
-        } catch (Throwable t) {
-            android.util.Log.e("MainActivity", "Unexpected error in refreshDrawerSettings: " + t.getMessage());
-        }
+        if (mSettingsDrawer != null) mSettingsDrawer.refresh();
     }
 
-    private void setupDrawerBiosControls(View header) {
-        if (header == null) return;
-        refreshDrawerBiosStatus(header);
-
-        View btnBios = header.findViewById(R.id.drawer_btn_bios);
-        if (btnBios != null) {
-            btnBios.setOnClickListener(v -> {
-                try {
-                    DrawerLayout drawer = findViewById(R.id.drawer_layout);
-                    if (drawer != null) drawer.closeDrawer(GravityCompat.START);
-                } catch (Throwable ignored) {}
-                v.post(this::showBiosPrompt);
-            });
-        }
+    private void closeSettingsDrawer() {
+        DrawerLayout drawer = findViewById(R.id.drawer_layout);
+        if (drawer != null) drawer.closeDrawer(GravityCompat.START);
     }
 
-    private void refreshDrawerBiosStatus(View header) {
-        if (header == null) return;
-        TextView tvBiosStatus = header.findViewById(R.id.drawer_tv_bios_status);
-        if (tvBiosStatus != null) {
-            tvBiosStatus.setText(BiosVerifier.describeVerifiedRegions(this));
-        }
+    /** Called by the settings drawer's "Boot PS2 menu on startup" switch. */
+    void setBootBiosOnStart(boolean enabled) {
+        SharedPreferences prefs = getSharedPreferences("app_prefs", MODE_PRIVATE);
+        if (enabled == prefs.getBoolean(PREF_BOOT_BIOS_ON_START, false)) return;
+        prefs.edit().putBoolean(PREF_BOOT_BIOS_ON_START, enabled).apply();
+        // Turning it on with nothing loaded is how you reach the PS2 menu, so honor it now
+        // rather than at the next launch (not while the game library is covering the screen).
+        if (enabled && !hasSelectedGame() && !isThread() && mOpenDialogCount == 0) startEmuThread();
+    }
+
+    /** Called by the settings drawer's "Touch: Right Stick Joystick" switch. */
+    void setTouchRightStickEnabled(boolean enabled) {
+        getSharedPreferences("app_prefs", MODE_PRIVATE).edit().putBoolean(PREF_TOUCH_RIGHT_STICK, enabled).apply();
+        if (!enabled) releaseVirtualRightStickInputs();
+        try { updateUiForControllerPresence(); } catch (Throwable ignored) {}
     }
 
     private void loadAndApplyStoredSettings() {

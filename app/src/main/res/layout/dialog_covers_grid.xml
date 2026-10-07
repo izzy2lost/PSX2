@@ -11,14 +11,13 @@
         android:layout_width="match_parent"
         android:layout_height="match_parent" />
 
-    <!-- In-dialog navigation drawer to mirror main drawer -->
-    <com.google.android.material.navigation.NavigationView
-        android:id="@+id/dialog_nav_view"
-        android:layout_width="320dp"
+    <!-- Settings drawer: Jetpack Compose (SettingsDrawer.kt), shared with the main screen -->
+    <FrameLayout
+        android:id="@+id/dialog_settings_drawer"
+        android:layout_width="wrap_content"
         android:layout_height="match_parent"
         android:layout_gravity="start"
-        app:itemIconTint="@color/md_theme_onSurface"
-        app:itemTextColor="@color/md_theme_onSurface"
-        app:headerLayout="@layout/drawer_header_settings" />
+        android:clickable="true"
+        android:focusable="true" />
 
 </androidx.drawerlayout.widget.DrawerLayout>

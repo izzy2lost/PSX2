@@ -469,15 +469,14 @@
     </LinearLayout>
     </androidx.constraintlayout.widget.ConstraintLayout>
 
-    <!-- Left drawer (NavigationView) -->
-    <com.google.android.material.navigation.NavigationView
-        android:id="@+id/nav_view"
-        android:layout_width="320dp"
+    <!-- Left settings drawer: Jetpack Compose (SettingsDrawer.kt) -->
+    <FrameLayout
+        android:id="@+id/settings_drawer"
+        android:layout_width="wrap_content"
         android:layout_height="match_parent"
         android:layout_gravity="start"
-        app:itemIconTint="@color/md_theme_onSurface"
-        app:itemTextColor="@color/md_theme_onSurface"
-        app:headerLayout="@layout/drawer_header_settings" />
+        android:clickable="true"
+        android:focusable="true" />
 
     <!-- Right drawer (Quick Actions) -->
     <include
