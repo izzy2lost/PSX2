@@ -758,6 +758,17 @@ void cpuinfo_arm_linux_init(void) {
 			&l1d[i],
 			&temp_l2,
 			&temp_l3);
+		/*
+		 * Apply the same sysfs L2 override as the population loop below, so l2_count
+		 * matches the number of L2 entries written there. Without this, an unknown uarch
+		 * (e.g. arm64 code running under x86 binary translation on emulators/ChromeOS)
+		 * decodes L2 size 0 here, l2 stays NULL, and the later loop writes through it.
+		 */
+		const uint32_t count_sysfs_l2_size =
+			cpuinfo_linux_read_sysfs_cache_size(arm_linux_processors[i].system_processor_id, 2);
+		if (count_sysfs_l2_size > 0) {
+			temp_l2.size = count_sysfs_l2_size;
+		}
 		l1i[i].processor_start = l1d[i].processor_start = i;
 		l1i[i].processor_count = l1d[i].processor_count = 1;
 #if CPUINFO_ARCH_ARM

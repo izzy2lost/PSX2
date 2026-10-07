@@ -17,7 +17,10 @@
 #if defined(__ANDROID__)
 #include <dlfcn.h>
 #include <mutex>
+#if defined(__aarch64__)
+// adrenotools (custom Adreno/Turnip drivers) only exists for arm64-v8a.
 #include "adrenotools/driver.h"
+#endif
 #endif
 
 extern "C" {
@@ -66,6 +69,10 @@ void Vulkan::SetCustomDriverPath(const char* driver_dir, const char* driver_name
 
 static bool TryOpenAdrenotoolsDriver(DynamicLibrary& library, Error* error)
 {
+#if !defined(__aarch64__)
+	// No Adreno GPUs (and no adrenotools build) on x86_64 Android/ChromeOS.
+	return false;
+#else
 	std::string driver_dir, driver_name, redirect_dir, hook_lib_dir;
 	{
 		std::lock_guard lock(s_custom_driver_mutex);
@@ -113,6 +120,7 @@ static bool TryOpenAdrenotoolsDriver(DynamicLibrary& library, Error* error)
 	library.Adopt(handle);
 	Console.WriteLn("VKLoader: adrenotools driver handle acquired.");
 	return true;
+#endif
 }
 #endif
 

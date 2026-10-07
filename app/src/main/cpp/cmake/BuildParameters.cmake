@@ -127,7 +127,11 @@ if("${CMAKE_HOST_SYSTEM_PROCESSOR}" STREQUAL "x86_64" OR "${CMAKE_HOST_SYSTEM_PR
 		endif()
 	else()
 		# Multi-ISA => SSE4, otherwise native.
-		if (DISABLE_ADVANCE_SIMD)
+		if(ANDROID)
+			# Cross-compiling: -march=native would target the build machine. The Android
+			# x86_64 ABI guarantees SSE4.2 + POPCNT, which covers PCSX2's SSE4.1 minimum.
+			add_compile_options("-msse4.2" "-mpopcnt")
+		elseif (DISABLE_ADVANCE_SIMD)
 			add_compile_options("-msse" "-msse2" "-msse4.1" "-mfxsr")
 		else()
 			# Can't use march=native on Apple Silicon.

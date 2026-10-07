@@ -5,6 +5,7 @@ import java.util.Properties
 
 plugins {
     id("com.android.application")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 // Load keystore properties. Local test releases fall back to debug signing when
@@ -39,7 +40,7 @@ if (hasReleaseSigning) {
 
 android {
     namespace = "com.izzy2lost.psx2"
-    compileSdk = 36
+    compileSdk = 37
     ndkVersion = "30.0.15729638-beta2"
 
     signingConfigs {
@@ -127,6 +128,10 @@ android {
         abortOnError = false
     }
 
+    buildFeatures {
+        compose = true
+    }
+
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_21
         targetCompatibility = JavaVersion.VERSION_21
@@ -173,6 +178,16 @@ dependencies {
     implementation("androidx.work:work-runtime:2.11.2")
     implementation("com.github.bumptech.glide:glide:4.16.0")
     annotationProcessor("com.github.bumptech.glide:compiler:4.16.0")
+
+    // Jetpack Compose (incremental migration from XML Views)
+    val composeBom = platform("androidx.compose:compose-bom:2026.09.00")
+    implementation(composeBom)
+    androidTestImplementation(composeBom)
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    debugImplementation("androidx.compose.ui:ui-tooling")
+    androidTestImplementation("androidx.compose.ui:ui-test-junit4")
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
 }
 
 val javaToolchainService = extensions.getByType(

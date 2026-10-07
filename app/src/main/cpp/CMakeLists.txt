@@ -53,7 +53,7 @@ add_subdirectory(pcsx2)
 # .so's that get packaged into the apk's lib/<abi>/ alongside libemucore.so. Not added
 # via SearchForStuff.cmake (EXCLUDE_FROM_ALL there) because the hook .so's are dlopen'd
 # at runtime, never link-time, so they must be part of the default build to get built at all.
-if(ANDROID)
+if(ANDROID AND CMAKE_ANDROID_ARCH_ABI STREQUAL "arm64-v8a")
 	add_subdirectory(3rdparty/adrenotools)
 endif()
 
