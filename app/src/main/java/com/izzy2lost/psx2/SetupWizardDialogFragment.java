@@ -33,6 +33,7 @@ public class SetupWizardDialogFragment extends DialogFragment {
     private TextView tvStep;
     private TextView tvSubtitle;
     private Runnable periodicCheck;
+    private boolean completed = false;
 
     private final List<SetupStep> steps = Arrays.asList(
             new SetupStep(StepType.BIOS, R.drawable.memory_24px, "BIOS files", "Import a verified USA, Europe, or Japan BIOS. One is enough; adding all three lets PSX2 match game regions automatically.", "Import BIOS"),
@@ -247,16 +248,22 @@ public class SetupWizardDialogFragment extends DialogFragment {
     }
 
     private void completeAndDismiss() {
+        // Both the auto-complete timer and the "Start playing" button can land here.
+        if (completed) return;
+        completed = true;
+        MainActivity a = null;
         try {
             Context context = getContext();
             if (context != null) {
                 context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
                         .edit().putBoolean("first_run_done", true).apply();
             }
-            MainActivity a = UiUtils.getMainActivity(this);
+            a = UiUtils.getMainActivity(this);
             if (a != null) a.setSetupWizardActive(false);
         } catch (Throwable ignored) {}
         dismissAllowingStateLoss();
+        // Land on the games list right away instead of an empty screen.
+        if (a != null) a.scheduleOpenGamesDialog(250);
     }
 
     private void tryCompleteSoon() {

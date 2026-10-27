@@ -760,21 +760,10 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
             // (Setup wizard handles opening the games dialog on first completion)
             boolean hasOpenedGamesAfterSetup = prefs.getBoolean("has_opened_games_after_setup", false);
             if (hasOpenedGamesAfterSetup) {
-                try {
-                    final View decor = (getWindow() != null) ? getWindow().getDecorView() : null;
-                    if (decor != null) {
-                        // Nothing boots on its own anymore, so the picker can come up as
-                        // soon as the window is laid out. Only the optional BIOS boot
-                        // needs the old head start.
-                        final long delayMs = isBootBiosOnStartEnabled() ? 1600 : 250;
-                        decor.postDelayed(() -> {
-                            if (!isFinishing() && !isDestroyed() && !mSetupWizardActive
-                                    && !getSupportFragmentManager().isStateSaved()) {
-                                openGamesDialog();
-                            }
-                        }, delayMs);
-                    }
-                } catch (Throwable ignored) {}
+                // Nothing boots on its own anymore, so the picker can come up as
+                // soon as the window is laid out. Only the optional BIOS boot
+                // needs the old head start.
+                scheduleOpenGamesDialog(isBootBiosOnStartEnabled() ? 1600 : 250);
             }
         }
 
@@ -804,6 +793,21 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
 
     public void setSetupWizardActive(boolean active) {
         mSetupWizardActive = active;
+    }
+
+    // Opens the games list once the window (and any closing dialog) has settled.
+    public void scheduleOpenGamesDialog(long delayMs) {
+        try {
+            final View decor = (getWindow() != null) ? getWindow().getDecorView() : null;
+            if (decor != null) {
+                decor.postDelayed(() -> {
+                    if (!isFinishing() && !isDestroyed() && !mSetupWizardActive
+                            && !getSupportFragmentManager().isStateSaved()) {
+                        openGamesDialog();
+                    }
+                }, delayMs);
+            }
+        } catch (Throwable ignored) {}
     }
 
     // Public method to open the games covers dialog via controller quick actions
