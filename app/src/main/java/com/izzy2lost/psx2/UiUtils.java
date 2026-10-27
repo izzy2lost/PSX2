@@ -1,12 +1,16 @@
 package com.izzy2lost.psx2;
 
 import android.app.Activity;
+import android.content.ActivityNotFoundException;
 import android.content.Context;
+import android.content.Intent;
 import android.os.Handler;
 import android.os.Looper;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.TextView;
+import android.widget.Toast;
+import androidx.activity.result.ActivityResultLauncher;
 import androidx.core.content.ContextCompat;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
@@ -56,6 +60,23 @@ class UiUtils {
             return (MainActivity) activity;
         }
         return null;
+    }
+
+    /**
+     * Launches a system file/folder picker. Some devices (Android TV boxes, Fire TV,
+     * stripped ROMs) ship without one, and launch() then throws instead of failing.
+     */
+    static boolean launchPicker(Context ctx, ActivityResultLauncher<Intent> launcher, Intent intent) {
+        try {
+            launcher.launch(intent);
+            return true;
+        } catch (ActivityNotFoundException e) {
+            android.util.Log.w("UiUtils", "No activity to handle " + intent.getAction(), e);
+            if (ctx != null) {
+                Toast.makeText(ctx, "No file picker is available on this device", Toast.LENGTH_LONG).show();
+            }
+            return false;
+        }
     }
 
     static void postIfFragmentAttached(Fragment fragment, Runnable action) {

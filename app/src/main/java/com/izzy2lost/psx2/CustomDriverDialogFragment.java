@@ -112,7 +112,7 @@ public class CustomDriverDialogFragment extends DialogFragment {
             Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
             intent.setType("*/*");
             intent.addCategory(Intent.CATEGORY_OPENABLE);
-            importLauncher.launch(intent);
+            UiUtils.launchPicker(requireContext(), importLauncher, intent);
         });
 
         btnDelete.setOnClickListener(v -> {

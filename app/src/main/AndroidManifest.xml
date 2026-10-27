@@ -58,7 +58,7 @@
 
     <activity
             android:name=".MainActivity"
-            android:configChanges="keyboard|keyboardHidden|orientation|screenLayout|uiMode|screenSize|smallestScreenSize"
+            android:configChanges="keyboard|keyboardHidden|navigation|touchscreen|orientation|screenLayout|uiMode|screenSize|smallestScreenSize|density|fontScale|fontWeightAdjustment|layoutDirection|locale|colorMode"
             android:launchMode="singleTask"
             android:enableOnBackInvokedCallback="true"
             android:supportsPictureInPicture="true"

@@ -404,12 +404,12 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
         intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
                 | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
                 | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
-        startActivityResultGamesFolderPick.launch(intent);
+        UiUtils.launchPicker(this, startActivityResultGamesFolderPick, intent);
     }
 
     // Let the user select a data root (SAF) where app folders/files live (covers, resources, saves, etc.)
     public void pickDataRootFolder() {
-        startActivityResultDataRootPick.launch(SafManager.buildOpenTreeIntent());
+        UiUtils.launchPicker(this, startActivityResultDataRootPick, SafManager.buildOpenTreeIntent());
     }
 
     private void showGamesListOrReselect() {
@@ -1374,14 +1374,14 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
                     intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
                     intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
                     intent.setType("*/*");
-                    startActivityResultBiosPick.launch(intent);
+                    UiUtils.launchPicker(this, startActivityResultBiosPick, intent);
                 })
                 .setNeutralButton("Pick Folder", (d, w) -> {
                     Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
                     intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION
                             | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION
                             | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
-                    startActivityResultBiosFolderPick.launch(intent);
+                    UiUtils.launchPicker(this, startActivityResultBiosFolderPick, intent);
                 })
                 .create();
         mBiosPromptDialog.setOnDismissListener(dialog -> mBiosPromptDialog = null);
@@ -1906,7 +1906,13 @@ public class MainActivity extends AppCompatActivity implements GamesCoverDialogF
         }
         if (threadToJoin != null) {
             try {
-                threadToJoin.join();
+                // Bounded: shutdown can take several seconds for some games, and an
+                // unbounded wait here is an ANR. Stay under the 5s input timeout; the
+                // process is killed below either way.
+                threadToJoin.join(4000);
+                if (threadToJoin.isAlive()) {
+                    android.util.Log.w("MainActivity", "Emulation thread still shutting down at exit");
+                }
                 synchronized (mEmulationThreadLock) {
                     if (mEmulationThread == threadToJoin) {
                         mEmulationThread = null;

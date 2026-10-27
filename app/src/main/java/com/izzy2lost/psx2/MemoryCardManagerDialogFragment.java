@@ -128,7 +128,7 @@ public class MemoryCardManagerDialogFragment extends DialogFragment {
         intent.setType("*/*");
         intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
         intent.addCategory(Intent.CATEGORY_OPENABLE);
-        importLauncher.launch(intent);
+        UiUtils.launchPicker(requireContext(), importLauncher, intent);
     }
     
     private void handleImport(Intent data) {
@@ -195,7 +195,7 @@ public class MemoryCardManagerDialogFragment extends DialogFragment {
     private void showExportDialog() {
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
         intent.addFlags(Intent.FLAG_GRANT_WRITE_URI_PERMISSION | Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        exportLauncher.launch(intent);
+        UiUtils.launchPicker(requireContext(), exportLauncher, intent);
     }
     
     private void handleExport(Intent data) {

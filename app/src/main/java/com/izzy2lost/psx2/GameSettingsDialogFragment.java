@@ -510,7 +510,7 @@ public class GameSettingsDialogFragment extends DialogFragment {
                             Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
                             intent.addCategory(Intent.CATEGORY_OPENABLE);
                             intent.setType("*/*");
-                            mPnachPicker.launch(intent);
+                            UiUtils.launchPicker(ctx, mPnachPicker, intent);
                         })
                         .show();
             });
@@ -536,7 +536,7 @@ public class GameSettingsDialogFragment extends DialogFragment {
                                     Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
                                     intent.addCategory(Intent.CATEGORY_OPENABLE);
                                     intent.setType("image/*");
-                                    mCoverPicker.launch(intent);
+                                    UiUtils.launchPicker(ctx, mCoverPicker, intent);
                                 } else {
                                     // Delete custom cover
                                     deleteCustomCover(ctx, gameSerial);
@@ -548,7 +548,7 @@ public class GameSettingsDialogFragment extends DialogFragment {
                     Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
                     intent.addCategory(Intent.CATEGORY_OPENABLE);
                     intent.setType("image/*");
-                    mCoverPicker.launch(intent);
+                    UiUtils.launchPicker(ctx, mCoverPicker, intent);
                 }
             });
         }

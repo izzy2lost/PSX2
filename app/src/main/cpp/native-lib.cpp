@@ -46,7 +46,7 @@
 #endif
 
 
-bool s_execute_exit;
+static std::atomic_bool s_execute_exit{false};
 int s_window_width = 0;
 int s_window_height = 0;
 ANativeWindow* s_window = nullptr;
@@ -1907,8 +1907,10 @@ Java_com_izzy2lost_psx2_NativeApp_saveStateToSlot(JNIEnv *env, jclass clazz, jin
                VMManager::SetPaused(true);
            }
 
-           // wait 5 sec
-           for (int i = 0; i < 5; ++i) {
+           // Wait up to 5 sec for the CPU thread to leave Execute(). Poll finely:
+           // the game is usually already paused, and a whole-second sleep made
+           // every save take at least a second.
+           for (int i = 0; i < 250; ++i) {
                if (s_execute_exit) {
                    VMManager::SaveStateToSlot(p_slot, false, [](const std::string& error) {
                        if (!error.empty())
@@ -1916,7 +1918,7 @@ Java_com_izzy2lost_psx2_NativeApp_saveStateToSlot(JNIEnv *env, jclass clazz, jin
                    });
                    return true;
                }
-               sleep(1);
+               usleep(20000);
            }
        }
        return false;
@@ -1942,15 +1944,15 @@ Java_com_izzy2lost_psx2_NativeApp_loadStateFromSlot(JNIEnv *env, jclass clazz, j
                    VMManager::SetPaused(true);
                }
 
-               // wait 5 sec
-               for (int i = 0; i < 5; ++i) {
+               // Wait up to 5 sec for the CPU thread to leave Execute() (see save).
+               for (int i = 0; i < 250; ++i) {
                    if (s_execute_exit) {
                        if(VMManager::LoadStateFromSlot(p_slot)) {
                            return true;
                        }
                        break;
                    }
-                   sleep(1);
+                   usleep(20000);
                }
            }
        }
