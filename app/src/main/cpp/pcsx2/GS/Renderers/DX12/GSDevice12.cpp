@@ -1172,9 +1172,11 @@ bool GSDevice12::CreateSwapChain()
 			&fs_desc, fullscreen_output.get(), m_swap_chain.put());
 		if (FAILED(hr))
 		{
-			Console.Warning("D3D12: Failed to create fullscreen swap chain, trying windowed.");
+			Console.Warning("D3D12: Failed to create fullscreen swap chain: 0x%08X, trying windowed.", hr);
 			m_is_exclusive_fullscreen = false;
 			m_using_allow_tearing = m_allow_tearing_supported;
+			if (m_using_allow_tearing)
+				swap_chain_desc.Flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
 		}
 	}
 
@@ -1743,6 +1745,9 @@ void GSDevice12::CopyRect(GSTexture* sTex, GSTexture* dTex, const GSVector4i& r,
 		return;
 	}
 
+	if (dTex->IsDepthStencil())
+		InvalidateDSAsRT(dTex);
+
 	GSTexture12* const sTex12 = static_cast<GSTexture12*>(sTex);
 	GSTexture12* const dTex12 = static_cast<GSTexture12*>(dTex);
 	const GSVector4i src_rect(0, 0, sTex12->GetWidth(), sTex12->GetHeight());
@@ -2264,7 +2269,7 @@ void GSDevice12::DoMerge(GSTexture* sTex[3], GSVector4* sRect, GSTexture* dTex, 
 		OMSetRenderTargets(sTex[2], nullptr, nullptr, fbarea);
 		BeginRenderPass(
 			D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_PRESERVE, D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_PRESERVE);
-		DrawStretchRect(full_r, dRect[2], dsize);
+		DrawStretchRect(full_r, dRect[2], fbsize);
 	}
 
 	EndRenderPass();
@@ -2633,6 +2638,13 @@ void GSDevice12::OMSetRenderTargets(GSTexture* rt, GSTexture* ds_as_rt, GSTextur
 		if (d12Ds)
 			d12Ds->TransitionToState(depth_read ? GSTexture12::ResourceState::DepthReadStencil : GSTexture12::ResourceState::DepthWriteStencil);
 	}
+
+	// Invalidate DS as RT if we're updating DS alone.
+	if (d12Ds && !d12DsRt)
+		InvalidateDSAsRT(d12Ds);
+
+	// Make sure something didn't go wrong with DS as RT caching.
+	pxAssert(!d12DsRt || m_ds_as_rt_orig == d12Ds);
 
 	// This is used to set/initialize the framebuffer for tfx rendering.
 	const GSVector2i size = d12Rt ? d12Rt->GetSize() :
@@ -3961,9 +3973,18 @@ void GSDevice12::BeginRenderPass(D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE color_b
 
 	if (m_current_depth_render_target)
 	{
+		const D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE depth_color_begin = GetLoadOpForTexture(m_current_depth_render_target);
+
 		rt[num_rts].cpuDescriptor = m_current_depth_render_target->GetWriteDescriptor();
 		rt[num_rts].EndingAccess.Type = D3D12_RENDER_PASS_ENDING_ACCESS_TYPE_PRESERVE;
-		rt[num_rts].BeginningAccess.Type = D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_PRESERVE;
+		rt[num_rts].BeginningAccess.Type = depth_color_begin;
+		if (depth_color_begin == D3D12_RENDER_PASS_BEGINNING_ACCESS_TYPE_CLEAR)
+		{
+			LookupNativeFormat(m_current_depth_render_target->GetFormat(), nullptr,
+				&rt[num_rts].BeginningAccess.Clear.ClearValue.Format, nullptr, nullptr, nullptr);
+			GSVector4::store<false>(rt[num_rts].BeginningAccess.Clear.ClearValue.Color,
+				m_current_depth_render_target->GetClearForFormat());
+		}
 		num_rts++;
 	}
 
@@ -4576,7 +4597,7 @@ void GSDevice12::RenderHW(GSHWDrawConfig& config)
 		m_pipeline_selector.ds = true;
 	}
 
-	GSTexture12* draw_ds_as_rt = static_cast<GSTexture12*>(m_ds_as_rt);
+	GSTexture12* draw_ds_as_rt = config.ps.IsFeedbackLoopDepth() ? static_cast<GSTexture12*>(m_ds_as_rt) : nullptr;
 
 	const bool feedback_rt = draw_rt && (((config.require_one_barrier || (config.require_full_barrier && m_features.texture_barrier)) && (config.IsFeedbackLoopRT(config.ps) ||
 		config.IsFeedbackLoopRT(config.alpha_second_pass.ps))));
@@ -4854,7 +4875,7 @@ void GSDevice12::UpdateHWPipelineSelector(GSHWDrawConfig& config)
 	m_pipeline_selector.topology = static_cast<u32>(config.topology);
 	m_pipeline_selector.rt = config.rt != nullptr && !config.ps.HasColorROV();
 	m_pipeline_selector.ds = config.ds != nullptr && !config.ps.HasDepthROV();
-	m_pipeline_selector.ds_as_rt = m_ds_as_rt != nullptr && !config.ps.HasDepthROV();
+	m_pipeline_selector.ds_as_rt = m_ds_as_rt != nullptr && config.ps.IsFeedbackLoopDepth() && !config.ps.HasDepthROV();
 }
 
 void GSDevice12::UploadHWDrawVerticesAndIndices(GSHWDrawConfig& config)

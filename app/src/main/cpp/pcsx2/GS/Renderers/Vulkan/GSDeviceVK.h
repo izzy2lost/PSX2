@@ -101,8 +101,8 @@ public:
 		VkAttachmentLoadOp depth_load_op = VK_ATTACHMENT_LOAD_OP_LOAD,
 		VkAttachmentStoreOp depth_store_op = VK_ATTACHMENT_STORE_OP_STORE,
 		VkAttachmentLoadOp stencil_load_op = VK_ATTACHMENT_LOAD_OP_DONT_CARE,
-		VkAttachmentStoreOp stencil_store_op = VK_ATTACHMENT_STORE_OP_DONT_CARE, bool color_feedback_loop = false,
-		bool depth_sampling = false);
+		VkAttachmentStoreOp stencil_store_op = VK_ATTACHMENT_STORE_OP_DONT_CARE,
+		bool color_feedback_loop = false, bool depth_feedback_loop = false);
 
 	// Gets a non-clearing version of the specified render pass. Slow, don't call in hot path.
 	VkRenderPass GetRenderPassForRestarting(VkRenderPass pass);
@@ -192,7 +192,7 @@ private:
 			u32 stencil_load_op : 2;
 			u32 stencil_store_op : 1;
 			u32 color_feedback_loop : 1;
-			u32 depth_sampling : 1;
+			u32 depth_feedback_loop : 1;
 		};
 
 		u32 key;
@@ -563,10 +563,10 @@ public:
 	/// Returns true if Vulkan is suitable as a default for the devices in the system.
 	static bool IsSuitableDefaultRenderer();
 
-	__fi VkRenderPass GetTFXRenderPass(bool rt, bool ds, bool colclip, bool stencil, bool fbl, bool dsp,
-		VkAttachmentLoadOp rt_op, VkAttachmentLoadOp ds_op) const
+	__fi VkRenderPass GetTFXRenderPass(bool rt, bool ds, bool colclip, bool stencil,
+		bool rt_feedback, bool depth_feedback, VkAttachmentLoadOp rt_op, VkAttachmentLoadOp ds_op) const
 	{
-		return m_tfx_render_pass[rt][ds][colclip][stencil][fbl][dsp][rt_op][ds_op];
+		return m_tfx_render_pass[rt][ds][colclip][stencil][rt_feedback][depth_feedback][rt_op][ds_op];
 	}
 	__fi VkSampler GetPointSampler() const { return m_point_sampler; }
 	__fi VkSampler GetLinearSampler() const { return m_linear_sampler; }
@@ -660,13 +660,14 @@ public:
 	void SetVSPushConstants(u32 base_vertex, u32 base_index = 0, bool force_update = false);
 	bool BindDrawPipeline(const PipelineSelector& p);
 
+	void ExternalFeedbackBarrier(GSTextureVK* tex);
 	void RenderHW(GSHWDrawConfig& config) override;
 	void UpdateHWPipelineSelector(GSHWDrawConfig& config, PipelineSelector& pipe);
 	void UploadHWDrawVerticesAndIndices(GSHWDrawConfig& config);
 	VkImageLayout GetFeedbackLoopLayout() const;
-	VkDependencyFlags GetFeedbackBarrierDependencyFlags() const;
+	VkDependencyFlags GetFeedbackBarrierDependencyFlags(bool by_region) const;
 	VkAccessFlags2 GetFeedbackLoopInputAccessFlags() const;
-	void FeedbackBarrier(GSTextureVK* rt, GSTextureVK* ds);
+	void FeedbackBarrier(GSTextureVK* rt, GSTextureVK* ds, bool by_region);
 	void SendHWDraw(const GSHWDrawConfig& config, GSTextureVK* draw_rt, GSTextureVK* draw_ds,
 		bool one_barrier, bool full_barrier);
 
@@ -709,7 +710,9 @@ public:
 	void BeginClearRenderPass(VkRenderPass rp, const GSVector4i& rect, const VkClearValue* cv, u32 cv_count);
 	void BeginClearRenderPass(VkRenderPass rp, const GSVector4i& rect, u32 clear_color);
 	void BeginClearRenderPass(VkRenderPass rp, const GSVector4i& rect, float depth, u8 stencil);
+	bool BeginPresentRenderPass(VkRenderPass rp, const GSVector4i& rect, GSTextureVK* swap_chain);
 	void EndRenderPass();
+	void EndPresentRenderPass();
 
 	void SetViewport(const VkViewport& viewport);
 	void SetScissor(const GSVector4i& scissor);

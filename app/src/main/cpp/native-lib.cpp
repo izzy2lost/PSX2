@@ -2354,6 +2354,11 @@ void Host::OnGameListFavoriteChanged(const std::string& path)
     // noop: the Android library (GameLibraryScreen) doesn't use the core game list's favorites.
 }
 
+void Host::OnGameSettingsChanged(const std::string& path)
+{
+    // noop: the Android library doesn't show per-game settings indicators.
+}
+
 void Host::OnCreateMemoryCardOpenRequested()
 {
     // noop

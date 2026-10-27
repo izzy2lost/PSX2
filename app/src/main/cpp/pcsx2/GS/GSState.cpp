@@ -2418,6 +2418,7 @@ void GSState::FlushWrite()
 			if (m_draw_transfers.size() > 0 && m_tr.m_blit.DBP == m_draw_transfers.back().blit.DBP)
 			{
 				m_draw_transfers.back().rect = m_draw_transfers.back().rect.runion(r);
+				s_last_transfer_draw_n = s_n;
 			}
 		}
 	}
@@ -4828,7 +4829,7 @@ bool GSState::SpriteDrawWithoutGaps()
 			else
 			{
 				const int dpY = v[i + 1].XYZ.Y - v[i].XYZ.Y;
-				if ((std::abs(dpY - first_dpY) >= 16 && (i + 2) < next_count) || std::abs(this_start_X - last_pX) >= 16)
+				if ((std::abs(dpY - first_dpY) >= 16 && (i + 2) < next_count) || (this_start_X - last_pX) >= 16)
 					return false;
 			}
 		}

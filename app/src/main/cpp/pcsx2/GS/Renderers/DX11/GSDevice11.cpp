@@ -857,9 +857,11 @@ bool GSDevice11::CreateSwapChain()
 			m_dev.get(), window_hwnd, &fs_sd_desc, &fs_desc, fullscreen_output.get(), m_swap_chain.put());
 		if (FAILED(hr))
 		{
-			Console.Warning("D3D11: Failed to create fullscreen swap chain, trying windowed.");
+			Console.Warning("D3D11: Failed to create fullscreen swap chain: 0x%08X, trying windowed.", hr);
 			m_is_exclusive_fullscreen = false;
 			m_using_allow_tearing = m_allow_tearing_supported && m_using_flip_model_swap_chain;
+			if (m_using_allow_tearing)
+				swap_chain_desc.Flags |= DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING;
 		}
 	}
 
@@ -1544,6 +1546,9 @@ void GSDevice11::CopyRect(GSTexture* sTex, GSTexture* dTex, const GSVector4i& r,
 		GL_INS("D3D11: CopyRect rect empty.");
 		return;
 	}
+
+	if (dTex->IsDepthStencil())
+		InvalidateDSAsRT(dTex);
 
 	const GSVector4i src_rect(0, 0, sTex->GetWidth(), sTex->GetHeight());
 	const GSVector4i dst_rect(0, 0, dTex->GetWidth(), dTex->GetHeight());
@@ -2904,6 +2909,13 @@ void GSDevice11::OMSetRenderTargets(GSTexture* rt, GSTexture* ds_as_rt, GSTextur
 	{
 		CommitClear(ds);
 		dsv = read_only_dsv ? read_only_dsv : *static_cast<GSTexture11*>(ds);
+
+		// Invalidate DS as RT if we're updating DS alone.
+		if (!ds_as_rt)
+			InvalidateDSAsRT(ds);
+
+		// Make sure something didn't go wrong with DS as RT caching.
+		pxAssert(!ds_as_rt || m_ds_as_rt_orig == ds);
 	}
 	if (rt_uav_tex)
 	{
@@ -3062,7 +3074,7 @@ void GSDevice11::RenderHW(GSHWDrawConfig& config)
 	const GSVector2i rtsize = (config.rt ? config.rt : config.ds)->GetSize();
 	GSTexture* colclip_rt = g_gs_device->GetColorClipTexture();
 	GSTexture* draw_rt = config.ps.HasColorROV() ? nullptr : config.rt;
-	GSTexture* draw_ds_as_rt = m_ds_as_rt;
+	GSTexture* draw_ds_as_rt = config.ps.IsFeedbackLoopDepth() ? m_ds_as_rt : nullptr;
 	GSTexture* draw_ds = config.ps.HasDepthROV() ? nullptr : config.ds;
 	GSTexture* draw_rt_rov = config.ps.HasColorROV() ? config.rt : nullptr;
 	GSTexture* draw_ds_rov = config.ps.HasDepthROV() ? config.ds : nullptr;

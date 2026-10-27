@@ -1891,11 +1891,6 @@ GSTextureCache::Source* GSTextureCache::LookupSource(const bool is_color, const 
 
 						GSVector4i new_rect = (GSLocalMemory::m_psm[color_psm].bpp != GSLocalMemory::m_psm[t->m_TEX0.PSM].bpp && (psm & 0x7) != PSMCT16) ? block_boundary_rect : rect;
 
-						// If the sizing is completely wrong on the frame vs the source when reading from alpha then it's likely the target has 2 different sizes for rgb and alpha.
-						// This is just changing the target width for the rect translation, it has no bearing on the actual source read or the target itself.
-						// Hitman Blood Money is an example of this in the theatre.
-						rt_tbw = (possible_shuffle || bw == 1 || GSUtil::GetChannelMask(psm) != 0x8 || frame.FBW <= bw || frame.FBW == t->m_TEX0.TBW || bw == t->m_TEX0.TBW) ? t->m_TEX0.TBW : frame.FBW;
-
 						const bool can_translate = CanTranslate(adj_bp, bw, src_psm, new_rect, t->m_TEX0.TBP0, t->m_TEX0.PSM, rt_tbw);
 						if (can_translate)
 						{
@@ -2345,8 +2340,10 @@ void GSTextureCache::CombineAlignedInsideTargets(Target* target, GSTextureCache:
 
 		if (t != target)
 		{
+			const GSVector4i t_check_rect = t->m_drawn_since_read.eq(GSVector4i::zero()) ? t->m_valid : t->m_drawn_since_read;
 			// Target not contained, skip it.
-			if (t->m_TEX0.TBP0 < target->m_TEX0.TBP0 || t->UnwrappedEndBlock() > target->UnwrappedEndBlock())
+			// Go from the drawn rect rather than valid as this can be false if expanded by LookupDisplayTarget, we use this metric for the copy anyway.
+			if (t->m_TEX0.TBP0 < target->m_TEX0.TBP0 || GSLocalMemory::GetUnwrappedEndBlockAddress(t->m_TEX0.TBP0, t->m_TEX0.TBW, t->m_TEX0.PSM, t_check_rect) > target->UnwrappedEndBlock())
 			{
 				i++;
 				continue;
@@ -2625,6 +2622,13 @@ GSTextureCache::Target* GSTextureCache::LookupDrawTarget(GIFRegTEX0 TEX0, const 
 					if (!is_shuffle && (ds && offset == 0 && (t->m_valid.w >= 896) && ((((t->m_end_block + 1) - t->m_TEX0.TBP0) >> 1) + t->m_TEX0.TBP0) <= bp))
 					{
 						const u32 local_offset = (((bp - t->m_TEX0.TBP0) >> 5) / std::max(t->m_TEX0.TBW, 1U)) * s_psm.pgs.y;
+						// If the ds was derrived from the current target and we plan on splitting it, we need to separate them out so now the first half is just the DS.
+						if (ds->m_was_dst_matched && ds->m_TEX0.TBP0 == t->m_TEX0.TBP0)
+						{
+							ds->m_was_dst_matched = false;
+							ds->m_valid.w -= local_offset;
+							ds->ResizeValidity(ds->m_valid);
+						}
 						if ((new_dst = CreateTarget(TEX0, GSVector2i(t->m_valid.z, t->m_valid.w - local_offset), GSVector2i(t->m_valid.z, t->m_valid.w - local_offset), rescaler.m_scale, type, true, fbmask, false, false, preserve_rgb || preserve_alpha, GSVector4i::zero(), src)))
 							new_dst->m_32_bits_fmt |= (psm_s.bpp != 16);
 
@@ -3157,7 +3161,8 @@ GSTextureCache::Target* GSTextureCache::ProcessTargetAfterLookup(RescaleHelper& 
 			if (!is_shuffle || (is_shuffle && GSLocalMemory::m_psm[dst->m_TEX0.PSM].bpp == 16))
 			{
 				dst->m_TEX0.PSM = TEX0.PSM;
-				dst->m_TEX0.TBW = TEX0.TBW;
+				if (!GSConfig.UserHacks_TargetPageRearranging)
+					dst->m_TEX0.TBW = TEX0.TBW;
 			}
 		}
 		// LEGO Dome Racers does a copy to a target as 8bit in alpha only, this doesn't really work great for us, so let's make it 32bit with invalid RGB.
@@ -4005,11 +4010,9 @@ GSTextureCache::Target* GSTextureCache::LookupDisplayTarget(GIFRegTEX0 TEX0, con
 			}
 			dst = t;
 			GL_CACHE("TC: Lookup Frame %dx%d, perfect hit: (0x%x -> 0x%x %s)", size.x, size.y, bp, t->m_end_block, GSUtil::GetPSMName(TEX0.PSM));
+
 			if (GSConfig.UserHacks_TargetPageRearranging && TEX0.TBW != t->m_TEX0.TBW)
-			{
 				t->RearrangeTarget(TEX0.TBW);
-				t->m_TEX0.TBW = TEX0.TBW;
-			}
 
 			if (size.x > 0 || size.y > 0)
 				ScaleTargetForDisplay(dst, TEX0, size.x, size.y);
@@ -4051,10 +4054,7 @@ GSTextureCache::Target* GSTextureCache::LookupDisplayTarget(GIFRegTEX0 TEX0, con
 				GL_CACHE("TC: Lookup Frame %dx%d, inclusive hit: (0x%x, took 0x%x -> 0x%x %s)", size.x, size.y, bp, t->m_TEX0.TBP0, t->m_end_block, GSUtil::GetPSMName(TEX0.PSM));
 
 				if (GSConfig.UserHacks_TargetPageRearranging && TEX0.TBW != t->m_TEX0.TBW)
-				{
 					t->RearrangeTarget(TEX0.TBW);
-					t->m_TEX0.TBW = TEX0.TBW;
-				}
 
 				if (size.x > 0 || size.y > 0)
 					ScaleTargetForDisplay(dst, TEX0, size.x, size.y);
@@ -4086,10 +4086,7 @@ GSTextureCache::Target* GSTextureCache::LookupDisplayTarget(GIFRegTEX0 TEX0, con
 				}
 
 				if (GSConfig.UserHacks_TargetPageRearranging && TEX0.TBW != t->m_TEX0.TBW)
-				{
 					t->RearrangeTarget(TEX0.TBW);
-					t->m_TEX0.TBW = TEX0.TBW;
-				}
 
 				dst = t;
 				GL_CACHE("TC: Lookup Frame %dx%d, empty hit: (0x%x -> 0x%x %s)", size.x, size.y, bp, t->m_end_block, GSUtil::GetPSMName(TEX0.PSM));
@@ -5414,10 +5411,8 @@ bool GSTextureCache::Move(u32 SBP, u32 SBW, u32 SPSM, int sx, int sy, u32 DBP, u
 		return false;
 
 	if (GSConfig.UserHacks_TargetPageRearranging && DBW > 1 && dst->m_TEX0.TBW != DBW)
-	{
 		dst->RearrangeTarget(DBW);
-		dst->m_TEX0.TBW = DBW;
-	}
+
 	// If we have an offset, adjust the base positions
 	if (src->m_TEX0.TBP0 != SBP)
 	{
@@ -8019,6 +8014,7 @@ void GSTextureCache::Target::RearrangeTarget(u32 new_bw, bool recycle)
 		alloca(sizeof(GSDevice::MultiStretchRect) * static_cast<u32>(page_count)));
 	u32 ndrects = 0;
 	GSVector4i new_valid = GSVector4i::zero();
+	GSVector4i new_drawn = GSVector4i::zero();
 
 	Update(false);
 
@@ -8038,10 +8034,20 @@ void GSTextureCache::Target::RearrangeTarget(u32 new_bw, bool recycle)
 		drect.filter = Nearest;
 		drect.wmask = 0xF;
 
-		if (page == 0)
-			new_valid = write_page;
-		else
-			new_valid = new_valid.runion(write_page);
+		if (!m_valid.rintersect(read_page).rempty())
+		{
+			if (page == 0)
+				new_valid = write_page;
+			else
+				new_valid = new_valid.runion(write_page);
+		}
+		if (!m_drawn_since_read.rintersect(read_page).rempty())
+		{
+			if (page == 0)
+				new_drawn = write_page;
+			else
+				new_drawn = new_drawn.runion(write_page);
+		}
 	}
 
 	if (ndrects > 0)
@@ -8068,7 +8074,9 @@ void GSTextureCache::Target::RearrangeTarget(u32 new_bw, bool recycle)
 		m_texture = tex;
 		m_unscaled_size = GSVector2i(new_x_size, new_y_size);
 		m_valid = new_valid;
+		m_drawn_since_read = new_drawn;
 		tex = nullptr;
+		m_TEX0.TBW = new_bw;
 	}
 
 }

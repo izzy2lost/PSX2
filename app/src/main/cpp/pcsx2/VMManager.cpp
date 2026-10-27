@@ -954,6 +954,13 @@ std::string VMManager::GetDiscOverrideFromGameSettings(const std::string& elf_pa
 	return iso_path;
 }
 
+bool VMManager::AreGameSettingsPresent(const std::string_view game_serial, u32 game_crc) {
+	std::string filename(VMManager::GetGameSettingsPath(game_serial, game_crc));
+	if (!FileSystem::FileExists(filename.c_str()))
+		filename = VMManager::GetGameSettingsPath({}, game_crc);
+	return FileSystem::FileExists(filename.c_str());
+}
+
 std::string VMManager::GetInputProfilePath(const std::string_view name)
 {
 	return Path::Combine(EmuFolders::InputProfiles, fmt::format("{}.ini", name));
@@ -4259,7 +4266,10 @@ void VMManager::UpdateDiscordPresence(bool update_session_time)
 	if (rp_title.empty())
 		rp.details = TRANSLATE("VMManager", "No Game Running");
 	else
+	{
 		rp.details = rp_title.c_str();
+		rp.status_display_type = DiscordStatusDisplayType_Details;
+	}
 
 	std::string state_string;
 

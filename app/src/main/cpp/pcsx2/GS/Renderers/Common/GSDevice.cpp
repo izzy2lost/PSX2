@@ -56,6 +56,8 @@ const char* ShaderEntryPoint(ShaderConvert value)
 		case ShaderConvert::CLUT_4:                 return "ps_convert_clut_4";
 		case ShaderConvert::CLUT_8:                 return "ps_convert_clut_8";
 		case ShaderConvert::YUV:                    return "ps_yuv";
+		case ShaderConvert::GAUSSIAN_BLUR_H:        return "ps_gaussian_blur_h";
+		case ShaderConvert::GAUSSIAN_BLUR_V:        return "ps_gaussian_blur_v";
 		// clang-format on
 		default:
 			pxAssert(0);
@@ -117,6 +119,8 @@ const char* ShaderConvertName(ShaderConvert shader)
 		ENTRY(CLUT_4);
 		ENTRY(CLUT_8);
 		ENTRY(YUV);
+		ENTRY(GAUSSIAN_BLUR_H);
+		ENTRY(GAUSSIAN_BLUR_V);
 		case ShaderConvert::Count: break;
 	}
 	#undef ENTRY
@@ -251,7 +255,7 @@ GSDevice::GSDevice()
 GSDevice::~GSDevice()
 {
 	// should've been cleaned up in Destroy()
-	pxAssert(m_pool[0].empty() && m_pool[1].empty() && !m_merge && !m_weavebob && !m_blend && !m_mad && !m_target_tmp && !m_cas);
+	pxAssert(m_pool[0].empty() && m_pool[1].empty() && !m_merge && !m_weavebob && !m_blend && !m_mad && !m_target_tmp && !m_cas && !m_blur);
 }
 
 GSVector2i GSDevice::GetPresentationSize() const
@@ -788,6 +792,9 @@ void GSDevice::Recycle(GSTexture* t)
 	t->SetDebugName("");
 #endif
 
+	if (t->IsDepthStencil())
+		InvalidateDSAsRT(t);
+
 	FastList<GSTexture*>& pool = m_pool[!t->IsTexture()];
 	pool.push_front(t);
 	m_pool_memory_usage += t->GetMemUsage();
@@ -1018,6 +1025,7 @@ void GSDevice::ClearCurrent()
 	delete m_mad;
 	delete m_target_tmp;
 	delete m_cas;
+	delete m_blur;
 
 	m_merge = nullptr;
 	m_weavebob = nullptr;
@@ -1025,6 +1033,7 @@ void GSDevice::ClearCurrent()
 	m_mad = nullptr;
 	m_target_tmp = nullptr;
 	m_cas = nullptr;
+	m_blur = nullptr;
 }
 
 void GSDevice::Merge(GSTexture* sTex[3], GSVector4* sRect, GSVector4* dRect, const GSVector2i& fs, const GSRegPMODE& PMODE, const GSRegEXTBUF& EXTBUF, u32 c)
@@ -1198,16 +1207,125 @@ bool GSDevice::ResizeRenderTarget(GSTexture** t, int w, int h, bool preserve_con
 	return true;
 }
 
-void GSDevice::BeginDSAsRT(GSTexture* ds, const GSVector4i& drawarea)
+static GSVector4i GetExpandRectRegions(GSVector4i old, GSVector4i new_, GSVector4i* regions, u32* n_regions)
 {
-	// Create a temporary RT and copy the area needed for the draw.
+	*n_regions = 0;
+
+	if (old.rcontains(new_))
+		return old;
+
+	new_ = new_.runion(old);
+
+	// Left region
+	if (new_.left < old.left)
+	{
+		regions[(*n_regions)++] = GSVector4i(new_.left, new_.top, old.left, old.bottom);
+	}
+
+	// Top region
+	if (new_.top < old.top)
+	{
+		regions[(*n_regions)++] = GSVector4i(old.left, new_.top, new_.right, old.top);
+	}
+
+	// Right region
+	if (new_.right > old.right)
+	{
+		regions[(*n_regions)++] = GSVector4i(old.right, old.top, new_.right, new_.bottom);
+	}
+
+	// Bottom region
+	if (new_.bottom > old.bottom)
+	{
+		regions[(*n_regions)++] = GSVector4i(new_.left, old.bottom, old.right, new_.bottom);
+	}
+
+	// Debugging
+	[[maybe_unused]] u32 total_area = old.rarea();
+	for (u32 i = 0; i < *n_regions; i++)
+	{
+		total_area += regions[i].rarea();
+	}
+	pxAssert(total_area == new_.rarea()); // Make sure no overlap or holes.
+
+	return new_;
+}
+
+void GSDevice::BeginDSAsRT(GSTexture* ds, const GSVector4i& drawarea_in)
+{
+	if (m_ds_as_rt_orig && m_ds_as_rt_orig != ds)
+		EndDSAsRT();
+
+	if (!m_ds_as_rt)
+	{
+		GL_INS("HW: Create new DS as RT");
+		m_ds_as_rt = g_gs_device->CreateFeedbackTarget(ds->GetSize(), GSTexture::Format::DepthColor, false, true);
+		m_ds_as_rt_orig = ds;
+		m_ds_as_rt_valid = GSVector4i::zero();
+	}
+
+	if (!m_ds_as_rt)
+	{
+		Console.Error("HW: Failed to create DS as RT texture");
+		return;
+	}
+
+	// Align to 64x64 tiles to reduce number of copies
+	const GSVector4i drawarea = drawarea_in.ralign<Align_Outside>(GSVector2i(64, 64));
+
+	pxAssert(m_ds_as_rt && m_ds_as_rt_orig == ds);
+
+	if (ds->GetState() == GSTexture::State::Cleared)
+	{
+		GL_INS("HW: DS is cleared, transfer to cached DS as RT");
+		m_ds_as_rt->SetClearDepth(ds->GetClearDepth());
+		m_ds_as_rt_valid = ds->GetRect();
+		return;
+	}
+
+	std::array<GSVector4i, 4> regions;
+	u32 n_regions;
+	if (m_ds_as_rt_valid.rempty())
+	{
+		// Valid area is empty, so just copy the new draw area.
+		GL_INS("HW: Initialize new DS as RT.");
+		n_regions = 1;
+		m_ds_as_rt_valid = regions[0] = drawarea;
+	}
+	else
+	{
+		// Expand valid area to encompass the new draw area.
+		GL_INS("HW: Update cached DS as RT.");
+		m_ds_as_rt_valid = GetExpandRectRegions(m_ds_as_rt_valid, drawarea, regions.data(), &n_regions);
+		if (n_regions == 0)
+		{
+			GL_INS("HW: Draw area is already contained in valid area.");
+			return;
+		}
+	}
+
+	std::array<MultiStretchRect, 4> rects;
 	const int w = ds->GetWidth();
 	const int h = ds->GetHeight();
-	if ((m_ds_as_rt = g_gs_device->CreateFeedbackTarget(w, h, GSTexture::Format::DepthColor, false, true)))
+	for (u32 i = 0; i < n_regions; i++)
 	{
-		const GSVector4 dRect(drawarea);
+		const GSVector4 dRect(regions[i]);
 		const GSVector4 sRect(dRect.x / w, dRect.y / h, dRect.z / w, dRect.w / h);
-		StretchRectAuto(ds, sRect, m_ds_as_rt, dRect, Nearest);
+		rects[i].src_rect = sRect;
+		rects[i].dst_rect = dRect;
+		rects[i].src = ds;
+		rects[i].filter = Nearest;
+		rects[i].wmask = 0xF;
+	}
+	DrawMultiStretchRects(rects.data(), n_regions, m_ds_as_rt, ShaderConvert::DEPTH_COPY);
+}
+
+void GSDevice::InvalidateDSAsRT(GSTexture* ds)
+{
+	if (m_ds_as_rt_orig == ds)
+	{
+		GL_INS("HW: Invalidate current DS as RT.");
+		EndDSAsRT();
 	}
 }
 
@@ -1215,6 +1333,8 @@ void GSDevice::EndDSAsRT()
 {
 	Recycle(m_ds_as_rt);
 	m_ds_as_rt = nullptr;
+	m_ds_as_rt_orig = nullptr;
+	m_ds_as_rt_valid = GSVector4i::zero();
 }
 
 #if defined(__clang__)
@@ -1286,6 +1406,43 @@ void GSDevice::CAS(GSTexture*& tex, GSVector4i& src_rect, GSVector4& src_uv, con
 	tex = m_cas;
 	src_rect = GSVector4i(0, 0, dst_width, dst_height);
 	src_uv = GSVector4(0.0f, 0.0f, 1.0f, 1.0f);
+}
+
+void GSDevice::DoGaussianBlur(GSTexture* sTex, const GSVector4& sRect, GSTexture* dTex, GSTexture* tempTex)
+{
+	GL_PUSH("DoGaussianBlur");
+
+	const GSVector4 fullRect(0.0f, 0.0f, 1.0f, 1.0f);
+	const GSVector4 dRect(dTex->GetRect());
+	StretchRect(sTex, sRect, dTex, dRect, ShaderConvert::COPY, Biln);
+	StretchRect(dTex, fullRect, tempTex, dRect, ShaderConvert::GAUSSIAN_BLUR_H, Biln);
+	StretchRect(tempTex, fullRect, dTex, dRect, ShaderConvert::GAUSSIAN_BLUR_V, Biln);
+}
+
+bool GSDevice::GaussianBlur(GSTexture*& tex, GSVector4& src_uv, const GSVector4& draw_rect, float scale, bool refresh)
+{
+	const GSVector2i size(
+		std::max(1, static_cast<int>(std::round(std::abs(draw_rect.z - draw_rect.x) * scale))),
+		std::max(1, static_cast<int>(std::round(std::abs(draw_rect.w - draw_rect.y) * scale))));
+
+	if (refresh || !m_blur || m_blur->GetState() != GSTexture::State::Dirty || m_blur->GetSize() != size ||
+		!(src_uv == m_blur_source_rect).alltrue())
+	{
+		if (!ResizeRenderTarget(&m_blur, size.x, size.y, false, true))
+			return false;
+
+		GSTexture* const temp_tex = CreateRenderTarget(size, GSTexture::Format::Color, false);
+		if (!temp_tex)
+			return false;
+
+		DoGaussianBlur(tex, src_uv, m_blur, temp_tex);
+		Recycle(temp_tex);
+		m_blur_source_rect = src_uv;
+	}
+
+	tex = m_blur;
+	src_uv = GSVector4(0.0f, 0.0f, 1.0f, 1.0f);
+	return true;
 }
 
 bool GSHWDrawConfig::BlendState::IsEffective(ColorMaskSelector colormask) const
